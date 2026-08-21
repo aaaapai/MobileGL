@@ -7,6 +7,8 @@
 // End of Source File Header
 
 #include "DriverPost.h"
+#include "DriverPostIterationRPWitness.h"
+#include "DriverPostIterationRPWitnessSpv.h"
 #include "MG_Util/BackendLoaders/OpenGL/Loader.h"
 #include <Config.h>
 #include <MGGitHash.h>
@@ -24,6 +26,8 @@
 #include <MG_Util/Texture/TextureFormatProcessor.h>
 #include <MG_Util/Async/ShaderCompilePool.h>
 #include <chrono>
+#include <cstring>
+#include <limits>
 #include <thread>
 
 #if !defined(_WIN32)
@@ -45,6 +49,22 @@ namespace MobileGL::MG_Util::SelfTest {
             RankDriverReported = 4,
             RankMobileGLReported = 5,
         };
+
+        // Both backends' fp64 rows end the same way, and the sentence they end with depends on
+        // a config flag rather than on anything either backend probes: the demotion is what
+        // makes doubles work, but GL_ARB_gpu_shader_fp64 promises the PRECISION the demotion
+        // cannot deliver, so the string is opt-in and the row has to say which way it went.
+        String AppendFp64AdvertisementNote(String detail) {
+            if (MG_Config::Features.AdvertiseFp64) {
+                return Move(detail) +
+                       ". GL_ARB_gpu_shader_fp64 IS advertised (MOBILEGL_ADVERTISE_FP64): an application "
+                       "that checks the string will believe it has 64-bit precision, and it does not";
+            }
+            return Move(detail) +
+                   ". GL_ARB_gpu_shader_fp64 is not advertised, because the precision it promises is the "
+                   "one thing the demotion cannot provide; set MOBILEGL_ADVERTISE_FP64=1 to advertise it "
+                   "anyway";
+        }
 
         struct ReportBuilder {
             BackendPostReport report;
@@ -336,8 +356,10 @@ namespace MobileGL::MG_Util::SelfTest {
                 builder.Pass("GL_EXT_base_instance", "supported (native baseInstance draws)");
             } else {
                 builder.Info("GL_EXT_base_instance",
-                             "not supported; no impact: the native indirect path deliberately does not "
-                             "rely on it (shader-side emulation handles baseInstance semantics)");
+                             "not supported; direct baseInstance draws are emulated by shifting the "
+                             "instanced arrays' attribute offsets, and gl_BaseInstance by a uniform. "
+                             "The one gap is an INDIRECT draw whose command carries a non-zero "
+                             "baseInstance and is executed natively: its vertex fetch is not shifted");
             }
             // Both multi-draw rows gate on the capability flags, not the entry-point pointers:
             // eglGetProcAddress may hand back a non-NULL stub for these on drivers without the
@@ -484,14 +506,26 @@ namespace MobileGL::MG_Util::SelfTest {
                     break;
                 }
             }
-            // Reported rather than probed: this one cannot come out any other way. OpenGL ES has no
-            // double-precision vertex format and ESSL has no fp64 type, so there is no driver and no
-            // extension that could make it work - the row exists so the loss is named at startup
-            // instead of discovered as an unexplained GL_INVALID_OPERATION at draw setup.
+            // Both rows are reported rather than probed: neither can come out any other way.
+            // ESSL has no 64-bit float type at all, so no driver and no extension could change
+            // either answer, and the rows exist so the two halves of the loss are named at
+            // startup instead of discovered as a shader that will not compile or an
+            // unexplained GL_INVALID_OPERATION at draw setup.
+            builder.Pass("fp64", AppendFp64AdvertisementNote(
+                                     "demoted to fp32 - ESSL has no 64-bit float type, so every double / "
+                                     "dvec / dmat in a shader is narrowed to 32 bits before transpilation "
+                                     "(DemoteFloat64Pass). Such shaders COMPILE AND RUN, at single "
+                                     "precision; a block containing a double is re-laid-out for the "
+                                     "narrowed members, so an application that hard-codes std140 offsets "
+                                     "computed for doubles must query them instead"));
             builder.Warn("64-bit vertex attributes",
-                         "not supported on any GLES driver (ES has no GL_DOUBLE vertex format and ESSL has "
-                         "no fp64 type); glVertexAttribLFormat / glVertexArrayAttribLFormat report "
-                         "GL_INVALID_OPERATION - use the Vulkan backend if the application needs them");
+                         "not supported (ES has no GL_DOUBLE vertex format, and after the fp64 demotion "
+                         "above there is no 64-bit shader input left to feed either); "
+                         "glVertexAttribLFormat / glVertexArrayAttribLFormat succeed and their state is "
+                         "queryable, but an ENABLED 64-bit array is DROPPED at draw and the attribute "
+                         "reads its generic current value - feed the attribute with "
+                         "glVertexAttribPointer(GL_FLOAT) instead, which a demoted dvec input reads "
+                         "correctly");
             if (glesFuncs.glPatchParameteri != nullptr) {
                 builder.Pass("Tessellation patch parameters",
                              "glPatchParameteri present (GL_PATCH_VERTICES reaches the driver)");
@@ -524,8 +558,9 @@ namespace MobileGL::MG_Util::SelfTest {
             } else {
                 builder.Warn("GL_EXT_render_snorm",
                              "not supported; signed-normalized formats are texture-only, so every SNORM "
-                             "render target is stored as a float (GL_RGBA8_SNORM/GL_RGB8_SNORM -> "
-                             "GL_RGBA16F) and its fragment outputs are clamped to [-1,1] in software");
+                             "render target is stored as a float (8-bit -> *16F, 16-bit -> *32F, which "
+                             "is the narrowest float that still holds a 16-bit SNORM channel exactly) "
+                             "and its fragment outputs are clamped to [-1,1] in software");
             }
             // FAIL, not WARN: ES 3.x core makes every float format texture-only, and every Iris
             // shaderpack renders into at least GL_R11F_G11F_B10F (Complementary's colortex0, BSL's
@@ -1140,7 +1175,9 @@ namespace MobileGL::MG_Util::SelfTest {
             backendApiVersionString = MG_Backend::DirectGLES::FormatBackendAPIVersionString(
                 summary.caps.GLESRendererString, summary.caps.GLESVersion.Major, summary.caps.GLESVersion.Minor);
             advertisedExtensions = JoinAdvertisedExtensions(MG_Backend::DirectGLES::BuildAdvertisedExtensions(
-                summary.caps.SupportsDisjointTimerQuery, summary.caps.SupportsTextureFilterAnisotropy));
+                summary.caps.SupportsDisjointTimerQuery, summary.caps.SupportsTextureFilterAnisotropy,
+                summary.caps.SupportsDrawIndirect,
+                summary.caps.SupportsDrawIndirect && summary.caps.SupportsBaseInstance));
         }
         AppendMobileGLReportedRows(builder, MG_Backend::DirectGLES::GetRendererIdentity(), backendApiVersionString,
                                    advertisedExtensions);
@@ -1424,6 +1461,437 @@ namespace MobileGL::MG_Util::SelfTest {
                              disabledNote);
         }
 
+        // Native iterationRP compute witness. This deliberately uses a separate
+        // throwaway Vulkan device rather than the real renderer's queues, and it
+        // treats MOBILEGL_DISABLE_SUBGROUP as irrelevant: the row reports what the
+        // driver does, not what MobileGL elects to advertise to applications.
+        void ProbeVulkanIterationRPWitness(ReportBuilder& builder, PFN_vkGetInstanceProcAddr getInstanceProcAddr,
+                                           VkInstance instance, VkPhysicalDevice physicalDevice,
+                                           Uint32 computeQueueFamilyIndex,
+                                           const VkPhysicalDeviceProperties& properties,
+                                           Bool subgroupPropertiesAvailable,
+                                           const VkPhysicalDeviceSubgroupProperties& subgroupProperties) {
+            constexpr const char* RowName = "Subgroup first-reduction witness";
+            const auto fail = [&](String detail) { builder.Fail(RowName, Move(detail)); };
+
+            if (!subgroupPropertiesAvailable) {
+                fail("vkGetPhysicalDeviceProperties2 could not provide raw Vulkan subgroup properties");
+                return;
+            }
+
+            IterationRPWitnessLimits limits{};
+            limits.computeStageSupported =
+                (subgroupProperties.supportedStages & VK_SHADER_STAGE_COMPUTE_BIT) != 0;
+            limits.basicSubgroupSupported =
+                (subgroupProperties.supportedOperations & VK_SUBGROUP_FEATURE_BASIC_BIT) != 0;
+            limits.arithmeticSubgroupSupported =
+                (subgroupProperties.supportedOperations & VK_SUBGROUP_FEATURE_ARITHMETIC_BIT) != 0;
+            limits.subgroupSize = subgroupProperties.subgroupSize;
+            limits.maxComputeWorkGroupInvocations = properties.limits.maxComputeWorkGroupInvocations;
+            limits.maxComputeWorkGroupSize = {properties.limits.maxComputeWorkGroupSize[0],
+                                               properties.limits.maxComputeWorkGroupSize[1],
+                                               properties.limits.maxComputeWorkGroupSize[2]};
+            limits.maxComputeSharedMemorySize = properties.limits.maxComputeSharedMemorySize;
+            limits.maxPerStageDescriptorStorageBuffers = properties.limits.maxPerStageDescriptorStorageBuffers;
+            limits.maxDescriptorSetStorageBuffers = properties.limits.maxDescriptorSetStorageBuffers;
+            limits.maxBoundDescriptorSets = properties.limits.maxBoundDescriptorSets;
+            limits.maxStorageBufferRange = properties.limits.maxStorageBufferRange;
+
+            const IterationRPWitnessEligibilityResult eligibility = EvaluateIterationRPWitnessEligibility(limits);
+            if (eligibility.eligibility == IterationRPWitnessEligibility::SkipUnsupportedNativeFeatureSet) {
+                builder.Info(RowName, eligibility.detail);
+                return;
+            }
+            if (eligibility.eligibility == IterationRPWitnessEligibility::FailInadequateLimits) {
+                fail(eligibility.detail);
+                return;
+            }
+            if (computeQueueFamilyIndex == std::numeric_limits<Uint32>::max()) {
+                fail("no compute queue family is available for the native Vulkan witness");
+                return;
+            }
+
+            const auto vkGetPhysicalDeviceMemoryPropertiesFn =
+                reinterpret_cast<PFN_vkGetPhysicalDeviceMemoryProperties>(
+                    getInstanceProcAddr(instance, "vkGetPhysicalDeviceMemoryProperties"));
+            const auto vkCreateDeviceFn =
+                reinterpret_cast<PFN_vkCreateDevice>(getInstanceProcAddr(instance, "vkCreateDevice"));
+            const auto vkDestroyDeviceFn =
+                reinterpret_cast<PFN_vkDestroyDevice>(getInstanceProcAddr(instance, "vkDestroyDevice"));
+            const auto vkGetDeviceQueueFn =
+                reinterpret_cast<PFN_vkGetDeviceQueue>(getInstanceProcAddr(instance, "vkGetDeviceQueue"));
+            const auto vkCreateBufferFn =
+                reinterpret_cast<PFN_vkCreateBuffer>(getInstanceProcAddr(instance, "vkCreateBuffer"));
+            const auto vkDestroyBufferFn =
+                reinterpret_cast<PFN_vkDestroyBuffer>(getInstanceProcAddr(instance, "vkDestroyBuffer"));
+            const auto vkGetBufferMemoryRequirementsFn = reinterpret_cast<PFN_vkGetBufferMemoryRequirements>(
+                getInstanceProcAddr(instance, "vkGetBufferMemoryRequirements"));
+            const auto vkAllocateMemoryFn =
+                reinterpret_cast<PFN_vkAllocateMemory>(getInstanceProcAddr(instance, "vkAllocateMemory"));
+            const auto vkFreeMemoryFn =
+                reinterpret_cast<PFN_vkFreeMemory>(getInstanceProcAddr(instance, "vkFreeMemory"));
+            const auto vkBindBufferMemoryFn =
+                reinterpret_cast<PFN_vkBindBufferMemory>(getInstanceProcAddr(instance, "vkBindBufferMemory"));
+            const auto vkMapMemoryFn =
+                reinterpret_cast<PFN_vkMapMemory>(getInstanceProcAddr(instance, "vkMapMemory"));
+            const auto vkUnmapMemoryFn =
+                reinterpret_cast<PFN_vkUnmapMemory>(getInstanceProcAddr(instance, "vkUnmapMemory"));
+            const auto vkCreateDescriptorSetLayoutFn = reinterpret_cast<PFN_vkCreateDescriptorSetLayout>(
+                getInstanceProcAddr(instance, "vkCreateDescriptorSetLayout"));
+            const auto vkDestroyDescriptorSetLayoutFn = reinterpret_cast<PFN_vkDestroyDescriptorSetLayout>(
+                getInstanceProcAddr(instance, "vkDestroyDescriptorSetLayout"));
+            const auto vkCreateDescriptorPoolFn =
+                reinterpret_cast<PFN_vkCreateDescriptorPool>(getInstanceProcAddr(instance, "vkCreateDescriptorPool"));
+            const auto vkDestroyDescriptorPoolFn = reinterpret_cast<PFN_vkDestroyDescriptorPool>(
+                getInstanceProcAddr(instance, "vkDestroyDescriptorPool"));
+            const auto vkAllocateDescriptorSetsFn = reinterpret_cast<PFN_vkAllocateDescriptorSets>(
+                getInstanceProcAddr(instance, "vkAllocateDescriptorSets"));
+            const auto vkUpdateDescriptorSetsFn =
+                reinterpret_cast<PFN_vkUpdateDescriptorSets>(getInstanceProcAddr(instance, "vkUpdateDescriptorSets"));
+            const auto vkCreateShaderModuleFn =
+                reinterpret_cast<PFN_vkCreateShaderModule>(getInstanceProcAddr(instance, "vkCreateShaderModule"));
+            const auto vkDestroyShaderModuleFn =
+                reinterpret_cast<PFN_vkDestroyShaderModule>(getInstanceProcAddr(instance, "vkDestroyShaderModule"));
+            const auto vkCreatePipelineLayoutFn =
+                reinterpret_cast<PFN_vkCreatePipelineLayout>(getInstanceProcAddr(instance, "vkCreatePipelineLayout"));
+            const auto vkDestroyPipelineLayoutFn = reinterpret_cast<PFN_vkDestroyPipelineLayout>(
+                getInstanceProcAddr(instance, "vkDestroyPipelineLayout"));
+            const auto vkCreateComputePipelinesFn = reinterpret_cast<PFN_vkCreateComputePipelines>(
+                getInstanceProcAddr(instance, "vkCreateComputePipelines"));
+            const auto vkDestroyPipelineFn =
+                reinterpret_cast<PFN_vkDestroyPipeline>(getInstanceProcAddr(instance, "vkDestroyPipeline"));
+            const auto vkCreateCommandPoolFn =
+                reinterpret_cast<PFN_vkCreateCommandPool>(getInstanceProcAddr(instance, "vkCreateCommandPool"));
+            const auto vkDestroyCommandPoolFn =
+                reinterpret_cast<PFN_vkDestroyCommandPool>(getInstanceProcAddr(instance, "vkDestroyCommandPool"));
+            const auto vkAllocateCommandBuffersFn = reinterpret_cast<PFN_vkAllocateCommandBuffers>(
+                getInstanceProcAddr(instance, "vkAllocateCommandBuffers"));
+            const auto vkBeginCommandBufferFn =
+                reinterpret_cast<PFN_vkBeginCommandBuffer>(getInstanceProcAddr(instance, "vkBeginCommandBuffer"));
+            const auto vkEndCommandBufferFn =
+                reinterpret_cast<PFN_vkEndCommandBuffer>(getInstanceProcAddr(instance, "vkEndCommandBuffer"));
+            const auto vkCmdBindPipelineFn =
+                reinterpret_cast<PFN_vkCmdBindPipeline>(getInstanceProcAddr(instance, "vkCmdBindPipeline"));
+            const auto vkCmdBindDescriptorSetsFn = reinterpret_cast<PFN_vkCmdBindDescriptorSets>(
+                getInstanceProcAddr(instance, "vkCmdBindDescriptorSets"));
+            const auto vkCmdDispatchFn =
+                reinterpret_cast<PFN_vkCmdDispatch>(getInstanceProcAddr(instance, "vkCmdDispatch"));
+            const auto vkCmdPipelineBarrierFn =
+                reinterpret_cast<PFN_vkCmdPipelineBarrier>(getInstanceProcAddr(instance, "vkCmdPipelineBarrier"));
+            const auto vkCreateFenceFn =
+                reinterpret_cast<PFN_vkCreateFence>(getInstanceProcAddr(instance, "vkCreateFence"));
+            const auto vkDestroyFenceFn =
+                reinterpret_cast<PFN_vkDestroyFence>(getInstanceProcAddr(instance, "vkDestroyFence"));
+            const auto vkQueueSubmitFn =
+                reinterpret_cast<PFN_vkQueueSubmit>(getInstanceProcAddr(instance, "vkQueueSubmit"));
+            const auto vkWaitForFencesFn =
+                reinterpret_cast<PFN_vkWaitForFences>(getInstanceProcAddr(instance, "vkWaitForFences"));
+            const auto vkDeviceWaitIdleFn =
+                reinterpret_cast<PFN_vkDeviceWaitIdle>(getInstanceProcAddr(instance, "vkDeviceWaitIdle"));
+
+            if (vkGetPhysicalDeviceMemoryPropertiesFn == nullptr || vkCreateDeviceFn == nullptr ||
+                vkDestroyDeviceFn == nullptr || vkGetDeviceQueueFn == nullptr || vkCreateBufferFn == nullptr ||
+                vkDestroyBufferFn == nullptr || vkGetBufferMemoryRequirementsFn == nullptr ||
+                vkAllocateMemoryFn == nullptr || vkFreeMemoryFn == nullptr || vkBindBufferMemoryFn == nullptr ||
+                vkMapMemoryFn == nullptr || vkUnmapMemoryFn == nullptr || vkCreateDescriptorSetLayoutFn == nullptr ||
+                vkDestroyDescriptorSetLayoutFn == nullptr || vkCreateDescriptorPoolFn == nullptr ||
+                vkDestroyDescriptorPoolFn == nullptr || vkAllocateDescriptorSetsFn == nullptr ||
+                vkUpdateDescriptorSetsFn == nullptr || vkCreateShaderModuleFn == nullptr ||
+                vkDestroyShaderModuleFn == nullptr || vkCreatePipelineLayoutFn == nullptr ||
+                vkDestroyPipelineLayoutFn == nullptr || vkCreateComputePipelinesFn == nullptr ||
+                vkDestroyPipelineFn == nullptr || vkCreateCommandPoolFn == nullptr || vkDestroyCommandPoolFn == nullptr ||
+                vkAllocateCommandBuffersFn == nullptr || vkBeginCommandBufferFn == nullptr ||
+                vkEndCommandBufferFn == nullptr || vkCmdBindPipelineFn == nullptr ||
+                vkCmdBindDescriptorSetsFn == nullptr || vkCmdDispatchFn == nullptr ||
+                vkCmdPipelineBarrierFn == nullptr || vkCreateFenceFn == nullptr || vkDestroyFenceFn == nullptr ||
+                vkQueueSubmitFn == nullptr || vkWaitForFencesFn == nullptr || vkDeviceWaitIdleFn == nullptr) {
+                fail("vkGetInstanceProcAddr could not resolve the Vulkan entry points required for the witness");
+                return;
+            }
+
+            const Float queuePriority = 1.0f;
+            VkDeviceQueueCreateInfo queueInfo{};
+            queueInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+            queueInfo.queueFamilyIndex = computeQueueFamilyIndex;
+            queueInfo.queueCount = 1;
+            queueInfo.pQueuePriorities = &queuePriority;
+
+            VkDeviceCreateInfo deviceInfo{};
+            deviceInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+            deviceInfo.queueCreateInfoCount = 1;
+            deviceInfo.pQueueCreateInfos = &queueInfo;
+
+            VkDevice device = VK_NULL_HANDLE;
+            VkResult result = vkCreateDeviceFn(physicalDevice, &deviceInfo, nullptr, &device);
+            if (result != VK_SUCCESS || device == VK_NULL_HANDLE) {
+                fail(format("vkCreateDevice failed (VkResult = {})", static_cast<Int>(result)));
+                return;
+            }
+
+            VkBuffer outputBuffer = VK_NULL_HANDLE;
+            VkDeviceMemory outputMemory = VK_NULL_HANDLE;
+            VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;
+            VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
+            VkShaderModule shaderModule = VK_NULL_HANDLE;
+            VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
+            VkPipeline pipeline = VK_NULL_HANDLE;
+            VkCommandPool commandPool = VK_NULL_HANDLE;
+            VkFence fence = VK_NULL_HANDLE;
+            void* mappedOutput = nullptr;
+            Bool fenceWaitTimedOut = false;
+            const ScopeGuard destroyDeviceObjects([&]() {
+                if (fenceWaitTimedOut) {
+                    // Match ProbeVulkanTimerQuery: the command may still execute
+                    // after a timeout, so intentionally retain every device-owned
+                    // resource rather than risking a forever wait or UAF in the ICD.
+                    return;
+                }
+                vkDeviceWaitIdleFn(device);
+                if (fence != VK_NULL_HANDLE) vkDestroyFenceFn(device, fence, nullptr);
+                if (commandPool != VK_NULL_HANDLE) vkDestroyCommandPoolFn(device, commandPool, nullptr);
+                if (pipeline != VK_NULL_HANDLE) vkDestroyPipelineFn(device, pipeline, nullptr);
+                if (pipelineLayout != VK_NULL_HANDLE) vkDestroyPipelineLayoutFn(device, pipelineLayout, nullptr);
+                if (shaderModule != VK_NULL_HANDLE) vkDestroyShaderModuleFn(device, shaderModule, nullptr);
+                if (descriptorPool != VK_NULL_HANDLE) vkDestroyDescriptorPoolFn(device, descriptorPool, nullptr);
+                if (descriptorSetLayout != VK_NULL_HANDLE) {
+                    vkDestroyDescriptorSetLayoutFn(device, descriptorSetLayout, nullptr);
+                }
+                if (mappedOutput != nullptr) vkUnmapMemoryFn(device, outputMemory);
+                if (outputBuffer != VK_NULL_HANDLE) vkDestroyBufferFn(device, outputBuffer, nullptr);
+                if (outputMemory != VK_NULL_HANDLE) vkFreeMemoryFn(device, outputMemory, nullptr);
+                vkDestroyDeviceFn(device, nullptr);
+            });
+
+            VkQueue queue = VK_NULL_HANDLE;
+            vkGetDeviceQueueFn(device, computeQueueFamilyIndex, 0, &queue);
+            if (queue == VK_NULL_HANDLE) {
+                fail("vkGetDeviceQueue returned a null compute queue");
+                return;
+            }
+
+            VkBufferCreateInfo bufferInfo{};
+            bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+            bufferInfo.size = sizeof(IterationRPWitnessOutput);
+            bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+            bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+            result = vkCreateBufferFn(device, &bufferInfo, nullptr, &outputBuffer);
+            if (result != VK_SUCCESS) {
+                fail(format("vkCreateBuffer(output SSBO) failed (VkResult = {})", static_cast<Int>(result)));
+                return;
+            }
+
+            VkMemoryRequirements memoryRequirements{};
+            vkGetBufferMemoryRequirementsFn(device, outputBuffer, &memoryRequirements);
+            VkPhysicalDeviceMemoryProperties memoryProperties{};
+            vkGetPhysicalDeviceMemoryPropertiesFn(physicalDevice, &memoryProperties);
+            Uint32 memoryTypeIndex = std::numeric_limits<Uint32>::max();
+            for (Uint32 index = 0; index < memoryProperties.memoryTypeCount; ++index) {
+                const Bool compatible = (memoryRequirements.memoryTypeBits & (1u << index)) != 0u;
+                const VkMemoryPropertyFlags required = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                                       VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+                if (compatible && (memoryProperties.memoryTypes[index].propertyFlags & required) == required) {
+                    memoryTypeIndex = index;
+                    break;
+                }
+            }
+            if (memoryTypeIndex == std::numeric_limits<Uint32>::max()) {
+                fail("no host-visible/coherent memory type is compatible with the output SSBO");
+                return;
+            }
+
+            VkMemoryAllocateInfo memoryInfo{};
+            memoryInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+            memoryInfo.allocationSize = memoryRequirements.size;
+            memoryInfo.memoryTypeIndex = memoryTypeIndex;
+            result = vkAllocateMemoryFn(device, &memoryInfo, nullptr, &outputMemory);
+            if (result != VK_SUCCESS) {
+                fail(format("vkAllocateMemory(output SSBO) failed (VkResult = {})", static_cast<Int>(result)));
+                return;
+            }
+            result = vkBindBufferMemoryFn(device, outputBuffer, outputMemory, 0);
+            if (result != VK_SUCCESS) {
+                fail(format("vkBindBufferMemory(output SSBO) failed (VkResult = {})", static_cast<Int>(result)));
+                return;
+            }
+            result = vkMapMemoryFn(device, outputMemory, 0, sizeof(IterationRPWitnessOutput), 0, &mappedOutput);
+            if (result != VK_SUCCESS || mappedOutput == nullptr) {
+                fail(format("vkMapMemory(output SSBO) failed (VkResult = {})", static_cast<Int>(result)));
+                return;
+            }
+            std::memset(mappedOutput, 0xa5, sizeof(IterationRPWitnessOutput));
+
+            VkDescriptorSetLayoutBinding outputBinding{};
+            outputBinding.binding = 0;
+            outputBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            outputBinding.descriptorCount = 1;
+            outputBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+            VkDescriptorSetLayoutCreateInfo descriptorSetLayoutInfo{};
+            descriptorSetLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+            descriptorSetLayoutInfo.bindingCount = 1;
+            descriptorSetLayoutInfo.pBindings = &outputBinding;
+            result = vkCreateDescriptorSetLayoutFn(device, &descriptorSetLayoutInfo, nullptr, &descriptorSetLayout);
+            if (result != VK_SUCCESS) {
+                fail(format("vkCreateDescriptorSetLayout failed (VkResult = {})", static_cast<Int>(result)));
+                return;
+            }
+
+            VkDescriptorPoolSize poolSize{};
+            poolSize.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            poolSize.descriptorCount = 1;
+            VkDescriptorPoolCreateInfo descriptorPoolInfo{};
+            descriptorPoolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+            descriptorPoolInfo.maxSets = 1;
+            descriptorPoolInfo.poolSizeCount = 1;
+            descriptorPoolInfo.pPoolSizes = &poolSize;
+            result = vkCreateDescriptorPoolFn(device, &descriptorPoolInfo, nullptr, &descriptorPool);
+            if (result != VK_SUCCESS) {
+                fail(format("vkCreateDescriptorPool failed (VkResult = {})", static_cast<Int>(result)));
+                return;
+            }
+
+            VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
+            VkDescriptorSetAllocateInfo descriptorSetInfo{};
+            descriptorSetInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+            descriptorSetInfo.descriptorPool = descriptorPool;
+            descriptorSetInfo.descriptorSetCount = 1;
+            descriptorSetInfo.pSetLayouts = &descriptorSetLayout;
+            result = vkAllocateDescriptorSetsFn(device, &descriptorSetInfo, &descriptorSet);
+            if (result != VK_SUCCESS) {
+                fail(format("vkAllocateDescriptorSets failed (VkResult = {})", static_cast<Int>(result)));
+                return;
+            }
+            VkDescriptorBufferInfo outputDescriptor{};
+            outputDescriptor.buffer = outputBuffer;
+            outputDescriptor.offset = 0;
+            outputDescriptor.range = sizeof(IterationRPWitnessOutput);
+            VkWriteDescriptorSet descriptorWrite{};
+            descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptorWrite.dstSet = descriptorSet;
+            descriptorWrite.dstBinding = 0;
+            descriptorWrite.descriptorCount = 1;
+            descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            descriptorWrite.pBufferInfo = &outputDescriptor;
+            vkUpdateDescriptorSetsFn(device, 1, &descriptorWrite, 0, nullptr);
+
+            VkShaderModuleCreateInfo shaderModuleInfo{};
+            shaderModuleInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+            shaderModuleInfo.codeSize = sizeof(kDriverPostIterationRPWitnessSpv);
+            shaderModuleInfo.pCode = kDriverPostIterationRPWitnessSpv;
+            result = vkCreateShaderModuleFn(device, &shaderModuleInfo, nullptr, &shaderModule);
+            if (result != VK_SUCCESS) {
+                fail(format("vkCreateShaderModule failed (VkResult = {})", static_cast<Int>(result)));
+                return;
+            }
+
+            VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+            pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+            pipelineLayoutInfo.setLayoutCount = 1;
+            pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
+            result = vkCreatePipelineLayoutFn(device, &pipelineLayoutInfo, nullptr, &pipelineLayout);
+            if (result != VK_SUCCESS) {
+                fail(format("vkCreatePipelineLayout failed (VkResult = {})", static_cast<Int>(result)));
+                return;
+            }
+
+            VkPipelineShaderStageCreateInfo shaderStage{};
+            shaderStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+            shaderStage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+            shaderStage.module = shaderModule;
+            shaderStage.pName = "main";
+            VkComputePipelineCreateInfo pipelineInfo{};
+            pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+            pipelineInfo.stage = shaderStage;
+            pipelineInfo.layout = pipelineLayout;
+            result = vkCreateComputePipelinesFn(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline);
+            if (result != VK_SUCCESS) {
+                fail(format("vkCreateComputePipelines failed (VkResult = {})", static_cast<Int>(result)));
+                return;
+            }
+
+            VkCommandPoolCreateInfo commandPoolInfo{};
+            commandPoolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+            commandPoolInfo.queueFamilyIndex = computeQueueFamilyIndex;
+            result = vkCreateCommandPoolFn(device, &commandPoolInfo, nullptr, &commandPool);
+            if (result != VK_SUCCESS) {
+                fail(format("vkCreateCommandPool failed (VkResult = {})", static_cast<Int>(result)));
+                return;
+            }
+            VkCommandBufferAllocateInfo commandBufferInfo{};
+            commandBufferInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+            commandBufferInfo.commandPool = commandPool;
+            commandBufferInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+            commandBufferInfo.commandBufferCount = 1;
+            VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
+            result = vkAllocateCommandBuffersFn(device, &commandBufferInfo, &commandBuffer);
+            if (result != VK_SUCCESS) {
+                fail(format("vkAllocateCommandBuffers failed (VkResult = {})", static_cast<Int>(result)));
+                return;
+            }
+
+            VkCommandBufferBeginInfo commandBufferBeginInfo{};
+            commandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+            commandBufferBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+            result = vkBeginCommandBufferFn(commandBuffer, &commandBufferBeginInfo);
+            if (result != VK_SUCCESS) {
+                fail(format("vkBeginCommandBuffer failed (VkResult = {})", static_cast<Int>(result)));
+                return;
+            }
+            vkCmdBindPipelineFn(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
+            vkCmdBindDescriptorSetsFn(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0, 1,
+                                      &descriptorSet, 0, nullptr);
+            vkCmdDispatchFn(commandBuffer, 1, 1, 1);
+            VkBufferMemoryBarrier hostReadBarrier{};
+            hostReadBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+            hostReadBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+            hostReadBarrier.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+            hostReadBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            hostReadBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            hostReadBarrier.buffer = outputBuffer;
+            hostReadBarrier.offset = 0;
+            hostReadBarrier.size = sizeof(IterationRPWitnessOutput);
+            vkCmdPipelineBarrierFn(commandBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0,
+                                   0, nullptr, 1, &hostReadBarrier, 0, nullptr);
+            result = vkEndCommandBufferFn(commandBuffer);
+            if (result != VK_SUCCESS) {
+                fail(format("vkEndCommandBuffer failed (VkResult = {})", static_cast<Int>(result)));
+                return;
+            }
+
+            VkFenceCreateInfo fenceInfo{};
+            fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+            result = vkCreateFenceFn(device, &fenceInfo, nullptr, &fence);
+            if (result != VK_SUCCESS) {
+                fail(format("vkCreateFence failed (VkResult = {})", static_cast<Int>(result)));
+                return;
+            }
+            VkSubmitInfo submitInfo{};
+            submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+            submitInfo.commandBufferCount = 1;
+            submitInfo.pCommandBuffers = &commandBuffer;
+            result = vkQueueSubmitFn(queue, 1, &submitInfo, fence);
+            if (result != VK_SUCCESS) {
+                fail(format("vkQueueSubmit failed (VkResult = {})", static_cast<Int>(result)));
+                return;
+            }
+
+            constexpr Uint64 FenceTimeoutNs = 5'000'000'000ull;
+            result = vkWaitForFencesFn(device, 1, &fence, VK_TRUE, FenceTimeoutNs);
+            if (result != VK_SUCCESS) {
+                fenceWaitTimedOut = true;
+                fail(format("vkWaitForFences did not signal within 5 s (VkResult = {})", static_cast<Int>(result)));
+                return;
+            }
+
+            IterationRPWitnessOutput output{};
+            std::memcpy(&output, mappedOutput, sizeof(output));
+            const IterationRPWitnessValidationResult validation = ValidateIterationRPWitness(output);
+            if (!validation.ok) {
+                fail(validation.detail);
+                return;
+            }
+            builder.Pass(RowName, validation.detail);
+        }
+
         // Everything the "MobileGL reported ..." rows need from the Vulkan device probe.
         struct VulkanProbeSummary {
             Bool devicePropsValid = false;
@@ -1433,6 +1901,8 @@ namespace MobileGL::MG_Util::SelfTest {
             Bool shaderSubgroupUsable = false;
             Bool timerQueriesSupported = false;
             Bool samplerAnisotropySupported = false;
+            Bool drawIndirectFirstInstanceSupported = false;
+            Bool shaderDrawParametersSupported = false;
         };
     } // namespace
 
@@ -1637,6 +2107,7 @@ namespace MobileGL::MG_Util::SelfTest {
         VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
         Uint32 graphicsQueueFamilyIndex = 0;
         Uint32 graphicsQueueTimestampValidBits = 0;
+        Uint32 computeQueueFamilyIndex = std::numeric_limits<Uint32>::max();
         for (VkPhysicalDevice candidate : devices) {
             Uint32 queueFamilyCount = 0;
             vkGetPhysicalDeviceQueueFamilyPropertiesFn(candidate, &queueFamilyCount, nullptr);
@@ -1652,6 +2123,13 @@ namespace MobileGL::MG_Util::SelfTest {
                 }
             }
             if (physicalDevice != VK_NULL_HANDLE) {
+                for (Uint32 familyIndex = 0; familyIndex < queueFamilyCount; ++familyIndex) {
+                    const VkQueueFamilyProperties& family = queueFamilies[familyIndex];
+                    if (family.queueCount > 0 && (family.queueFlags & VK_QUEUE_COMPUTE_BIT) != 0) {
+                        computeQueueFamilyIndex = familyIndex;
+                        break;
+                    }
+                }
                 break;
             }
         }
@@ -1716,6 +2194,7 @@ namespace MobileGL::MG_Util::SelfTest {
         VkPhysicalDeviceFeatures features{};
         vkGetPhysicalDeviceFeaturesFn(physicalDevice, &features);
         summary.samplerAnisotropySupported = features.samplerAnisotropy == VK_TRUE;
+        summary.drawIndirectFirstInstanceSupported = features.drawIndirectFirstInstance == VK_TRUE;
         if (features.multiDrawIndirect == VK_TRUE) {
             builder.Pass("multiDrawIndirect", "indirect multi-draw batches run as single native commands");
         } else {
@@ -1843,14 +2322,27 @@ namespace MobileGL::MG_Util::SelfTest {
                          "unsupported; a GL_TEXTURE_CUBE_MAP_ARRAY texture gets no image at all, so sampling "
                          "one reads nothing and glFramebufferTextureLayer on one is declined");
         }
-        if (features.shaderFloat64 == VK_TRUE) {
-            builder.Pass("shaderFloat64",
-                         "GLSL double/dvec/dmat and 64-bit vertex attributes (glVertexAttribLFormat) supported");
-        } else {
-            builder.Warn("shaderFloat64",
-                         "unsupported; any shader declaring a double fails to create a shader module, and "
-                         "glVertexAttribLFormat reports GL_INVALID_OPERATION instead of feeding the attribute");
-        }
+        // Reported whichever way the device answers, because MobileGL no longer follows the
+        // device here: every 64-bit float is narrowed to 32 bits before any module reaches this
+        // backend (DemoteFloat64Pass), so the Float64 capability is never declared and a device
+        // that HAS the feature gains nothing from it. The device's own answer is still worth
+        // printing - it is the reason the demotion is unconditional.
+        builder.Pass("fp64", AppendFp64AdvertisementNote(
+                                 format("demoted to fp32 (device shaderFloat64 = {}) - every double / dvec / "
+                                        "dmat in a shader is narrowed to 32 bits before pipeline creation, so "
+                                        "such shaders BUILD AND RUN at single precision on every device "
+                                        "instead of failing to create a shader module on the ones without the "
+                                        "feature. A block containing a double is re-laid-out for the narrowed "
+                                        "members, so an application that hard-codes std140 offsets computed "
+                                        "for doubles must query them instead",
+                                        features.shaderFloat64 == VK_TRUE ? "supported" : "unsupported")));
+        builder.Warn("64-bit vertex attributes",
+                     "not supported; there is no 64-bit shader input left to feed after the fp64 demotion "
+                     "above, and no VK_FORMAT_R64*_SFLOAT vertex fetch to feed it with on most devices "
+                     "anyway. glVertexAttribLFormat succeeds and its state is queryable, but an ENABLED "
+                     "64-bit array is DROPPED at pipeline build and the attribute reads its generic "
+                     "current value - feed the attribute with glVertexAttribPointer(GL_FLOAT) instead, "
+                     "which a demoted dvec input reads correctly");
 
         Bool shaderDrawParameters = false;
         if (vkGetPhysicalDeviceFeatures2Fn != nullptr && properties.apiVersion >= VK_API_VERSION_1_1) {
@@ -1871,6 +2363,7 @@ namespace MobileGL::MG_Util::SelfTest {
             builder.Warn("shaderDrawParameters",
                          "unavailable; shaders using gl_DrawID/gl_BaseInstance will not work");
         }
+        summary.shaderDrawParametersSupported = shaderDrawParameters;
 
         Bool provokingVertexLast = false;
         Bool transformFeedbackPreservesProvokingVertex = false;
@@ -1975,13 +2468,15 @@ namespace MobileGL::MG_Util::SelfTest {
                          "change every N instances change every one");
         }
 
+        VkPhysicalDeviceSubgroupProperties subgroupProperties{};
+        Bool subgroupPropertiesAvailable = false;
         if (vkGetPhysicalDeviceProperties2Fn != nullptr && properties.apiVersion >= VK_API_VERSION_1_1) {
-            VkPhysicalDeviceSubgroupProperties subgroupProperties{};
             subgroupProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES;
             VkPhysicalDeviceProperties2 properties2{};
             properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
             properties2.pNext = &subgroupProperties;
             vkGetPhysicalDeviceProperties2Fn(physicalDevice, &properties2);
+            subgroupPropertiesAvailable = true;
             const Bool subgroupUsable = subgroupProperties.subgroupSize > 0 &&
                                         (subgroupProperties.supportedStages & VK_SHADER_STAGE_COMPUTE_BIT) != 0 &&
                                         (subgroupProperties.supportedOperations & VK_SUBGROUP_FEATURE_BASIC_BIT) != 0;
@@ -2000,6 +2495,9 @@ namespace MobileGL::MG_Util::SelfTest {
         } else {
             builder.Warn("Compute shader subgroup", "subgroup properties could not be queried");
         }
+
+        ProbeVulkanIterationRPWitness(builder, getInstanceProcAddr, instance, physicalDevice, computeQueueFamilyIndex,
+                                     properties, subgroupPropertiesAvailable, subgroupProperties);
 
         if (HasVkExtension(deviceExtensions, VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME)) {
             builder.Pass("VK_KHR_draw_indirect_count",
@@ -2069,7 +2567,8 @@ namespace MobileGL::MG_Util::SelfTest {
             backendApiVersionString = MG_Backend::DirectVulkan::FormatBackendAPIVersionString(
                 summary.deviceName, summary.apiVersionString, summary.driverVersionString);
             advertisedExtensions = JoinAdvertisedExtensions(MG_Backend::DirectVulkan::BuildAdvertisedExtensions(
-                summary.shaderSubgroupUsable, summary.timerQueriesSupported, summary.samplerAnisotropySupported));
+                summary.shaderSubgroupUsable, summary.timerQueriesSupported, summary.samplerAnisotropySupported,
+                summary.drawIndirectFirstInstanceSupported && summary.shaderDrawParametersSupported));
         }
         AppendMobileGLReportedRows(builder, MG_Backend::DirectVulkan::GetRendererIdentity(), backendApiVersionString,
                                    advertisedExtensions);

@@ -540,6 +540,10 @@ namespace MobileGL::MG_Util::BackendLoader {
             INIT_GLES_FUNC_OPTIONAL(glMultiDrawArraysIndirectEXT)
             INIT_GLES_FUNC_OPTIONAL(glMultiDrawElementsIndirectEXT)
             INIT_GLES_FUNC_OPTIONAL(glMultiDrawElementsBaseVertexEXT)
+
+            INIT_GLES_FUNC_OPTIONAL(glDrawArraysInstancedBaseInstanceEXT)
+            INIT_GLES_FUNC_OPTIONAL(glDrawElementsInstancedBaseInstanceEXT)
+            INIT_GLES_FUNC_OPTIONAL(glDrawElementsInstancedBaseVertexBaseInstanceEXT)
         }
     }
 
@@ -590,9 +594,10 @@ namespace MobileGL::MG_Util::BackendLoader {
 #endif // !_WIN32
 
         if (!eglLib) {
-            // MGLOG_F, not MGLOG_E: at the INFO log level every shipping and CI build
-            // uses, MGLOG_E is compiled out (Log.h orders DEBUG < WARN < ERROR < INFO),
-            // so this diagnosis was invisible in precisely the builds that needed it.
+            // MGLOG_F, not MGLOG_E: with no EGL there is no rendering at all, so this is a
+            // bring-up abort rather than a recoverable error. It was forced to F while the
+            // Log.h ordering compiled MGLOG_E out of every shipping and CI build; F is still
+            // the right level on its own merits, so it stays.
             MGLOG_F("Failed to open EGL library: none of libEGL.so.1 / libEGL.so could be "
                     "dlopened; every EGL entry point will be null");
             return;
@@ -687,8 +692,12 @@ namespace MobileGL::MG_Util::BackendLoader {
             !f.glUnmapBuffer || !f.glMemoryBarrier || !f.glCreateShader || !f.glCreateProgram) {
             return false;
         }
-        GLint maxVertexSsboBlocks = 0;
-        f.glGetIntegerv(GL_MAX_VERTEX_SHADER_STORAGE_BLOCKS, &maxVertexSsboBlocks);
+        // Read from caps, not re-queried: the per-stage limits are resolved (and their query
+        // errors drained) before this probe runs, so asking the driver again would be a second
+        // round trip that can disagree with the number MobileGL actually advertises - and, on
+        // the early return below, would leave its own GL_INVALID_ENUM in the queue for the
+        // application's first glGetError to find.
+        const GLint maxVertexSsboBlocks = caps.MaxVertexShaderStorageBlocks;
         if (maxVertexSsboBlocks < 1) {
             // The native indirect machinery cannot read the command buffer from the vertex
             // stage on this driver anyway; assume conforming zero-based gl_InstanceID.
@@ -822,6 +831,35 @@ namespace MobileGL::MG_Util::BackendLoader {
         return includesBase;
     }
 
+    // GL 4.6 table 23.65 admits exactly four answers for GL_LAYER_PROVOKING_VERTEX and
+    // GL_VIEWPORT_INDEX_PROVOKING_VERTEX. Anything else means the driver wrote something MobileGL
+    // cannot forward as a convention, and GL_UNDEFINED_VERTEX - a legal answer, not a placeholder
+    // - is the accurate thing to say about it.
+    static GLenum NormalizeProvokingVertexConvention(GLint driverValue) {
+        switch (static_cast<GLenum>(driverValue)) {
+        case GL_FIRST_VERTEX_CONVENTION:
+        case GL_LAST_VERTEX_CONVENTION:
+        case GL_PROVOKING_VERTEX:
+        case GL_UNDEFINED_VERTEX:
+            return static_cast<GLenum>(driverValue);
+        default:
+            return GL_UNDEFINED_VERTEX;
+        }
+    }
+
+    static const char* ProvokingVertexConventionName(GLenum convention) {
+        switch (convention) {
+        case GL_FIRST_VERTEX_CONVENTION:
+            return "GL_FIRST_VERTEX_CONVENTION";
+        case GL_LAST_VERTEX_CONVENTION:
+            return "GL_LAST_VERTEX_CONVENTION";
+        case GL_PROVOKING_VERTEX:
+            return "GL_PROVOKING_VERTEX";
+        default:
+            return "GL_UNDEFINED_VERTEX";
+        }
+    }
+
     Bool FillInGLESCapabilities(MG_External::GLESCapabilities& caps, const MG_External::GLESFunctionsTable& glesFuncs) {
         if (!glesFuncs.glGetString || !glesFuncs.glGetIntegerv) {
             MGLOG_E("Required GLES functions are not loaded, cannot query capabilities");
@@ -851,6 +889,9 @@ namespace MobileGL::MG_Util::BackendLoader {
         // Resolved into caps.TextureBufferSupport below, once the ES version is also known.
         Bool hasExtTextureBuffer = false;
         Bool hasOesTextureBuffer = false;
+        // Combined with the three entry points below; DirectGLES emulates baseInstance when this
+        // comes out false, so a stub pointer counting as support would silently break the draws.
+        Bool hasBaseInstanceExtension = false;
         for (GLint i = 0; i < extCount; ++i) {
             const char* extension = (const char*)glesFuncs.glGetStringi(GL_EXTENSIONS, i);
             if (extension) {
@@ -891,7 +932,7 @@ namespace MobileGL::MG_Util::BackendLoader {
                     hasOesTextureBuffer = true;
                 }
                 if (std::strcmp(extension, "GL_EXT_base_instance") == 0) {
-                    caps.SupportsBaseInstance = true;
+                    hasBaseInstanceExtension = true;
                 }
                 if (std::strcmp(extension, "GL_EXT_disjoint_timer_query") == 0) {
                     caps.SupportsDisjointTimerQuery = true;
@@ -904,6 +945,9 @@ namespace MobileGL::MG_Util::BackendLoader {
                 }
                 if (std::strcmp(extension, "GL_NV_shader_noperspective_interpolation") == 0) {
                     caps.SupportsNoperspectiveInterpolation = true;
+                }
+                if (std::strcmp(extension, "GL_NV_image_formats") == 0) {
+                    caps.SupportsExtendedImageFormats = true;
                 }
                 if (std::strcmp(extension, "GL_OES_shader_multisample_interpolation") == 0) {
                     caps.SupportsShaderMultisampleInterpolation = true;
@@ -918,6 +962,12 @@ namespace MobileGL::MG_Util::BackendLoader {
                 if (std::strcmp(extension, "GL_EXT_multi_draw_arrays") == 0) {
                     hasMultiDrawArraysExtension = true;
                 }
+                if (std::strcmp(extension, "GL_EXT_clip_cull_distance") == 0) {
+                    caps.SupportsClipDistance = true;
+                }
+                if (std::strcmp(extension, "GL_OES_viewport_array") == 0) {
+                    caps.SupportsViewportArray = true;
+                }
             }
         }
         // The pointer check on top of the extension check makes each flag sufficient on its own
@@ -929,12 +979,20 @@ namespace MobileGL::MG_Util::BackendLoader {
         caps.SupportsMultiDrawElementsBaseVertex = hasDrawElementsBaseVertexExtension &&
                                                    hasMultiDrawArraysExtension &&
                                                    glesFuncs.glMultiDrawElementsBaseVertexEXT != nullptr;
+        // All three, not any: DirectGLES picks native-vs-emulated once per draw entry point off
+        // this single flag, so a driver that resolved only some of them must count as absent.
+        caps.SupportsBaseInstance = hasBaseInstanceExtension &&
+                                    glesFuncs.glDrawArraysInstancedBaseInstanceEXT != nullptr &&
+                                    glesFuncs.glDrawElementsInstancedBaseInstanceEXT != nullptr &&
+                                    glesFuncs.glDrawElementsInstancedBaseVertexBaseInstanceEXT != nullptr;
         // Core from ES 3.2 on, so an extension string is not required there; below 3.2 the
         // extension is, and the pointer still has to have resolved either way.
         const Bool esAtLeast32 = caps.GLESVersion.Major > 3 ||
                                  (caps.GLESVersion.Major == 3 && caps.GLESVersion.Minor >= 2);
         const Bool esAtLeast31 = caps.GLESVersion.Major > 3 ||
                                  (caps.GLESVersion.Major == 3 && caps.GLESVersion.Minor >= 1);
+        caps.SupportsDrawIndirect = esAtLeast31 && glesFuncs.glDrawArraysIndirect != nullptr &&
+                                    glesFuncs.glDrawElementsIndirect != nullptr;
         caps.SupportsDrawElementsBaseVertex = (esAtLeast32 || hasDrawElementsBaseVertexExtension) &&
                                               glesFuncs.glDrawElementsBaseVertex != nullptr;
         caps.SupportsComputeShader = esAtLeast31 && glesFuncs.glDispatchCompute != nullptr &&
@@ -956,6 +1014,7 @@ namespace MobileGL::MG_Util::BackendLoader {
         MGLOG_I("    indexed glColorMaski: %s", caps.SupportsIndexedColorMask ? "yes" : "no");
         MGLOG_I("    dual-source blend (EXT_blend_func_extended): %s",
                 caps.SupportsDualSourceBlend ? "yes" : "no");
+        MGLOG_I("    draw indirect (ES 3.1 core): %s", caps.SupportsDrawIndirect ? "yes" : "no");
         MGLOG_I("    multi-draw indirect (EXT_multi_draw_indirect): %s",
                 caps.SupportsMultiDrawIndirect ? "yes" : "no");
         MGLOG_I("    multi-draw base vertex (EXT/OES_draw_elements_base_vertex + EXT_multi_draw_arrays): %s",
@@ -963,7 +1022,18 @@ namespace MobileGL::MG_Util::BackendLoader {
         MGLOG_I("    draw elements base vertex (ES 3.2 core or EXT/OES_draw_elements_base_vertex): %s",
                 caps.SupportsDrawElementsBaseVertex ? "yes" : "no");
         MGLOG_I("    compute shaders (ES 3.1 core): %s", caps.SupportsComputeShader ? "yes" : "no");
+        MGLOG_I("    base instance (EXT_base_instance; emulated by attribute offsets when absent): %s",
+                caps.SupportsBaseInstance ? "yes" : "no");
+        MGLOG_I("    clip distances (EXT_clip_cull_distance): %s", caps.SupportsClipDistance ? "yes" : "no");
+        MGLOG_I("    viewport array (OES_viewport_array; gl_ViewportIndex collapses to viewport 0 when absent): %s",
+                caps.SupportsViewportArray ? "yes" : "no");
 
+        // LOAD-BEARING STRING, not just a banner. android-plugin/trace-replay-ci.sh's
+        // is_angle_surface_lost() greps mobilegl.log for exactly "OpenGL ES capabilities:" to
+        // decide whether MobileGL got far enough to have a working context: if the probe ran,
+        // a later surface loss is a real defect rather than an emulator fault worth retrying.
+        // Demoting this line, renaming it, or moving it before the context is usable silently
+        // inverts that retry logic. It is init-phase, so MGLOG_I is correct and it stays.
         MGLOG_I("OpenGL ES capabilities:");
         glesFuncs.glGetIntegerv(GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT, &caps.UniformBufferOffsetAlignment);
         MGLOG_I("    GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT: %d", caps.UniformBufferOffsetAlignment);
@@ -971,7 +1041,11 @@ namespace MobileGL::MG_Util::BackendLoader {
         GLfloat smoothLineWidthRange[2] = {1.0f, 1.0f};
         GLfloat smoothLineWidthGranularity = 1.0f;
         GLfloat aliasedPointSizeRange[2] = {1.0f, 1.0f};
-        GLfloat viewportBoundsRange[2] = {0.0f, 0.0f};
+        // GL 4.6 core table 23.60 sets the MINIMUM VIEWPORT_BOUNDS_RANGE at [-32768, 32767], and
+        // KHR-GL43.viewport_array.queries asserts exactly that floor. GLES has no such query, so
+        // the glGetFloatv below raises GL_INVALID_ENUM and leaves this untouched - starting it at
+        // {0, 0} advertised a range that admits no viewport origin at all.
+        GLfloat viewportBoundsRange[2] = {-32768.0f, 32767.0f};
         GLint maxViewportDims[2] = {16384, 16384};
         GLint viewportSubpixelBits = 0;
         GLint max3DTextureSize = 16384;
@@ -995,6 +1069,15 @@ namespace MobileGL::MG_Util::BackendLoader {
         GLint maxVertexAttribs = 16;
         GLint maxComputeShaderStorageBlocks = 8;
         GLint maxCombinedShaderStorageBlocks = 32;
+        // ES 3.2 table 21.44 minimums. Zero for the four graphics stages below fragment is not a
+        // placeholder - it is what the spec permits and what ARM's GLES driver actually reports,
+        // so a probe that never runs (pre-ES 3.2, unsupported pname) leaves behind the truthful
+        // answer rather than an optimistic one.
+        GLint maxVertexShaderStorageBlocks = 0;
+        GLint maxTessControlShaderStorageBlocks = 0;
+        GLint maxTessEvaluationShaderStorageBlocks = 0;
+        GLint maxGeometryShaderStorageBlocks = 0;
+        GLint maxFragmentShaderStorageBlocks = 4;
         GLint maxComputeUniformBlocks = 12;
         GLint maxComputeWorkGroupInvocations = 128;
         GLint maxShaderStorageBufferBindings = 8;
@@ -1009,8 +1092,21 @@ namespace MobileGL::MG_Util::BackendLoader {
         GLint maxComputeImageUniforms = 8;
         GLint maxDrawBuffers = 8;
         GLint maxColorAttachments = 8;
-        GLint maxClipDistances = 8;
+        // Zero is a legal answer, not a placeholder. GL_MAX_CLIP_DISTANCES exists in ES only as
+        // GL_MAX_CLIP_DISTANCES_EXT under GL_EXT_clip_cull_distance, so on a driver without that
+        // extension there is nowhere to put a clip distance at all: SPIRV-Cross emits
+        // gl_ClipDistance behind an `#extension ... : require` the ESSL compiler rejects, and
+        // DirectGLES has no state to forward the per-distance enables into (see the gate in
+        // DirectGLES::SyncRenderState). Starting at 8 meant a probe that could never run left an
+        // optimistic 8 behind, so the frontend promised eight clip planes and every draw with a
+        // clipping program silently rendered nothing. The guarded probe below only ever widens it.
+        GLint maxClipDistances = 0;
         GLint maxViewports = 16;
+        // GL_UNDEFINED_VERTEX is what stands when the probes below cannot run, and it is a legal
+        // answer rather than a placeholder: with neither geometry shaders nor a viewport array
+        // there is no layered or multi-viewport draw for a convention to describe.
+        GLenum layerProvokingVertex = GL_UNDEFINED_VERTEX;
+        GLenum viewportIndexProvokingVertex = GL_UNDEFINED_VERTEX;
         GLfloat minFragmentInterpolationOffset = -0.5f;
         GLfloat maxFragmentInterpolationOffset = 0.4375f;
         GLint fragmentInterpolationOffsetBits = 4;
@@ -1020,11 +1116,39 @@ namespace MobileGL::MG_Util::BackendLoader {
         GLint maxProgramTextureGatherOffset = 7;
         GLint maxPatchVertices = 32;
         GLint maxTessGenLevel = 64;
+        // Function-scope, and used by every probe group below rather than redeclared inside each
+        // one. Returns whether anything was drained, which is what lets a group tell "the driver
+        // answered" from "the driver rejected the pname and left my local alone".
+        const auto drainErrors = [&glesFuncs]() {
+            Bool hadError = false;
+            if (glesFuncs.glGetError) {
+                while (glesFuncs.glGetError() != GL_NO_ERROR) hadError = true;
+            }
+            return hadError;
+        };
+
+        // THE GENERATOR OF THIS WHOLE BUG FAMILY, closed here. A bare glGetIntegerv/glGetFloatv
+        // of a pname the driver does not have does two damaging things at once: it leaves the
+        // local at whatever the declaration initialised it to - an optimistic number the frontend
+        // then advertises as a capability - and it leaves a GL_INVALID_ENUM in the queue where
+        // the next unrelated probe's caller, or the application's first glGetError, gets blamed
+        // for it. The per-stage storage block, fragment interpolation and buffer texture probes
+        // below already drain and fall back; this unconditional run did neither, which is how
+        // GL_MAX_CLIP_DISTANCES came to be advertised as 8 on a driver with no clip distances at
+        // all. Every pname here that is not ES core is now either gated on the capability that
+        // makes it exist or floored at the value a rejected probe would have left, and the whole
+        // run is bracketed by a drain.
+        drainErrors();
         glesFuncs.glGetFloatv(GL_ALIASED_LINE_WIDTH_RANGE, aliasedLineWidthRange);
+        // GL_SMOOTH_LINE_WIDTH_RANGE / GL_SMOOTH_LINE_WIDTH_GRANULARITY (0x0B22 / 0x0B23) are
+        // desktop-only - ES has never had an antialiased line width query - so on a real GLES
+        // driver these two raise GL_INVALID_ENUM. Kept as probes rather than dropped because the
+        // ANGLE and desktop-GL hosts MobileGL also runs on do answer them; the initialisers are
+        // the GL 4.6 table 23.55 minimum of [1, 1], which is both the honest answer for a driver
+        // that cannot say and what an untouched out-param already holds.
         glesFuncs.glGetFloatv(GL_SMOOTH_LINE_WIDTH_RANGE, smoothLineWidthRange);
         glesFuncs.glGetFloatv(GL_SMOOTH_LINE_WIDTH_GRANULARITY, &smoothLineWidthGranularity);
         glesFuncs.glGetFloatv(GL_ALIASED_POINT_SIZE_RANGE, aliasedPointSizeRange);
-        glesFuncs.glGetFloatv(GL_VIEWPORT_BOUNDS_RANGE, viewportBoundsRange);
         glesFuncs.glGetIntegerv(GL_MAX_3D_TEXTURE_SIZE, &max3DTextureSize);
         glesFuncs.glGetIntegerv(GL_MAX_ARRAY_TEXTURE_LAYERS, &maxArrayTextureLayers);
         glesFuncs.glGetIntegerv(GL_MAX_CUBE_MAP_TEXTURE_SIZE, &maxCubeMapTextureSize);
@@ -1048,8 +1172,25 @@ namespace MobileGL::MG_Util::BackendLoader {
         // single test case. 1 is a spec-legal value (the minimum required), so cap
         // to what is actually implemented instead of forwarding the raw driver limit.
         maxSampleMaskWords = std::min(maxSampleMaskWords, 1);
+        // The multisample ceilings above are ES 3.1 state apart from GL_MAX_SAMPLES, which is ES
+        // 3.0, so a 3.0 context rejects five of the six and leaves whatever the out-param held.
+        // One sample is what a rejected probe leaves behind and is also the smallest legal
+        // answer, so clamp rather than trust: a zero reaching GL_Getter would have the frontend
+        // reject the very sample count it just advertised (see GetAdvertisedMaxSamples).
+        maxColorTextureSamples = std::max(maxColorTextureSamples, 1);
+        maxDepthTextureSamples = std::max(maxDepthTextureSamples, 1);
+        maxFramebufferSamples = std::max(maxFramebufferSamples, 1);
+        maxIntegerSamples = std::max(maxIntegerSamples, 1);
+        maxSamples = std::max(maxSamples, 1);
+        maxSampleMaskWords = std::max(maxSampleMaskWords, 1);
+        // ES 3.2 core, or EXT_tessellation_shader on 3.1. Probed rather than version-gated so a
+        // 3.1 driver that HAS the extension still gets to answer; the clamp below is what makes a
+        // rejected query safe, since GL 4.6 table 23.66 and ES 3.2 table 21.45 set the same
+        // minimums the initialisers carry and neither API permits less.
         glesFuncs.glGetIntegerv(GL_MAX_PATCH_VERTICES, &maxPatchVertices);
         glesFuncs.glGetIntegerv(GL_MAX_TESS_GEN_LEVEL, &maxTessGenLevel);
+        maxPatchVertices = std::max(maxPatchVertices, 32);
+        maxTessGenLevel = std::max(maxTessGenLevel, 64);
         glesFuncs.glGetIntegerv(GL_MIN_PROGRAM_TEXTURE_GATHER_OFFSET, &minProgramTextureGatherOffset);
         glesFuncs.glGetIntegerv(GL_MAX_PROGRAM_TEXTURE_GATHER_OFFSET, &maxProgramTextureGatherOffset);
         // A driver that leaves the probe untouched (pre-ES 3.1, or an ignored enum) must not
@@ -1086,21 +1227,121 @@ namespace MobileGL::MG_Util::BackendLoader {
             (caps.GLESVersion.Major == 3 && caps.GLESVersion.Minor >= 2)) {
             glesFuncs.glGetIntegerv(GL_MAX_GEOMETRY_IMAGE_UNIFORMS, &maxGeometryImageUniforms);
         }
+        // Closes the bracket opened before the run: every local above now holds either the
+        // driver's answer or a floor, and nothing this function asked for is left in the error
+        // queue for a later probe - or the application - to be blamed for.
+        if (drainErrors()) {
+            MGLOG_W("One or more capability queries were rejected by this driver; the affected "
+                    "limits keep MobileGL's spec-minimum floors");
+        }
+        // Per-stage storage-block counts. Deliberately NOT batched with the unconditional probes
+        // above, for the reason GL_MAX_TEXTURE_BUFFER_SIZE is not: the vertex and fragment pnames
+        // are ES 3.1, but the tessellation and geometry ones only exist from ES 3.2 on (or under
+        // EXT_tessellation_shader / EXT_geometry_shader), so on an older context they raise
+        // GL_INVALID_ENUM, leave the local untouched, and - with nothing draining the queue until
+        // some later probe - let that error be misattributed to an unrelated query in between, or
+        // leak into the application's first glGetError.
+        //
+        // A stage whose probe does not run keeps the spec minimum, which for all four graphics
+        // stages is 0. That is the honest answer: DirectGLES emits ESSL 3.10 on an ES 3.1 context,
+        // where those stages do not exist at all.
+        {
+            // Isolate from errors raised by the preceding probes so the drain below reports on
+            // these queries only.
+            drainErrors();
+            glesFuncs.glGetIntegerv(GL_MAX_VERTEX_SHADER_STORAGE_BLOCKS, &maxVertexShaderStorageBlocks);
+            glesFuncs.glGetIntegerv(GL_MAX_FRAGMENT_SHADER_STORAGE_BLOCKS, &maxFragmentShaderStorageBlocks);
+            if (drainErrors()) {
+                MGLOG_W("Per-stage shader storage block query failed for the vertex/fragment "
+                        "stages; assuming the ES minimums (vertex 0, fragment 4)");
+                maxVertexShaderStorageBlocks = 0;
+                maxFragmentShaderStorageBlocks = 4;
+            }
+            if (esAtLeast32) {
+                glesFuncs.glGetIntegerv(GL_MAX_TESS_CONTROL_SHADER_STORAGE_BLOCKS,
+                                        &maxTessControlShaderStorageBlocks);
+                glesFuncs.glGetIntegerv(GL_MAX_TESS_EVALUATION_SHADER_STORAGE_BLOCKS,
+                                        &maxTessEvaluationShaderStorageBlocks);
+                glesFuncs.glGetIntegerv(GL_MAX_GEOMETRY_SHADER_STORAGE_BLOCKS, &maxGeometryShaderStorageBlocks);
+                if (drainErrors()) {
+                    MGLOG_W("Per-stage shader storage block query failed for the tessellation/"
+                            "geometry stages; assuming the ES minimum of 0");
+                    maxTessControlShaderStorageBlocks = 0;
+                    maxTessEvaluationShaderStorageBlocks = 0;
+                    maxGeometryShaderStorageBlocks = 0;
+                }
+            }
+            // A driver is free to report a negative or nonsensical count into an untouched
+            // out-param; clamp before anything downstream treats it as a capacity.
+            maxVertexShaderStorageBlocks = std::max(maxVertexShaderStorageBlocks, 0);
+            maxTessControlShaderStorageBlocks = std::max(maxTessControlShaderStorageBlocks, 0);
+            maxTessEvaluationShaderStorageBlocks = std::max(maxTessEvaluationShaderStorageBlocks, 0);
+            maxGeometryShaderStorageBlocks = std::max(maxGeometryShaderStorageBlocks, 0);
+            maxFragmentShaderStorageBlocks = std::max(maxFragmentShaderStorageBlocks, 0);
+        }
         glesFuncs.glGetIntegerv(GL_MAX_DRAW_BUFFERS, &maxDrawBuffers);
         glesFuncs.glGetIntegerv(GL_MAX_COLOR_ATTACHMENTS, &maxColorAttachments);
-        glesFuncs.glGetIntegerv(GL_MAX_CLIP_DISTANCES, &maxClipDistances);
-        glesFuncs.glGetIntegerv(GL_MAX_VIEWPORTS, &maxViewports);
+        // GL_MAX_CLIP_DISTANCES is 0x0D32, which ES only ever spells GL_MAX_CLIP_DISTANCES_EXT and
+        // only ever has under GL_EXT_clip_cull_distance. The extension was already resolved into
+        // caps.SupportsClipDistance a few hundred lines above and is the same flag DirectGLES
+        // gates the CLIP_DISTANCEi enable forwarding on, so ask the driver only where the pname
+        // exists; everywhere else the honest 0 stands and no GL_INVALID_ENUM is left behind for an
+        // unrelated query - or the application's first glGetError - to trip over.
+        if (caps.SupportsClipDistance) {
+            drainErrors();
+            glesFuncs.glGetIntegerv(GL_MAX_CLIP_DISTANCES, &maxClipDistances);
+            if (drainErrors()) {
+                MGLOG_W("GL_EXT_clip_cull_distance is advertised but GL_MAX_CLIP_DISTANCES was "
+                        "rejected; reporting no clip distances");
+                maxClipDistances = 0;
+            }
+        }
         glesFuncs.glGetIntegerv(GL_MAX_VIEWPORT_DIMS, maxViewportDims);
-        glesFuncs.glGetIntegerv(GL_VIEWPORT_SUBPIXEL_BITS, &viewportSubpixelBits);
+        // GL_LAYER_PROVOKING_VERTEX is ES 3.2 core (it arrives with geometry shaders, which is
+        // what gl_Layer needs). Ask the driver where the pname exists rather than asserting a
+        // convention: it is a statement about which vertex of a primitive supplies gl_Layer, and
+        // MobileGL forwards the geometry stage to the driver rather than implementing the
+        // selection itself, so the driver's answer IS MobileGL's answer. Below ES 3.2 there are
+        // no layered draws to have a convention for and GL_UNDEFINED_VERTEX stands, which GL 4.6
+        // table 23.65 explicitly permits.
+        if (esAtLeast32) {
+            GLint driverLayerConvention = static_cast<GLint>(GL_UNDEFINED_VERTEX);
+            drainErrors();
+            glesFuncs.glGetIntegerv(GL_LAYER_PROVOKING_VERTEX, &driverLayerConvention);
+            if (!drainErrors()) {
+                layerProvokingVertex = NormalizeProvokingVertexConvention(driverLayerConvention);
+            }
+        }
+        // GL_MAX_VIEWPORTS (0x825B), GL_VIEWPORT_SUBPIXEL_BITS (0x825C) and GL_VIEWPORT_BOUNDS_RANGE
+        // (0x825D) all arrive with GL_OES_viewport_array and exist nowhere in ES core, so on the
+        // drivers DirectGLES actually runs on all three raise GL_INVALID_ENUM. The values MobileGL
+        // advertises do not change by asking: GL_Getter answers GL_MAX_VIEWPORTS from the frontend
+        // state width (indexed viewport entry points validate against RenderStateParameters::
+        // MAX_VIEWPORTS, so a device answer of 1 would reject indices the state can legitimately
+        // hold), floors GL_SUBPIXEL_BITS at its own 4, and the bounds range is clamped to the core
+        // minimum below. What changes is that the errors stop being manufactured.
+        if (caps.SupportsViewportArray) {
+            GLint driverViewportIndexConvention = static_cast<GLint>(GL_UNDEFINED_VERTEX);
+            drainErrors();
+            glesFuncs.glGetIntegerv(GL_MAX_VIEWPORTS, &maxViewports);
+            glesFuncs.glGetIntegerv(GL_VIEWPORT_SUBPIXEL_BITS, &viewportSubpixelBits);
+            glesFuncs.glGetIntegerv(GL_VIEWPORT_INDEX_PROVOKING_VERTEX, &driverViewportIndexConvention);
+            if (glesFuncs.glGetFloatv) {
+                glesFuncs.glGetFloatv(GL_VIEWPORT_BOUNDS_RANGE, viewportBoundsRange);
+            }
+            if (drainErrors()) {
+                MGLOG_W("GL_OES_viewport_array is advertised but its viewport limit queries were "
+                        "rejected; keeping the OpenGL core minimums");
+                maxViewports = 16;
+                viewportSubpixelBits = 0;
+                viewportBoundsRange[0] = -32768.0f;
+                viewportBoundsRange[1] = 32767.0f;
+            } else {
+                viewportIndexProvokingVertex =
+                    NormalizeProvokingVertexConvention(driverViewportIndexConvention);
+            }
+        }
         if (caps.SupportsShaderMultisampleInterpolation && glesFuncs.glGetFloatv) {
-            const auto drainErrors = [&glesFuncs]() {
-                Bool hadError = false;
-                if (glesFuncs.glGetError) {
-                    while (glesFuncs.glGetError() != GL_NO_ERROR) hadError = true;
-                }
-                return hadError;
-            };
-
             // Isolate these optional queries from errors raised by preceding capability
             // probes, then consume any query error so initialization never leaks it into
             // the application's first glGetError call.
@@ -1230,6 +1471,11 @@ namespace MobileGL::MG_Util::BackendLoader {
         caps.MaxVertexAttribs = maxVertexAttribs;
         caps.MaxComputeShaderStorageBlocks = maxComputeShaderStorageBlocks;
         caps.MaxCombinedShaderStorageBlocks = maxCombinedShaderStorageBlocks;
+        caps.MaxVertexShaderStorageBlocks = maxVertexShaderStorageBlocks;
+        caps.MaxTessControlShaderStorageBlocks = maxTessControlShaderStorageBlocks;
+        caps.MaxTessEvaluationShaderStorageBlocks = maxTessEvaluationShaderStorageBlocks;
+        caps.MaxGeometryShaderStorageBlocks = maxGeometryShaderStorageBlocks;
+        caps.MaxFragmentShaderStorageBlocks = maxFragmentShaderStorageBlocks;
         caps.MaxComputeUniformBlocks = maxComputeUniformBlocks;
         caps.MaxComputeWorkGroupInvocations = maxComputeWorkGroupInvocations;
         caps.MaxShaderStorageBufferBindings = maxShaderStorageBufferBindings;
@@ -1256,12 +1502,20 @@ namespace MobileGL::MG_Util::BackendLoader {
         caps.MaxComputeImageUniforms = maxComputeImageUniforms;
         caps.MaxDrawBuffers = maxDrawBuffers;
         caps.MaxColorAttachments = maxColorAttachments;
-        caps.MaxClipDistances = maxClipDistances;
+        // A driver is free to write nonsense into an out-param it then rejects, and without the
+        // extension the probe above never ran at all - so the flag, not the local, decides.
+        caps.MaxClipDistances = caps.SupportsClipDistance ? std::max(maxClipDistances, 0) : 0;
         caps.MaxViewports = maxViewports;
+        caps.LayerProvokingVertex = layerProvokingVertex;
+        caps.ViewportIndexProvokingVertex = viewportIndexProvokingVertex;
         caps.MaxViewportWidth = maxViewportDims[0];
         caps.MaxViewportHeight = maxViewportDims[1];
-        caps.ViewportBoundsRangeMin = viewportBoundsRange[0];
-        caps.ViewportBoundsRangeMax = viewportBoundsRange[1];
+        // Only ever WIDER than the core minimum: a driver that answered the query is allowed to
+        // exceed the floor but never to sit inside it, and a driver that rejected the query left
+        // the floor in place. Written as a clamp rather than a plain assignment so a partial
+        // write (one component answered, the other not) cannot narrow the range either.
+        caps.ViewportBoundsRangeMin = std::min(viewportBoundsRange[0], -32768.0f);
+        caps.ViewportBoundsRangeMax = std::max(viewportBoundsRange[1], 32767.0f);
         caps.ViewportSubpixelBits = viewportSubpixelBits;
         caps.MinFragmentInterpolationOffset =
             std::isfinite(minFragmentInterpolationOffset) && minFragmentInterpolationOffset <= -0.5f
@@ -1303,6 +1557,14 @@ namespace MobileGL::MG_Util::BackendLoader {
         MGLOG_I("    GL_MAX_VERTEX_ATTRIBS: %d", caps.MaxVertexAttribs);
         MGLOG_I("    GL_MAX_COMPUTE_SHADER_STORAGE_BLOCKS: %d", caps.MaxComputeShaderStorageBlocks);
         MGLOG_I("    GL_MAX_COMBINED_SHADER_STORAGE_BLOCKS: %d", caps.MaxCombinedShaderStorageBlocks);
+        // Worth a line each: a zero here is what stops an application's storage block from ever
+        // working in that stage, and reading it back from an artifact is the difference between
+        // "MobileGL dropped my draw" and "this driver has no SSBOs outside compute".
+        MGLOG_I("    GL_MAX_VERTEX_SHADER_STORAGE_BLOCKS: %d", caps.MaxVertexShaderStorageBlocks);
+        MGLOG_I("    GL_MAX_TESS_CONTROL_SHADER_STORAGE_BLOCKS: %d", caps.MaxTessControlShaderStorageBlocks);
+        MGLOG_I("    GL_MAX_TESS_EVALUATION_SHADER_STORAGE_BLOCKS: %d", caps.MaxTessEvaluationShaderStorageBlocks);
+        MGLOG_I("    GL_MAX_GEOMETRY_SHADER_STORAGE_BLOCKS: %d", caps.MaxGeometryShaderStorageBlocks);
+        MGLOG_I("    GL_MAX_FRAGMENT_SHADER_STORAGE_BLOCKS: %d", caps.MaxFragmentShaderStorageBlocks);
         MGLOG_I("    GL_MAX_COMPUTE_UNIFORM_BLOCKS: %d", caps.MaxComputeUniformBlocks);
         MGLOG_I("    GL_MAX_COMPUTE_WORK_GROUP_INVOCATIONS: %d", caps.MaxComputeWorkGroupInvocations);
         MGLOG_I("    GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS: %d", caps.MaxShaderStorageBufferBindings);
@@ -1326,12 +1588,20 @@ namespace MobileGL::MG_Util::BackendLoader {
         MGLOG_I("    GL_MAX_COMPUTE_IMAGE_UNIFORMS: %d", caps.MaxComputeImageUniforms);
         MGLOG_I("    GL_MAX_DRAW_BUFFERS: %d", caps.MaxDrawBuffers);
         MGLOG_I("    GL_MAX_COLOR_ATTACHMENTS: %d", caps.MaxColorAttachments);
-        MGLOG_I("    GL_MAX_CLIP_DISTANCES: %d", caps.MaxClipDistances);
+        // Worth spelling the reason out for the same reason the per-stage storage block counts
+        // are: a zero here is what stops an application's gl_ClipDistance from ever clipping, and
+        // reading it back from an artifact is the difference between "MobileGL dropped my draw"
+        // and "this driver has no clip distances".
+        MGLOG_I("    GL_MAX_CLIP_DISTANCES: %d%s", caps.MaxClipDistances,
+                caps.SupportsClipDistance ? "" : " (no GL_EXT_clip_cull_distance on this driver)");
         MGLOG_I("    GL_MAX_VIEWPORTS: %d", caps.MaxViewports);
         MGLOG_I("    GL_MAX_VIEWPORT_DIMS: [%d, %d]", caps.MaxViewportWidth, caps.MaxViewportHeight);
         MGLOG_I("    GL_VIEWPORT_BOUNDS_RANGE: [%.3f, %.3f]", caps.ViewportBoundsRangeMin,
                 caps.ViewportBoundsRangeMax);
         MGLOG_I("    GL_VIEWPORT_SUBPIXEL_BITS: %d", caps.ViewportSubpixelBits);
+        MGLOG_I("    GL_LAYER_PROVOKING_VERTEX: %s", ProvokingVertexConventionName(caps.LayerProvokingVertex));
+        MGLOG_I("    GL_VIEWPORT_INDEX_PROVOKING_VERTEX: %s",
+                ProvokingVertexConventionName(caps.ViewportIndexProvokingVertex));
 
         caps.IndirectDrawInstanceIdIncludesBaseInstance =
             ProbeIndirectInstanceIdIncludesBaseInstance(caps, glesFuncs);
@@ -1343,6 +1613,8 @@ namespace MobileGL::MG_Util::BackendLoader {
             caps.IsAngleRenderer && caps.GLESRendererString.find("llvmpipe") != String::npos;
         caps.AvoidSamplerMipmapMinFilter =
             caps.IsAngleLlvmpipeRenderer && MG_Config::Features.AvoidSamplerMipmapMinFilter;
+        caps.AvoidExplicitLodBias =
+            caps.IsAngleLlvmpipeRenderer && MG_Config::Features.AvoidExplicitLodBias;
         MGLOG_I("    GL_EXT_disjoint_timer_query supported: %s",
                 caps.SupportsDisjointTimerQuery ? "true" : "false");
         MGLOG_I("    GL_KHR_parallel_shader_compile supported: %s",
@@ -1351,7 +1623,16 @@ namespace MobileGL::MG_Util::BackendLoader {
         MGLOG_I("    ANGLE llvmpipe renderer: %s", caps.IsAngleLlvmpipeRenderer ? "true" : "false");
         MGLOG_I("    Avoid sampler mipmap min filter: %s",
                 caps.AvoidSamplerMipmapMinFilter ? "true" : "false");
+        MGLOG_I("    Avoid explicit LOD bias: %s", caps.AvoidExplicitLodBias ? "true" : "false");
 
+        // Last line of defence. Capability init is the very first thing that touches the driver,
+        // so anything it leaves in the error queue surfaces at the APPLICATION's first
+        // glGetError and gets attributed to whatever call the app happened to make. Every group
+        // above drains its own, but a probe added later must not be able to reintroduce the leak.
+        if (drainErrors()) {
+            MGLOG_W("Capability initialization left a GL error behind; it has been consumed so it "
+                    "cannot surface at the application's first glGetError");
+        }
         return true;
     }
 } // namespace MobileGL::MG_Util::BackendLoader

@@ -25,12 +25,27 @@ namespace MobileGL {
                         return 0;
                     }
                 }
+
+                // Every viewport's scissor-test bit set, i.e. what glEnable(GL_SCISSOR_TEST) writes.
+                constexpr Uint32 kAllViewportsMask =
+                    RenderStateParameters::MAX_VIEWPORTS >= 32
+                        ? ~0u
+                        : (1u << RenderStateParameters::MAX_VIEWPORTS) - 1u;
             } // namespace
 
             RenderState::RenderState() {
                 // The color writemask defaults to all-true for every draw buffer.
                 for (auto& mask : m_parameters.ColorMasks) {
                     mask = BoolVec4(true, true, true, true);
+                }
+                // Every viewport's depth range starts at (0, 1) - GL 4.6 core table 23.4. The
+                // viewport and scissor rectangles legitimately start all-zero here: their spec
+                // initial value is the size of the window the context is first made current to,
+                // which the frontend does not know yet, so an all-zero rectangle means "never
+                // written" and the backends resolve it against the live surface (see
+                // DirectGLES' SyncRenderState and VulkanRenderer's ApplyGLViewportState).
+                for (auto& range : m_parameters.DepthRanges) {
+                    range = FloatVec2(0.0f, 1.0f);
                 }
             }
 
@@ -47,15 +62,47 @@ namespace MobileGL {
             }
 
             // -------------------- Rasterization --------------------
+            // ARB_viewport_array, "Additions to Chapter 2": Viewport(x, y, w, h) is equivalent to
+            // ViewportIndexedf(i, x, y, w, h) for every i in [0, MAX_VIEWPORTS) - it is not a
+            // synonym for "viewport 0".
             void RenderState::SetViewport(IntVec4 viewport) {
-                if (m_parameters.Viewport == viewport) return;
+                const FloatVec4 asFloat(static_cast<Float>(viewport.x()), static_cast<Float>(viewport.y()),
+                                        static_cast<Float>(viewport.z()), static_cast<Float>(viewport.w()));
+                Bool stateChanged = false;
+                for (auto& stored : m_parameters.Viewports) {
+                    if (stored == asFloat) continue;
+                    stored = asFloat;
+                    stateChanged = true;
+                }
+                if (stateChanged) ++m_version;
+            }
 
-                m_parameters.Viewport = viewport;
+            IntVec4 RenderState::GetViewport() const {
+                const FloatVec4& viewport = m_parameters.Viewports[0];
+                // Round rather than truncate: glGetIntegerv on floating-point state rounds to
+                // nearest (GL 4.6 core 22.2), and truncating a 63.5-wide viewport to 63 would
+                // also hand the backends a rectangle one pixel short of what was asked for.
+                return IntVec4(static_cast<Int>(std::lround(viewport.x())), static_cast<Int>(std::lround(viewport.y())),
+                               static_cast<Int>(std::lround(viewport.z())), static_cast<Int>(std::lround(viewport.w())));
+            }
+
+            void RenderState::SetViewportIndexed(Uint index, FloatVec4 viewport) {
+                if (index >= RenderStateParameters::MAX_VIEWPORTS) {
+                    MOBILEGL_ASSERT(false, "Viewport index out of range: %u", index);
+                    return;
+                }
+                if (m_parameters.Viewports[index] == viewport) return;
+
+                m_parameters.Viewports[index] = viewport;
                 ++m_version;
             }
 
-            const IntVec4& RenderState::GetViewport() const {
-                return m_parameters.Viewport;
+            const FloatVec4& RenderState::GetViewportIndexed(Uint index) const {
+                if (index >= RenderStateParameters::MAX_VIEWPORTS) {
+                    MOBILEGL_ASSERT(false, "Viewport index out of range: %u", index);
+                    return m_parameters.Viewports[0];
+                }
+                return m_parameters.Viewports[index];
             }
 
             void RenderState::SetLineWidth(Float width) {
@@ -187,6 +234,14 @@ namespace MobileGL {
             }
 
             // -------------------- Capabilities --------------------
+            namespace {
+                // CapabilityInput lists ClipDistance0..7 contiguously (RenderState.h); the caller
+                // has already rejected anything outside that run, so the subtraction is in range.
+                Uint32 ClipDistanceBit(CapabilityInput cap) {
+                    return 1u << (static_cast<Uint>(cap) - static_cast<Uint>(CapabilityInput::ClipDistance0));
+                }
+            } // namespace
+
             void RenderState::SetCapability(CapabilityInput cap, Bool enabled) {
 #define SET_CAPABILITY(capability, flag)                                                                               \
     case CapabilityInput::capability:                                                                                  \
@@ -215,7 +270,6 @@ namespace MobileGL {
                     SET_CAPABILITY(SampleAlphaToOne, enabled);
                     SET_CAPABILITY(SampleCoverage, enabled);
                     SET_CAPABILITY(SampleMask, enabled);
-                    SET_CAPABILITY(ScissorTest, enabled);
                     SET_CAPABILITY(StencilTest, enabled);
                     SET_CAPABILITY(ProgramPointSize, enabled);
                 case CapabilityInput::Blend: {
@@ -226,6 +280,38 @@ namespace MobileGL {
                         stateChanged = true;
                     }
                     if (stateChanged) BumpVersions();
+                    break;
+                }
+                // GL 4.6 core 17.3.2: the non-indexed Enable/Disable(SCISSOR_TEST) enables or
+                // disables the test for ALL viewports, exactly like glViewport writes all
+                // viewports. Anything narrower fails KHR-GL43.viewport_array.scissor_test_state_api,
+                // whose "enable all" phase reads every index back through glIsEnabledi.
+                case CapabilityInput::ScissorTest: {
+                    const Uint32 updated = enabled ? kAllViewportsMask : 0u;
+                    if (m_parameters.ScissorTestEnabledMask == updated) break;
+                    m_parameters.ScissorTestEnabledMask = updated;
+                    BumpVersions();
+                    break;
+                }
+                case CapabilityInput::ClipDistance0:
+                case CapabilityInput::ClipDistance1:
+                case CapabilityInput::ClipDistance2:
+                case CapabilityInput::ClipDistance3:
+                case CapabilityInput::ClipDistance4:
+                case CapabilityInput::ClipDistance5:
+                case CapabilityInput::ClipDistance6:
+                case CapabilityInput::ClipDistance7: {
+                    const Uint32 bit = ClipDistanceBit(cap);
+                    const Uint32 updated =
+                        enabled ? (m_parameters.ClipDistanceEnabledMask | bit)
+                                : (m_parameters.ClipDistanceEnabledMask & ~bit);
+                    if (updated == m_parameters.ClipDistanceEnabledMask) break;
+                    m_parameters.ClipDistanceEnabledMask = updated;
+                    // Deliberately NOT BumpVersions(): no backend bakes a clip-distance enable
+                    // into a pipeline object (DirectGLES issues glEnable, DirectVulkan takes the
+                    // set from the shader's declared array), so bumping the pipeline version here
+                    // would evict cached pipelines for state they do not contain.
+                    ++m_version;
                     break;
                 }
                 default: // not supported currently
@@ -258,24 +344,52 @@ namespace MobileGL {
                     RETURN_CAPABILITY(SampleAlphaToOne);
                     RETURN_CAPABILITY(SampleCoverage);
                     RETURN_CAPABILITY(SampleMask);
-                    RETURN_CAPABILITY(ScissorTest);
                     RETURN_CAPABILITY(StencilTest);
                     RETURN_CAPABILITY(ProgramPointSize);
                 case CapabilityInput::Blend:
                     return m_parameters.BlendStates[0].Enabled;
+                // The non-indexed query of an indexed capability answers for index 0
+                // (GL 4.6 core 22.1), which is also the only bit either backend consumes today.
+                case CapabilityInput::ScissorTest:
+                    return (m_parameters.ScissorTestEnabledMask & 1u) != 0;
+                case CapabilityInput::ClipDistance0:
+                case CapabilityInput::ClipDistance1:
+                case CapabilityInput::ClipDistance2:
+                case CapabilityInput::ClipDistance3:
+                case CapabilityInput::ClipDistance4:
+                case CapabilityInput::ClipDistance5:
+                case CapabilityInput::ClipDistance6:
+                case CapabilityInput::ClipDistance7:
+                    return (m_parameters.ClipDistanceEnabledMask & ClipDistanceBit(cap)) != 0;
                 default:
                     return false;
                 }
             }
 
             void RenderState::SetCapabilityIndexed(CapabilityInput cap, Uint index, Bool enabled) {
-                // Only for BlendState currently. The GL entry points (glEnablei/glDisablei) already
-                // reject every non-GL_BLEND target with GL_INVALID_ENUM before reaching here, so this
-                // is a backstop - but it must stay a backstop: THROW_UNIMPL_EXCEPTION unwinds a C++
-                // exception through the C GL ABI and terminates the process.
+                // GL_BLEND (indexed by draw buffer) and GL_SCISSOR_TEST (indexed by viewport) are
+                // the only indexed capabilities in GL 4.6 core. The GL entry points
+                // (glEnablei/glDisablei) already reject every other target with GL_INVALID_ENUM
+                // and every out-of-range index with GL_INVALID_VALUE before reaching here, so the
+                // guards below are backstops - but they must stay backstops:
+                // THROW_UNIMPL_EXCEPTION unwinds a C++ exception through the C GL ABI and
+                // terminates the process.
+                if (cap == CapabilityInput::ScissorTest) {
+                    if (index >= RenderStateParameters::MAX_VIEWPORTS) {
+                        MOBILEGL_ASSERT(false, "Scissor test capability index out of range: %u", index);
+                        return;
+                    }
+                    const Uint32 bit = 1u << index;
+                    const Uint32 updated = enabled ? (m_parameters.ScissorTestEnabledMask | bit)
+                                                   : (m_parameters.ScissorTestEnabledMask & ~bit);
+                    if (updated == m_parameters.ScissorTestEnabledMask) return;
+                    m_parameters.ScissorTestEnabledMask = updated;
+                    BumpVersions();
+                    return;
+                }
                 if (cap != CapabilityInput::Blend) {
                     MGLOG_I("RenderState::SetCapabilityIndexed: indexed capability state exists only for "
-                            "GL_BLEND (cap=%d, index=%u); ignoring",
+                            "GL_BLEND and GL_SCISSOR_TEST (cap=%d, index=%u); ignoring",
                             static_cast<int>(cap), index);
                     return;
                 }
@@ -290,9 +404,17 @@ namespace MobileGL {
             }
 
             Bool RenderState::IsCapabilityEnabledIndexed(CapabilityInput cap, Uint index) const {
-                // Only for BlendState currently - same backstop reasoning as SetCapabilityIndexed:
-                // glIsEnabledi has already answered GL_INVALID_ENUM/GL_FALSE for anything else, and a
-                // query must never be able to terminate the process.
+                // GL_BLEND and GL_SCISSOR_TEST only - same backstop reasoning as
+                // SetCapabilityIndexed: glIsEnabledi has already answered
+                // GL_INVALID_ENUM/GL_INVALID_VALUE for anything else, and a query must never be
+                // able to terminate the process.
+                if (cap == CapabilityInput::ScissorTest) {
+                    if (index >= RenderStateParameters::MAX_VIEWPORTS) {
+                        MOBILEGL_ASSERT(false, "Scissor test capability index out of range: %u", index);
+                        return false;
+                    }
+                    return (m_parameters.ScissorTestEnabledMask & (1u << index)) != 0;
+                }
                 if (cap != CapabilityInput::Blend) {
                     MGLOG_I("RenderState::IsCapabilityEnabledIndexed: indexed capability state exists only "
                             "for GL_BLEND (cap=%d, index=%u); reporting disabled",
@@ -553,15 +675,39 @@ namespace MobileGL {
                 return m_parameters.BlendColor;
             }
 
+            // Like Viewport: ARB_viewport_array makes DepthRange(n, f) the same as
+            // DepthRangeIndexed(i, n, f) for every i.
             void RenderState::SetDepthRange(FloatVec2 range) {
-                if (m_parameters.DepthRange == range) return;
-
-                m_parameters.DepthRange = range;
-                ++m_version;
+                Bool stateChanged = false;
+                for (auto& stored : m_parameters.DepthRanges) {
+                    if (stored == range) continue;
+                    stored = range;
+                    stateChanged = true;
+                }
+                if (stateChanged) ++m_version;
             }
 
             const FloatVec2& RenderState::GetDepthRange() const {
-                return m_parameters.DepthRange;
+                return m_parameters.DepthRanges[0];
+            }
+
+            void RenderState::SetDepthRangeIndexed(Uint index, FloatVec2 range) {
+                if (index >= RenderStateParameters::MAX_VIEWPORTS) {
+                    MOBILEGL_ASSERT(false, "Depth range index out of range: %u", index);
+                    return;
+                }
+                if (m_parameters.DepthRanges[index] == range) return;
+
+                m_parameters.DepthRanges[index] = range;
+                ++m_version;
+            }
+
+            const FloatVec2& RenderState::GetDepthRangeIndexed(Uint index) const {
+                if (index >= RenderStateParameters::MAX_VIEWPORTS) {
+                    MOBILEGL_ASSERT(false, "Depth range index out of range: %u", index);
+                    return m_parameters.DepthRanges[0];
+                }
+                return m_parameters.DepthRanges[index];
             }
 
             void RenderState::SetSampleCoverage(Float value, Bool invert) {
@@ -688,15 +834,39 @@ namespace MobileGL {
             }
 
             // --------------------- Scissor ---------------------
+            // Like Viewport: ARB_viewport_array makes Scissor(x, y, w, h) the same as
+            // ScissorIndexed(i, x, y, w, h) for every i.
             void RenderState::SetScissorBox(IntVec4 box) {
-                if (m_parameters.ScissorBox == box) return;
-
-                m_parameters.ScissorBox = box;
-                ++m_version;
+                Bool stateChanged = false;
+                for (auto& stored : m_parameters.ScissorBoxes) {
+                    if (stored == box) continue;
+                    stored = box;
+                    stateChanged = true;
+                }
+                if (stateChanged) ++m_version;
             }
 
             const IntVec4& RenderState::GetScissorBox() const {
-                return m_parameters.ScissorBox;
+                return m_parameters.ScissorBoxes[0];
+            }
+
+            void RenderState::SetScissorBoxIndexed(Uint index, IntVec4 box) {
+                if (index >= RenderStateParameters::MAX_VIEWPORTS) {
+                    MOBILEGL_ASSERT(false, "Scissor box index out of range: %u", index);
+                    return;
+                }
+                if (m_parameters.ScissorBoxes[index] == box) return;
+
+                m_parameters.ScissorBoxes[index] = box;
+                ++m_version;
+            }
+
+            const IntVec4& RenderState::GetScissorBoxIndexed(Uint index) const {
+                if (index >= RenderStateParameters::MAX_VIEWPORTS) {
+                    MOBILEGL_ASSERT(false, "Scissor box index out of range: %u", index);
+                    return m_parameters.ScissorBoxes[0];
+                }
+                return m_parameters.ScissorBoxes[index];
             }
         } // namespace GLState
     } // namespace MG_State

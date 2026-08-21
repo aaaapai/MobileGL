@@ -6,6 +6,7 @@
 
 #include <exception>
 #include <string>
+#include <vector>
 #include <sys/stat.h>
 
 extern "C" void mobilegl_trace_set_native_window(ANativeWindow *window);
@@ -23,6 +24,23 @@ std::string ToString(JNIEnv* env, jstring value) {
         env->ReleaseStringUTFChars(value, chars);
     }
     return out;
+}
+
+std::vector<std::string> SplitSemicolonList(const std::string& value) {
+    std::vector<std::string> values;
+    std::size_t begin = 0;
+    while (begin < value.size()) {
+        const std::size_t end = value.find(';', begin);
+        const std::string entry = value.substr(begin, end - begin);
+        if (!entry.empty()) {
+            values.push_back(entry);
+        }
+        if (end == std::string::npos) {
+            break;
+        }
+        begin = end + 1;
+    }
+    return values;
 }
 
 jobject MakeResult(JNIEnv* env, const mobilegl_trace::Result& result) {
@@ -102,7 +120,12 @@ Java_top_mobilegl_plugin_trace_TraceReplayActivity_nativeRunTraceReplay(JNIEnv* 
                                                                         jboolean useAngle,
                                                                         jboolean usePbuffer,
                                                                         jboolean avoidAngleLlvmpipeSamplerMipmapMinFilter,
-                                                                        jboolean coherentAsFlush) {
+                                                                        jboolean avoidAngleLlvmpipeExplicitLodBias,
+                                                                        jboolean coherentAsFlush,
+                                                                        jboolean fixIterationRPSubgroupScratch,
+                                                                        jboolean deriveNumSubgroups,
+                                                                        jboolean iterationRPFixBarrier,
+                                                                        jstring texture2dDumps) {
     mobilegl_trace::Request request;
     request.tracePath = ToString(env, tracePath);
     request.goldenPath = ToString(env, goldenPath);
@@ -114,6 +137,7 @@ Java_top_mobilegl_plugin_trace_TraceReplayActivity_nativeRunTraceReplay(JNIEnv* 
     request.diffPath = ToString(env, diffPath);
     request.backend = ToString(env, backend);
     request.angleVariant = ToString(env, angleVariant);
+    request.texture2dDumps = SplitSemicolonList(ToString(env, texture2dDumps));
     request.targetFrame = targetFrame;
     request.targetCall = targetCall;
     request.width = width;
@@ -127,7 +151,11 @@ Java_top_mobilegl_plugin_trace_TraceReplayActivity_nativeRunTraceReplay(JNIEnv* 
     request.usePbuffer = usePbuffer == JNI_TRUE;
     request.avoidAngleLlvmpipeSamplerMipmapMinFilter =
         avoidAngleLlvmpipeSamplerMipmapMinFilter == JNI_TRUE;
+    request.avoidAngleLlvmpipeExplicitLodBias = avoidAngleLlvmpipeExplicitLodBias == JNI_TRUE;
     request.coherentAsFlush = coherentAsFlush == JNI_TRUE;
+    request.fixIterationRPSubgroupScratch = fixIterationRPSubgroupScratch == JNI_TRUE;
+    request.deriveNumSubgroups = deriveNumSubgroups == JNI_TRUE;
+    request.iterationRPFixBarrier = iterationRPFixBarrier == JNI_TRUE;
 
     ScopedTraceReplayState replayState;
     mobilegl_trace_set_requested_size(request.width, request.height);

@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cerrno>
 #include <climits>
 #include <cstdlib>
 #include <initializer_list>
@@ -23,6 +24,7 @@
 namespace {
     using MobileGL::SizeT;
     using MobileGL::String;
+    using MobileGL::Uint32;
     using MobileGL::Vector;
 
     bool IsIdentifierChar(char ch) {
@@ -179,331 +181,6 @@ namespace {
             return false;
         }
         return std::all_of(token.text.begin() + 1, token.text.end(), IsIdentifierChar);
-    }
-
-    class TokenCursor {
-    public:
-        TokenCursor(const Vector<CodeToken>& tokens, SizeT position) : m_tokens(tokens), m_position(position) {}
-
-        bool Consume(const char* expected) {
-            if (m_position >= m_tokens.size() || m_tokens[m_position].text != expected) {
-                return false;
-            }
-            ++m_position;
-            return true;
-        }
-
-        bool ConsumeAnyIdentifier(String& identifier) {
-            if (m_position >= m_tokens.size() || !IsIdentifierToken(m_tokens[m_position])) {
-                return false;
-            }
-            identifier = m_tokens[m_position++].text;
-            return true;
-        }
-
-        bool ConsumeAnyIdentifier() {
-            if (m_position >= m_tokens.size() || !IsIdentifierToken(m_tokens[m_position])) {
-                return false;
-            }
-            ++m_position;
-            return true;
-        }
-
-        bool ConsumeIdentifier(const String& expected) {
-            if (m_position >= m_tokens.size() || !IsIdentifierToken(m_tokens[m_position]) ||
-                m_tokens[m_position].text != expected) {
-                return false;
-            }
-            ++m_position;
-            return true;
-        }
-
-        SizeT Position() const { return m_position; }
-
-    private:
-        const Vector<CodeToken>& m_tokens;
-        SizeT m_position;
-    };
-
-    SizeT CountToken(const Vector<CodeToken>& tokens, const String& tokenText) {
-        return static_cast<SizeT>(std::count_if(tokens.begin(), tokens.end(),
-                                                [&](const CodeToken& token) { return token.text == tokenText; }));
-    }
-
-    bool HasIdentifierWithPrefixOutsideAllowed(const Vector<CodeToken>& tokens, const String& prefix,
-                                               std::initializer_list<const char*> allowedIdentifiers) {
-        return std::any_of(tokens.begin(), tokens.end(), [&](const CodeToken& token) {
-            if (!IsIdentifierToken(token) || !token.text.starts_with(prefix)) {
-                return false;
-            }
-            return std::none_of(allowedIdentifiers.begin(), allowedIdentifiers.end(),
-                                [&](const char* allowed) { return token.text == allowed; });
-        });
-    }
-
-    bool MatchTokenSequence(const Vector<CodeToken>& tokens, SizeT position,
-                            std::initializer_list<const char*> expected) {
-        if (position + expected.size() > tokens.size()) {
-            return false;
-        }
-        for (const char* token : expected) {
-            if (tokens[position++].text != token) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    struct LinearPrefixScanMatch {
-        SizeT sharedArraySizeBegin = 0;
-        SizeT sharedArraySizeEnd = 0;
-        SizeT scanBegin = 0;
-        SizeT scanEnd = 0;
-        String cache;
-        String importance;
-        String prefixSum;
-        String loopLength;
-        String loopIndex;
-        String sum;
-    };
-
-    bool ParseLinearPrefixScanTemplate(const Vector<CodeToken>& tokens, LinearPrefixScanMatch& match) {
-        // The workaround deliberately recognizes one complete algorithm, not merely the
-        // subgroupInclusiveAdd token. Changing scratch storage is only safe when that storage is
-        // private to this scan and the workgroup has exactly 1024 X invocations.
-        SizeT localSizeDeclarationCount = 0;
-        for (SizeT i = 0; i < tokens.size(); ++i) {
-            if (MatchTokenSequence(tokens, i, {"layout", "(", "local_size_x", "=", "1024", ")", "in", ";"})) {
-                ++localSizeDeclarationCount;
-            }
-        }
-        if (localSizeDeclarationCount != 1) {
-            return false;
-        }
-
-        SizeT sharedDeclarationIndex = String::npos;
-        SizeT sharedDeclarationCount = 0;
-        String cacheName;
-        for (SizeT i = 0; i + 6 < tokens.size(); ++i) {
-            if (tokens[i].text != "shared" || tokens[i + 1].text != "float" || !IsIdentifierToken(tokens[i + 2]) ||
-                tokens[i + 3].text != "[" || tokens[i + 4].text != "64" || tokens[i + 5].text != "]" ||
-                tokens[i + 6].text != ";") {
-                continue;
-            }
-            ++sharedDeclarationCount;
-            sharedDeclarationIndex = i;
-            cacheName = tokens[i + 2].text;
-        }
-        if (sharedDeclarationCount != 1) {
-            return false;
-        }
-
-        SizeT scanTokenIndex = String::npos;
-        SizeT scanCount = 0;
-        for (SizeT i = 0; i + 7 < tokens.size(); ++i) {
-            if (tokens[i].text == "float" && IsIdentifierToken(tokens[i + 1]) && tokens[i + 2].text == "=" &&
-                tokens[i + 3].text == "subgroupInclusiveAdd" && tokens[i + 4].text == "(" &&
-                IsIdentifierToken(tokens[i + 5]) && tokens[i + 6].text == ")" && tokens[i + 7].text == ";") {
-                ++scanCount;
-                scanTokenIndex = i;
-            }
-        }
-        if (scanCount != 1 || sharedDeclarationIndex >= scanTokenIndex) {
-            return false;
-        }
-
-        TokenCursor cursor(tokens, scanTokenIndex);
-        String prefixSum;
-        String importance;
-        String loopLength;
-        String loopIndex;
-        String sum;
-        if (!cursor.Consume("float") || !cursor.ConsumeAnyIdentifier(prefixSum) || !cursor.Consume("=") ||
-            !cursor.Consume("subgroupInclusiveAdd") || !cursor.Consume("(") ||
-            !cursor.ConsumeAnyIdentifier(importance) || !cursor.Consume(")") || !cursor.Consume(";") ||
-            !cursor.Consume("if") || !cursor.Consume("(") || !cursor.Consume("gl_SubgroupInvocationID") ||
-            !cursor.Consume("==") || !cursor.Consume("gl_SubgroupSize") || !cursor.Consume("-") ||
-            !cursor.Consume("1u") || !cursor.Consume(")") || !cursor.ConsumeIdentifier(cacheName) ||
-            !cursor.Consume("[") || !cursor.Consume("gl_SubgroupID") || !cursor.Consume("]") || !cursor.Consume("=") ||
-            !cursor.ConsumeIdentifier(prefixSum) || !cursor.Consume(";") || !cursor.Consume("barrier") ||
-            !cursor.Consume("(") || !cursor.Consume(")") || !cursor.Consume(";") || !cursor.Consume("uint") ||
-            !cursor.ConsumeAnyIdentifier(loopLength) || !cursor.Consume("=") || !cursor.Consume("uint") ||
-            !cursor.Consume("(") || !cursor.Consume("findMSB") || !cursor.Consume("(") ||
-            !cursor.Consume("gl_NumSubgroups") || !cursor.Consume(")") || !cursor.Consume(")") ||
-            !cursor.Consume(";") || !cursor.ConsumeIdentifier(loopLength) || !cursor.Consume("+=") ||
-            !cursor.Consume("uint") || !cursor.Consume("(") || !cursor.Consume("gl_NumSubgroups") ||
-            !cursor.Consume("-") || !cursor.Consume("(") || !cursor.Consume("1u") || !cursor.Consume("<<") ||
-            !cursor.Consume("(") || !cursor.ConsumeIdentifier(loopLength) || !cursor.Consume("-") ||
-            !cursor.Consume("1u") || !cursor.Consume(")") || !cursor.Consume(")") || !cursor.Consume(">") ||
-            !cursor.Consume("0u") || !cursor.Consume(")") || !cursor.Consume(";") || !cursor.Consume("for") ||
-            !cursor.Consume("(") || !cursor.Consume("uint") || !cursor.ConsumeAnyIdentifier(loopIndex) ||
-            !cursor.Consume("=") || !cursor.Consume("0") || !cursor.Consume(";") ||
-            !cursor.ConsumeIdentifier(loopIndex) || !cursor.Consume("<") || !cursor.ConsumeIdentifier(loopLength) ||
-            !cursor.Consume(";") || !cursor.ConsumeIdentifier(loopIndex) || !cursor.Consume("++") ||
-            !cursor.Consume(")") || !cursor.Consume("{") || !cursor.Consume("if") || !cursor.Consume("(") ||
-            !cursor.Consume("(") || !cursor.Consume("gl_SubgroupID") || !cursor.Consume("&") || !cursor.Consume("(") ||
-            !cursor.Consume("1u") || !cursor.Consume("<<") || !cursor.ConsumeIdentifier(loopIndex) ||
-            !cursor.Consume(")") || !cursor.Consume(")") || !cursor.Consume(">") || !cursor.Consume("0u") ||
-            !cursor.Consume(")") || !cursor.Consume("{") || !cursor.ConsumeIdentifier(prefixSum) ||
-            !cursor.Consume("+=") || !cursor.ConsumeIdentifier(cacheName) || !cursor.Consume("[") ||
-            !cursor.Consume("(") || !cursor.Consume("gl_SubgroupID") || !cursor.Consume(">>") ||
-            !cursor.ConsumeIdentifier(loopIndex) || !cursor.Consume("<<") || !cursor.ConsumeIdentifier(loopIndex) ||
-            !cursor.Consume(")") || !cursor.Consume("-") || !cursor.Consume("1u") || !cursor.Consume("]") ||
-            !cursor.Consume(";") || !cursor.Consume("if") || !cursor.Consume("(") ||
-            !cursor.Consume("gl_SubgroupInvocationID") || !cursor.Consume("==") || !cursor.Consume("gl_SubgroupSize") ||
-            !cursor.Consume("-") || !cursor.Consume("1u") || !cursor.Consume(")") ||
-            !cursor.ConsumeIdentifier(cacheName) || !cursor.Consume("[") || !cursor.Consume("gl_SubgroupID") ||
-            !cursor.Consume("]") || !cursor.Consume("=") || !cursor.ConsumeIdentifier(prefixSum) ||
-            !cursor.Consume(";") || !cursor.Consume("}") || !cursor.Consume("barrier") || !cursor.Consume("(") ||
-            !cursor.Consume(")") || !cursor.Consume(";") || !cursor.Consume("}") || !cursor.Consume("if") ||
-            !cursor.Consume("(") || !cursor.Consume("gl_LocalInvocationID") || !cursor.Consume(".") ||
-            !cursor.Consume("x") || !cursor.Consume("==") || !cursor.Consume("uint") || !cursor.Consume("(") ||
-            !cursor.Consume("1024") || !cursor.Consume("-") || !cursor.Consume("1") || !cursor.Consume(")") ||
-            !cursor.Consume(")") || !cursor.ConsumeIdentifier(cacheName) || !cursor.Consume("[") ||
-            !cursor.Consume("0") || !cursor.Consume("]") || !cursor.Consume("=") ||
-            !cursor.ConsumeIdentifier(prefixSum) || !cursor.Consume(";") || !cursor.Consume("barrier") ||
-            !cursor.Consume("(") || !cursor.Consume(")") || !cursor.Consume(";") || !cursor.Consume("float") ||
-            !cursor.ConsumeAnyIdentifier(sum) || !cursor.Consume("=") || !cursor.ConsumeIdentifier(cacheName) ||
-            !cursor.Consume("[") || !cursor.Consume("0") || !cursor.Consume("]") || !cursor.Consume(";")) {
-            return false;
-        }
-        const SizeT scanEndToken = cursor.Position() - 1;
-
-        // Require the scan's immediate consumer as well. This makes the match specific to a
-        // linear distribution warp, and avoids changing unrelated prefix scans which may rely on
-        // the implementation's native subgroup partitioning.
-        if (!cursor.Consume("float") || !cursor.ConsumeAnyIdentifier() || !cursor.Consume("=") ||
-            !cursor.Consume("(") || !cursor.ConsumeIdentifier(prefixSum) || !cursor.Consume("-") ||
-            !cursor.ConsumeIdentifier(importance) || !cursor.Consume(")") || !cursor.Consume("/") ||
-            !cursor.ConsumeIdentifier(sum) || !cursor.Consume("-") || !cursor.Consume("float") ||
-            !cursor.Consume("(") || !cursor.Consume("gl_LocalInvocationID") || !cursor.Consume(".") ||
-            !cursor.Consume("x") || !cursor.Consume("+") || !cursor.Consume("1u") || !cursor.Consume(")") ||
-            !cursor.Consume("/") || !cursor.Consume("float") || !cursor.Consume("(") || !cursor.Consume("1024") ||
-            !cursor.Consume(")") || !cursor.Consume(";")) {
-            return false;
-        }
-
-        // No other use may share the scratch array, and no additional subgroup operation or
-        // builtin may silently retain native-64 semantics after this module becomes virtual-32.
-        if (CountToken(tokens, cacheName) != 6 || CountToken(tokens, "subgroupInclusiveAdd") != 1 ||
-            CountToken(tokens, "gl_SubgroupInvocationID") != 2 || CountToken(tokens, "gl_SubgroupSize") != 2 ||
-            CountToken(tokens, "gl_SubgroupID") != 4 || CountToken(tokens, "gl_NumSubgroups") != 2 ||
-            CountToken(tokens, "gl_LocalInvocationID") != 2 || CountToken(tokens, "barrier") != 3 ||
-            CountToken(tokens, "findMSB") != 1 ||
-            HasIdentifierWithPrefixOutsideAllowed(tokens, "subgroup", {"subgroupInclusiveAdd"}) ||
-            HasIdentifierWithPrefixOutsideAllowed(
-                tokens, "gl_Subgroup",
-                {"gl_SubgroupInvocationID", "gl_SubgroupSize", "gl_SubgroupID", "gl_NumSubgroups"}) ||
-            // ARB/NV spellings of lane-width-sensitive builtins and functions
-            // (gl_SubGroupSizeARB, ballotARB, gl_WarpSizeNV, shuffleNV, ...) must block the
-            // rewrite just like their KHR counterparts: they would silently keep native-width
-            // semantics in a module rewritten to the virtual 32-lane model.
-            HasIdentifierWithPrefixOutsideAllowed(tokens, "gl_SubGroup", {}) ||
-            HasIdentifierWithPrefixOutsideAllowed(tokens, "gl_Warp", {}) ||
-            HasIdentifierWithPrefixOutsideAllowed(tokens, "gl_Thread", {}) ||
-            HasIdentifierWithPrefixOutsideAllowed(tokens, "gl_SMID", {}) ||
-            HasIdentifierWithPrefixOutsideAllowed(tokens, "ballot", {}) ||
-            HasIdentifierWithPrefixOutsideAllowed(tokens, "shuffle", {}) ||
-            HasIdentifierWithPrefixOutsideAllowed(tokens, "readInvocation", {}) ||
-            HasIdentifierWithPrefixOutsideAllowed(tokens, "readFirstInvocation", {}) ||
-            HasIdentifierWithPrefixOutsideAllowed(tokens, "anyInvocation", {}) ||
-            HasIdentifierWithPrefixOutsideAllowed(tokens, "allInvocations", {})) {
-            return false;
-        }
-
-        // The scan must be at the top level of the sole main() body. Its existing barriers already
-        // require uniform control flow; this check prevents us from introducing extra barriers in
-        // a nested branch or loop.
-        SizeT mainOpenBrace = String::npos;
-        SizeT mainCloseBrace = String::npos;
-        SizeT mainCount = 0;
-        for (SizeT i = 0; i + 4 < tokens.size(); ++i) {
-            if (!MatchTokenSequence(tokens, i, {"void", "main", "(", ")", "{"})) {
-                continue;
-            }
-            ++mainCount;
-            mainOpenBrace = i + 4;
-            int depth = 1;
-            for (SizeT j = mainOpenBrace + 1; j < tokens.size(); ++j) {
-                if (tokens[j].text == "{")
-                    ++depth;
-                else if (tokens[j].text == "}" && --depth == 0) {
-                    mainCloseBrace = j;
-                    break;
-                }
-            }
-        }
-        if (mainCount != 1 || mainCloseBrace == String::npos || scanTokenIndex <= mainOpenBrace ||
-            scanEndToken >= mainCloseBrace) {
-            return false;
-        }
-        int depthAtScan = 1;
-        for (SizeT i = mainOpenBrace + 1; i < scanTokenIndex; ++i) {
-            if (tokens[i].text == "{")
-                ++depthAtScan;
-            else if (tokens[i].text == "}")
-                --depthAtScan;
-        }
-        if (depthAtScan != 1) {
-            return false;
-        }
-
-        constexpr const char* injectedNames[] = {"mglPrefixScanLane",  "mglVirtualSubgroupInvocation",
-                                                 "mglVirtualSubgroup", "mglVirtualSubgroupBase",
-                                                 "mglPrefixLane",      "mglVirtualSubgroupCount"};
-        for (const char* injectedName : injectedNames) {
-            if (CountToken(tokens, injectedName) != 0) {
-                return false;
-            }
-        }
-
-        match.sharedArraySizeBegin = tokens[sharedDeclarationIndex + 4].begin;
-        match.sharedArraySizeEnd = tokens[sharedDeclarationIndex + 4].end;
-        match.scanBegin = tokens[scanTokenIndex].begin;
-        match.scanEnd = tokens[scanEndToken].end;
-        match.cache = std::move(cacheName);
-        match.importance = std::move(importance);
-        match.prefixSum = std::move(prefixSum);
-        match.loopLength = std::move(loopLength);
-        match.loopIndex = std::move(loopIndex);
-        match.sum = std::move(sum);
-        return true;
-    }
-
-    String BuildLinearPrefixScanReplacement(const LinearPrefixScanMatch& match) {
-        String replacement;
-        replacement.reserve(1800);
-        replacement += "uint mglPrefixScanLane = gl_LocalInvocationID.x;\n";
-        replacement += "uint mglVirtualSubgroupInvocation = mglPrefixScanLane & 31u;\n";
-        replacement += "uint mglVirtualSubgroup = mglPrefixScanLane >> 5u;\n";
-        replacement += "const uint mglVirtualSubgroupCount = 32u;\n";
-        replacement += match.cache + "[mglPrefixScanLane] = " + match.importance + ";\n";
-        replacement += "barrier();\n";
-        replacement += "float " + match.prefixSum + " = 0.0f;\n";
-        replacement += "uint mglVirtualSubgroupBase = mglVirtualSubgroup << 5u;\n";
-        replacement += "for (uint mglPrefixLane = mglVirtualSubgroupBase; "
-                       "mglPrefixLane <= mglPrefixScanLane; ++mglPrefixLane) {\n";
-        replacement += match.prefixSum + " += " + match.cache + "[mglPrefixLane];\n";
-        replacement += "}\n";
-        replacement += "barrier();\n";
-        replacement += "if (mglVirtualSubgroupInvocation == 31u) " + match.cache +
-                       "[mglVirtualSubgroup] = " + match.prefixSum + ";\n";
-        replacement += "barrier();\n";
-        replacement += "uint " + match.loopLength + " = uint(findMSB(mglVirtualSubgroupCount));\n";
-        replacement +=
-            match.loopLength + " += uint(mglVirtualSubgroupCount - (1u << (" + match.loopLength + " - 1u)) > 0u);\n";
-        replacement += "for (uint " + match.loopIndex + " = 0u; " + match.loopIndex + " < " + match.loopLength +
-                       "; ++" + match.loopIndex + ") {\n";
-        replacement += "if ((mglVirtualSubgroup & (1u << " + match.loopIndex + ")) > 0u) {\n";
-        replacement += match.prefixSum + " += " + match.cache + "[(mglVirtualSubgroup >> " + match.loopIndex + " << " +
-                       match.loopIndex + ") - 1u];\n";
-        replacement += "if (mglVirtualSubgroupInvocation == 31u) " + match.cache +
-                       "[mglVirtualSubgroup] = " + match.prefixSum + ";\n";
-        replacement += "}\nbarrier();\n}\n";
-        replacement += "if (mglPrefixScanLane == 1023u) " + match.cache + "[0] = " + match.prefixSum + ";\n";
-        replacement += "barrier();\n";
-        replacement += "float " + match.sum + " = " + match.cache + "[0];";
-        return replacement;
     }
 
     void SkipDirectiveWhitespace(const MobileGL::String& source, SizeT& pos, SizeT lineEnd) {
@@ -1142,6 +819,116 @@ namespace {
         ReplaceIdentifier(source, "GL_ARB_gpu_shader_int64", "MG_DISABLED_GL_ARB_gpu_shader_int64");
     }
 
+    // GLSL 4.30 4.1.9 allows an interface-block member array to be left unsized when it is NOT the
+    // last member; it is then implicitly sized by the largest constant index the shader uses.
+    // glslang implements the SIZING - adoptImplicitArraySizes, at link - but computes the block's
+    // member OFFSETS at DECLARATION time (fixBlockUniformOffsets), where the array is still
+    // unsized and so contributes zero bytes. Every member after it is therefore laid out on top of
+    // it: `vec4 a[]; vec4 b;` puts BOTH at offset 0, and a shader reading `b` gets `a[0]`
+    // (KHR-GL43.shader_storage_buffer_object.basic-syntax iteration 6, whose degenerate triangle
+    // rasterizes nothing at all).
+    //
+    // The source level is the only place the two can be reconciled, because the offset pass runs
+    // before a single statement has been parsed. Deliberately narrow: it fires only on a `buffer`
+    // block (no other block kind may hold an unsized member at all), only on a member that is not
+    // the last one, and only when every subscript of that member's name in the source is a decimal
+    // literal. Anything outside that shape is left exactly as it was - and the shape itself has no
+    // correct behaviour today, so the rewrite cannot take a working case away.
+    void SizeNonFinalUnsizedBufferBlockMembers(MobileGL::String& source) {
+        // Both tokens must be present for the shape to exist, and "[]" is absent from essentially
+        // every real shader source, so this is the whole cost for them.
+        if (source.find("[]") == MobileGL::String::npos || source.find("buffer") == MobileGL::String::npos) {
+            return;
+        }
+
+        const auto isDecimalInteger = [](const String& text) {
+            return !text.empty() && std::all_of(text.begin(), text.end(), [](char ch) {
+                       return ch >= '0' && ch <= '9';
+                   });
+        };
+
+        const Vector<CodeToken> tokens = TokenizeCode(source);
+        const SizeT count = tokens.size();
+
+        // Pass 1: for every identifier, the largest literal index it is subscripted with (as a
+        // count, i.e. index + 1), or -1 once it is subscripted with anything that is not a literal.
+        // The declaration's own empty `[]` is neither.
+        MobileGL::UnorderedMap<String, long long> subscriptExtent;
+        for (SizeT i = 1; i < count; ++i) {
+            if (tokens[i].text != "[" || !IsIdentifierToken(tokens[i - 1])) continue;
+            if (i + 1 < count && tokens[i + 1].text == "]") continue; // the unsized declarator itself
+            long long& extent = subscriptExtent[tokens[i - 1].text];
+            if (i + 2 < count && isDecimalInteger(tokens[i + 1].text) && tokens[i + 2].text == "]") {
+                if (extent >= 0) {
+                    extent = std::max(extent, std::strtoll(tokens[i + 1].text.c_str(), nullptr, 10) + 1);
+                }
+            } else {
+                extent = -1;
+            }
+        }
+
+        // Pass 2: one edit per repairable member, applied back to front so earlier offsets stand.
+        struct SizeEdit {
+            SizeT pos;
+            String text;
+        };
+        Vector<SizeEdit> edits;
+        for (SizeT i = 0; i < count; ++i) {
+            if (tokens[i].text != "buffer") continue;
+            SizeT cursor = i + 1;
+            // `buffer` is also a member MEMORY qualifier ("buffer vec4 position0;"), which is why
+            // the block body has to be found rather than assumed.
+            if (cursor < count && IsIdentifierToken(tokens[cursor])) ++cursor;
+            if (cursor >= count || tokens[cursor].text != "{") continue;
+
+            const SizeT bodyBegin = cursor + 1;
+            SizeT bodyEnd = bodyBegin;
+            int depth = 1;
+            while (bodyEnd < count) {
+                if (tokens[bodyEnd].text == "{") {
+                    ++depth;
+                } else if (tokens[bodyEnd].text == "}") {
+                    --depth;
+                    if (depth == 0) break;
+                }
+                ++bodyEnd;
+            }
+            if (depth != 0) continue; // unterminated; glslang will have the last word
+
+            Vector<std::pair<SizeT, SizeT>> members; // [begin, end) of each member, ';' excluded
+            SizeT memberBegin = bodyBegin;
+            for (SizeT m = bodyBegin; m < bodyEnd; ++m) {
+                if (tokens[m].text != ";") continue;
+                members.emplace_back(memberBegin, m);
+                memberBegin = m + 1;
+            }
+
+            // The LAST member is deliberately untouched: an unsized array there is a run-time
+            // sized array, which is both legal and correctly laid out already.
+            for (SizeT index = 0; index + 1 < members.size(); ++index) {
+                const SizeT begin = members[index].first;
+                const SizeT end = members[index].second;
+                if (end < begin + 3) continue;
+                if (tokens[end - 1].text != "]" || tokens[end - 2].text != "[") continue;
+                if (!IsIdentifierToken(tokens[end - 3])) continue;
+                // A multi-declarator member would need one size per declarator; out of scope.
+                bool multipleDeclarators = false;
+                for (SizeT t = begin; t < end; ++t) {
+                    if (tokens[t].text == ",") multipleDeclarators = true;
+                }
+                if (multipleDeclarators) continue;
+                const auto known = subscriptExtent.find(tokens[end - 3].text);
+                if (known == subscriptExtent.end() || known->second <= 0) continue;
+                edits.push_back({tokens[end - 1].begin, std::to_string(known->second)});
+            }
+            i = bodyEnd;
+        }
+
+        for (auto it = edits.rbegin(); it != edits.rend(); ++it) {
+            source.insert(it->pos, it->text);
+        }
+    }
+
     // Rewrite the `packed` / `shared` block-packing qualifiers inside layout(...) declarations to
     // `std140`. Desktop GL leaves the memory layout of such blocks to the implementation and the
     // app must query member offsets; MobileGL's SPIR-V pipeline always lays uniform blocks out as
@@ -1253,117 +1040,6 @@ namespace {
 namespace MobileGL {
     namespace MG_Util {
         namespace ShaderTranspiler {
-            Bool RewriteLinearSubgroupPrefixScanForVulkan(ShaderStage stage, Uint32 nativeSubgroupSize,
-                                                          String& source) {
-                constexpr Uint32 capturedSubgroupSize = 32;
-                if (stage != ShaderStage::Compute || nativeSubgroupSize <= capturedSubgroupSize ||
-                    nativeSubgroupSize % capturedSubgroupSize != 0) {
-                    return false;
-                }
-
-                // Vulkan subgroup widths are powers of two. Keep the workaround restricted to
-                // wider widths which are a power-of-two multiple of the captured 32-lane model.
-                const Uint32 subgroupScale = nativeSubgroupSize / capturedSubgroupSize;
-                if ((subgroupScale & (subgroupScale - 1u)) != 0u) {
-                    return false;
-                }
-
-                const Vector<CodeToken> tokens = TokenizeCode(source);
-                LinearPrefixScanMatch match;
-                if (!ParseLinearPrefixScanTemplate(tokens, match)) {
-                    // Diagnosability: when the trigger op is present but the template no longer
-                    // matches (e.g. the pack shipped a new shader revision), the affected device
-                    // silently falls back to the driver's miscompiled path. Make that visible.
-                    if (CountToken(tokens, "subgroupInclusiveAdd") > 0) {
-                        MGLOG_W("%s: subgroupInclusiveAdd present but the linear prefix-scan template "
-                                "did not match; the wide-subgroup rewrite was NOT applied",
-                                __func__);
-                    }
-                    return false;
-                }
-
-                const String replacement = BuildLinearPrefixScanReplacement(match);
-                source.replace(match.scanBegin, match.scanEnd - match.scanBegin, replacement);
-                // The declaration occurs before the replaced scan, so its original offsets remain
-                // valid after the first replacement.
-                source.replace(match.sharedArraySizeBegin, match.sharedArraySizeEnd - match.sharedArraySizeBegin,
-                               "1024");
-                return true;
-            }
-
-            namespace {
-                struct ShaderSourceQuirkContext {
-                    ShaderStage stage = ShaderStage::Unknown;
-                    BackendType backend = BackendType::Unknown;
-                    MG_Backend::GpuVendorKind vendor = MG_Backend::GpuVendorKind::Unknown;
-                    Uint32 subgroupSize = 0;
-                };
-
-                // Device-quirk registry. Every entry is a narrowly scoped source rewrite that
-                // works around a specific driver defect. A quirk runs when its env override
-                // forces it on, or when the override is Auto and DeviceApplies matches the
-                // detected device. ForceOn bypasses only the device gate - each Apply keeps
-                // its own structural safety checks. Add new per-device workarounds here
-                // instead of open-coding them in PreprocessShaderSource.
-                struct ShaderSourceQuirk {
-                    const char* name;
-                    // Reads the override out of the captured env, never out of the live
-                    // MG_Config table: a worker must see the same config the GL thread saw.
-                    MG_Config::QuirkOverride (*GetOverride)(const CompileEnv&);
-                    Bool (*DeviceApplies)(const ShaderSourceQuirkContext&);
-                    Bool (*Apply)(const ShaderSourceQuirkContext&, String&);
-                };
-
-                constexpr ShaderSourceQuirk kShaderSourceQuirks[] = {
-                    {
-                        // MOBILEGL_QUIRK_SUBGROUP_PREFIX_SCAN
-                        "subgroup-prefix-scan-rewrite",
-                        [](const CompileEnv& env) { return env.subgroupPrefixScanQuirk; },
-                        [](const ShaderSourceQuirkContext& ctx) {
-                            // Qualcomm's Vulkan driver miscompiles the recognized float
-                            // InclusiveScan pattern for native subgroups wider than the
-                            // captured 32 lanes; other vendors compile it correctly and
-                            // should keep their native scan.
-                            return ctx.backend == BackendType::DirectVulkan &&
-                                   ctx.vendor == MG_Backend::GpuVendorKind::Qualcomm;
-                        },
-                        [](const ShaderSourceQuirkContext& ctx, String& source) {
-                            return RewriteLinearSubgroupPrefixScanForVulkan(ctx.stage, ctx.subgroupSize,
-                                                                            source);
-                        },
-                    },
-                };
-
-                void ApplyShaderSourceQuirks(const CompileEnv& env, ShaderStage stage, String& source) {
-                    // No backend at capture time means no device to match a quirk against,
-                    // and (as before) no quirk can fire - not even a forced one, because
-                    // every Apply reads device parameters that do not exist yet.
-                    if (!env.HasBackend()) {
-                        return;
-                    }
-                    const ShaderSourceQuirkContext quirkContext{
-                        stage,
-                        env.backend,
-                        env.params.GpuVendor,
-                        env.params.SubgroupSize,
-                    };
-                    for (const ShaderSourceQuirk& quirk : kShaderSourceQuirks) {
-                        const MG_Config::QuirkOverride quirkOverride = quirk.GetOverride(env);
-                        if (quirkOverride == MG_Config::QuirkOverride::ForceOff) {
-                            continue;
-                        }
-                        if (quirkOverride == MG_Config::QuirkOverride::Auto &&
-                            !quirk.DeviceApplies(quirkContext)) {
-                            continue;
-                        }
-                        if (quirk.Apply(quirkContext, source)) {
-                            MGLOG_I("ApplyShaderSourceQuirks: applied '%s'%s", quirk.name,
-                                    quirkOverride == MG_Config::QuirkOverride::ForceOn ? " (forced on)" : "");
-                        }
-                    }
-                }
-            } // namespace
-
             void PreprocessShaderSource(ShaderStage stage, String& source) {
                 PreprocessShaderSource(stage, source, *GetCurrentCompileEnv());
             }
@@ -1397,13 +1073,17 @@ namespace MobileGL {
 
                 FilterUnsupportedGpuShaderInt64(env, source);
                 CoerceUniformBlockPackingToStd140(source);
+                // After the packing coercion: that one rewrites `packed`/`shared` in place and so
+                // cannot move an offset this pass depends on, and reading the block declarations
+                // once both qualifiers are normalized keeps the two passes' notions of a block
+                // declaration identical.
+                SizeNonFinalUnsizedBufferBlockMembers(source);
 
                 RenameBuiltinShadowingFunctions(source);
 
                 ModernizeLegacyGLSL(stage, source, afterVersion);
                 InjectDepthRangeBuiltinShim(stage, source, afterVersion);
 
-                ApplyShaderSourceQuirks(env, stage, source);
             }
 
             Bool RetargetLegacyVersionDirectiveTo460(String& source) {
@@ -1549,10 +1229,65 @@ namespace MobileGL {
                     return false;
                 }
 
-                bool IsDecimalIntegerToken(const String& text) {
-                    if (text.empty()) return false;
-                    return std::all_of(text.begin(), text.end(),
-                                       [](char ch) { return ch >= '0' && ch <= '9'; });
+                // One GLSL integer literal, spelled the C way: "0x"/"0X" is hexadecimal, a leading
+                // '0' is OCTAL, everything else decimal, and a single trailing 'u'/'U' is legal.
+                // strtoll with base 0 already implements exactly that detection, so the only work
+                // here is deciding what the tail is allowed to be.
+                //
+                // Never guesses, which is the discipline every caller depends on: a float ("1.0"),
+                // an unknown suffix ("3f"), an out-of-range run and a negative value all return
+                // false, and the caller skips the declaration rather than recording a wrong number.
+                bool ParseGlslIntegerLiteral(const String& text, long long& out) {
+                    if (text.empty() || text.front() < '0' || text.front() > '9') return false;
+                    errno = 0;
+                    char* tail = nullptr;
+                    const long long value = std::strtoll(text.c_str(), &tail, 0);
+                    if (tail == text.c_str() || errno == ERANGE || value < 0) return false;
+                    const String suffix = text.substr(static_cast<SizeT>(tail - text.c_str()));
+                    if (!suffix.empty() && suffix != "u" && suffix != "U") return false;
+                    out = value;
+                    return true;
+                }
+
+                // glslang reflects an array-of-arrays default-block uniform as ONE RECORD PER
+                // outer-index tuple, carrying the innermost array type: `float u[2][3]` becomes
+                // "u[0][0]" and "u[1][0]" (that last "[0]" is EShReflectionBasicArraySuffix). The
+                // linker resolves such a name by stripping the single trailing "[0]", so it looks
+                // up "u[1]" - a key the root entry alone cannot answer, and the whole declaration
+                // silently loses its explicit location.
+                //
+                // Emit those pre-flattened keys here, next to the root, so the result is
+                // order-independent: each carries the location its own element starts at (element
+                // i of `float u[2][3]` at location L starts at L + i*3). Identifiers cannot
+                // contain brackets, so a synthesized key never collides with a real uniform name,
+                // and a 1-D array needs none of this - stripping "[0]" already reaches the root.
+                void RecordArrayOfArraysElementLocations(const String& name, const Vector<long long>& dimensions,
+                                                         long long baseLocation,
+                                                         MobileGL::UnorderedMap<String, MobileGL::Int>& locations) {
+                    if (dimensions.size() < 2) return;
+                    // A pathological declaration must not be able to blow up the map; past the cap
+                    // only the root entry stands, which is what every case used to get.
+                    constexpr long long kMaxSynthesizedKeys = 4096;
+                    const long long innerSpan = dimensions.back();
+                    const SizeT outerDimensions = dimensions.size() - 1;
+                    long long elementCount = 1;
+                    for (SizeT d = 0; d < outerDimensions; ++d) {
+                        elementCount *= dimensions[d];
+                        if (elementCount > kMaxSynthesizedKeys) return;
+                    }
+                    for (long long element = 0; element < elementCount; ++element) {
+                        String key = name;
+                        long long remainder = element;
+                        for (SizeT d = 0; d < outerDimensions; ++d) {
+                            long long stride = 1;
+                            for (SizeT inner = d + 1; inner < outerDimensions; ++inner) stride *= dimensions[inner];
+                            key += "[" + std::to_string(remainder / stride) + "]";
+                            remainder %= stride;
+                        }
+                        locations.emplace(key, static_cast<MobileGL::Int>(
+                                                   std::min(baseLocation + element * innerSpan,
+                                                            static_cast<long long>(INT_MAX / 2))));
+                    }
                 }
 
                 // Parses one brace-free depth-0 statement [begin, end) and records its
@@ -1565,6 +1300,7 @@ namespace MobileGL {
                                                        MobileGL::UnorderedMap<String, MobileGL::Int>& locations) {
                     using MobileGL::Int;
                     long long location = -1;
+                    long long literal = 0;
                     bool sawUniform = false;
                     SizeT declaratorBegin = end;
 
@@ -1580,9 +1316,9 @@ namespace MobileGL {
                                 } else if (layoutToken == ")") {
                                     --parenDepth;
                                 } else if (parenDepth == 1 && layoutToken == "location" && j + 2 < end &&
-                                           tokens[j + 1].text == "=" && IsDecimalIntegerToken(tokens[j + 2].text)) {
-                                    location = std::min(std::strtoll(tokens[j + 2].text.c_str(), nullptr, 10),
-                                                        static_cast<long long>(INT_MAX / 2));
+                                           tokens[j + 1].text == "=" &&
+                                           ParseGlslIntegerLiteral(tokens[j + 2].text, literal)) {
+                                    location = std::min(literal, static_cast<long long>(INT_MAX / 2));
                                     j += 2;
                                 }
                                 ++j;
@@ -1611,21 +1347,25 @@ namespace MobileGL {
                         const String& name = tokens[k].text;
                         ++k;
                         long long span = 1;
+                        Vector<long long> dimensions;
                         while (k < end && tokens[k].text == "[") {
                             ++k;
                             long long dimension = 1;
-                            if (k < end && IsDecimalIntegerToken(tokens[k].text)) {
-                                dimension = std::strtoll(tokens[k].text.c_str(), nullptr, 10);
+                            if (k < end && ParseGlslIntegerLiteral(tokens[k].text, literal)) {
+                                dimension = literal;
                                 ++k;
                             }
                             if (k >= end || tokens[k].text != "]") return; // sized by expression; bail out
                             ++k;
-                            span *= std::max(1ll, std::min(dimension, static_cast<long long>(INT_MAX / 2)));
+                            dimensions.push_back(
+                                std::max(1ll, std::min(dimension, static_cast<long long>(INT_MAX / 2))));
+                            span *= dimensions.back();
                         }
                         // Keep the first sighting: a duplicate can only come from alternative
                         // preprocessor branches declaring the same name.
                         locations.emplace(name, static_cast<Int>(std::min(
                                                     nextLocation, static_cast<long long>(INT_MAX / 2))));
+                        RecordArrayOfArraysElementLocations(name, dimensions, nextLocation, locations);
                         nextLocation += span;
                         if (k >= end) break;
                         if (tokens[k].text == "=") { // skip an initializer up to the declarator comma
@@ -1661,6 +1401,7 @@ namespace MobileGL {
                                                      MobileGL::UnorderedMap<String, MobileGL::Uint>& bindings) {
                     using MobileGL::Int;
                     long long binding = -1;
+                    long long literal = 0;
                     bool sawUniform = false;
                     SizeT declaratorBegin = end;
 
@@ -1676,9 +1417,9 @@ namespace MobileGL {
                                 } else if (layoutToken == ")") {
                                     --parenDepth;
                                 } else if (parenDepth == 1 && layoutToken == "binding" && j + 2 < end &&
-                                           tokens[j + 1].text == "=" && IsDecimalIntegerToken(tokens[j + 2].text)) {
-                                    binding = std::min(std::strtoll(tokens[j + 2].text.c_str(), nullptr, 10),
-                                                       static_cast<long long>(INT_MAX / 2));
+                                           tokens[j + 1].text == "=" &&
+                                           ParseGlslIntegerLiteral(tokens[j + 2].text, literal)) {
+                                    binding = std::min(literal, static_cast<long long>(INT_MAX / 2));
                                     j += 2;
                                 }
                                 ++j;
@@ -1711,7 +1452,7 @@ namespace MobileGL {
                         ++k;
                         while (k < end && tokens[k].text == "[") {
                             ++k;
-                            if (k < end && IsDecimalIntegerToken(tokens[k].text)) ++k;
+                            if (k < end && ParseGlslIntegerLiteral(tokens[k].text, literal)) ++k;
                             if (k >= end || tokens[k].text != "]") return; // sized by expression; bail out
                             ++k;
                         }
@@ -1766,6 +1507,100 @@ namespace MobileGL {
                     pos = statementEnd + 1;
                 }
                 return bindings;
+            }
+
+            namespace {
+                // Binding points a storage-block declaration starting at `bufferPos` occupies.
+                // One for a scalar instance (and for the "layout(...) buffer;" default-qualifier
+                // form, which declares no block at all); the element count for an instance array,
+                // whose elements take base, base+1, ... (GLSL 4.30 4.4.5). -1 means "the grammar
+                // here is outside this scanner's narrow subset", i.e. do not judge this one.
+                long long StorageBlockBindingPointCount(const Vector<CodeToken>& tokens, SizeT bufferPos,
+                                                        SizeT count) {
+                    SizeT k = bufferPos + 1;
+                    if (k < count && IsIdentifierToken(tokens[k])) ++k; // block type name
+                    if (k >= count || tokens[k].text != "{") return 1;
+
+                    MobileGL::Int braceDepth = 0;
+                    while (k < count) {
+                        if (tokens[k].text == "{") {
+                            ++braceDepth;
+                        } else if (tokens[k].text == "}") {
+                            --braceDepth;
+                            if (braceDepth == 0) {
+                                ++k;
+                                break;
+                            }
+                        }
+                        ++k;
+                    }
+                    if (braceDepth != 0) return -1; // unterminated block: not this scanner's business
+
+                    if (k < count && IsIdentifierToken(tokens[k])) ++k; // instance name
+                    if (k >= count || tokens[k].text != "[") return 1;
+                    long long elementCount = 0;
+                    if (k + 2 < count && ParseGlslIntegerLiteral(tokens[k + 1].text, elementCount) &&
+                        tokens[k + 2].text == "]") {
+                        return std::max<long long>(1, elementCount);
+                    }
+                    return -1; // sized by an expression, or unsized
+                }
+            } // namespace
+
+            std::optional<String> FindShaderStorageBindingViolation(const String& source, Int maxBindings) {
+                // A backend that advertises nothing has no ceiling to enforce.
+                if (maxBindings <= 0) return std::nullopt;
+                // Fast path: no storage block, nothing to check. Both keywords are required for a
+                // violation to exist, and the pair is absent from almost every shader-pack source.
+                if (source.find("buffer") == String::npos || source.find("binding") == String::npos) {
+                    return std::nullopt;
+                }
+
+                const Vector<CodeToken> tokens = TokenizeCode(source);
+                const SizeT count = tokens.size();
+                // The binding the qualifier run currently being scanned declared, -1 for none.
+                // Several layout(...) lists may precede one declaration and the later one wins,
+                // which is the same accumulate-then-consume shape the extractors above use.
+                long long binding = -1;
+                long long literal = 0;
+                for (SizeT pos = 0; pos < count; ++pos) {
+                    const String& text = tokens[pos].text;
+                    if (text == "layout" && pos + 1 < count && tokens[pos + 1].text == "(") {
+                        SizeT j = pos + 2;
+                        Int parenDepth = 1;
+                        while (j < count && parenDepth > 0) {
+                            const String& layoutToken = tokens[j].text;
+                            if (layoutToken == "(") {
+                                ++parenDepth;
+                            } else if (layoutToken == ")") {
+                                --parenDepth;
+                            } else if (parenDepth == 1 && layoutToken == "binding" && j + 2 < count &&
+                                       tokens[j + 1].text == "=" &&
+                                       ParseGlslIntegerLiteral(tokens[j + 2].text, literal)) {
+                                binding = std::min(literal, static_cast<long long>(INT_MAX / 2));
+                                j += 2;
+                            }
+                            ++j;
+                        }
+                        pos = j - 1;
+                        continue;
+                    }
+                    if (text == "buffer") {
+                        const long long points = binding >= 0 ? StorageBlockBindingPointCount(tokens, pos, count) : -1;
+                        if (points > 0 && binding + points > static_cast<long long>(maxBindings)) {
+                            return "ERROR: invalid value " + std::to_string(binding) +
+                                   " for layout specifier 'binding': a shader storage block occupying " +
+                                   std::to_string(points) + " binding point(s) from there passes " +
+                                   "GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS (" + std::to_string(maxBindings) + ").";
+                        }
+                        binding = -1;
+                        continue;
+                    }
+                    // Qualifiers may sit between the layout list and the `buffer` keyword; anything
+                    // else ends the run, so a binding never leaks onto an unrelated declaration.
+                    if (!IsNonLayoutQualifierKeyword(text)) binding = -1;
+                }
+                return std::nullopt;
             }
 
             UnorderedMap<String, Int> ExtractExplicitUniformLocations(const String& source) {

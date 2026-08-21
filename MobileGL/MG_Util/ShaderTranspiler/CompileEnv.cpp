@@ -28,6 +28,9 @@ namespace MobileGL::MG_Util::ShaderTranspiler {
         HashValue(state, env.maxComputeWorkGroupSize[0]);
         HashValue(state, env.maxComputeWorkGroupSize[1]);
         HashValue(state, env.maxComputeWorkGroupSize[2]);
+        HashValue(state, env.maxComputeWorkGroupCount[0]);
+        HashValue(state, env.maxComputeWorkGroupCount[1]);
+        HashValue(state, env.maxComputeWorkGroupCount[2]);
         HashValue(state, env.maxComputeWorkGroupInvocations);
         HashValue(state, env.backend);
         // DynamicBackendParameters is a plain aggregate of scalars; hashing its object
@@ -38,7 +41,51 @@ namespace MobileGL::MG_Util::ShaderTranspiler {
             HashBytes(state, env.advertisedExtensions.data(),
                       env.advertisedExtensions.size() * sizeof(GLExtension));
         }
-        HashValue(state, env.subgroupPrefixScanQuirk);
+        return state;
+    }
+
+    Uint64 ComputeFrontendCompileEnvFingerprint(const CompileEnv& env) {
+        Uint64 state = 0xff51afd7ed558ccdull;
+        // The DynamicBackendParameters limits BuildTBuiltInResource copies into
+        // TBuiltInResource. Enumerated ONE BY ONE rather than hashed as a struct,
+        // deliberately: hashing all of DynamicBackendParameters would drag ~50 backend-only
+        // limits into a key that is supposed to be backend-agnostic, and every one of them
+        // would be a false miss. Keep this list in step with BuildTBuiltInResource.
+        HashValue(state, env.params.MaxImageUnits);
+        HashValue(state, env.params.MaxDrawBuffers);
+        HashValue(state, env.params.MaxVertexImageUniforms);
+        HashValue(state, env.params.MaxGeometryImageUniforms);
+        HashValue(state, env.params.MaxFragmentImageUniforms);
+        HashValue(state, env.params.MaxComputeImageUniforms);
+        HashValue(state, env.params.MaxCombinedImageUniforms);
+        // Added when wave3 (cb155c5b) made this one env-derived. It expands into the
+        // gl_MaxComputeTextureImageUnits built-in constant, so a compute module that reads
+        // that constant generates DIFFERENT SPIR-V under two backends that disagree on it.
+        HashValue(state, env.params.MaxComputeTextureImageUnits);
+        // Added when wave4 (4fc3531d) made this one env-derived, and the same class again:
+        // glslang REJECTS gl_ClipDistance[i] for i >= maxClipDistances at parse (ParseHelper)
+        // and expands gl_MaxClipDistances from the same number, so it decides both whether a
+        // shader compiles at all and what a module that reads the constant generates.
+        HashValue(state, env.params.MaxClipDistances);
+        // The compute work-group limits, likewise added by wave3 (cb155c5b). They used to be
+        // hardcoded maxima in BuildTBuiltInResource, and the L1 key comment said in so many
+        // words that the day they became backend-derived they would have to move in here -
+        // that day is this merge. glslang expands BOTH of them into built-in constants
+        // (Initialize.cpp: "const ivec3 gl_MaxComputeWorkGroupCount = ivec3(%d,%d,%d)" and the
+        // same for gl_MaxComputeWorkGroupSize), so this is an INDEPENDENCE break, not merely a
+        // reachability one: a compute shader that reads gl_MaxComputeWorkGroupSize compiles to
+        // materially different SPIR-V on a driver reporting z=64 than on one reporting z=1024.
+        for (Uint index = 0; index < 3; ++index) {
+            HashValue(state, env.maxComputeWorkGroupSize[index]);
+            HashValue(state, env.maxComputeWorkGroupCount[index]);
+        }
+        // The two inputs to GetReflectionVertexAttribLimit. Hashed as inputs rather than as
+        // the resolved limit so this stays in one translation unit; that is coarser (two
+        // envs whose MaxVertexAttribs both exceed the storage capacity resolve to the same
+        // limit yet hash differently) but coarser means a false MISS, never a false hit.
+        HashValue(state, env.params.MaxVertexAttribs);
+        const Uint8 hasBackend = env.HasBackend() ? 1u : 0u;
+        HashValue(state, hasBackend);
         return state;
     }
 
@@ -52,19 +99,23 @@ namespace MobileGL::MG_Util::ShaderTranspiler {
             env->advertisedExtensions = activeBackend->GetRendererInfo().RendererGLInfo.Extensions;
         }
 
-        // GL_MAX_COMPUTE_WORK_GROUP_SIZE. This is a REAL driver call on DirectGLES; it must
-        // happen here, on the context thread, and exactly once per context. The frontend
-        // minimum is the floor, matching what GL_Getter reports.
-        // TODO: Share these exposed compute limit helpers with GL_Getter.cpp instead of duplicating the frontend minima.
-        constexpr Uint kFrontendMinComputeWorkGroupSizes[3] = {1024, 1024, 64};
+        // GL_MAX_COMPUTE_WORK_GROUP_SIZE / _COUNT. These are REAL driver calls on DirectGLES; they
+        // must happen here, on the context thread, and exactly once per context. The frontend
+        // minimum is the floor, matching what GL_Getter reports - both sides now floor at the
+        // shared MIN_COMPUTE_WORK_GROUP_* constants rather than at their own copy of them.
         for (Uint index = 0; index < 3; ++index) {
-            Int backendValue = 0;
+            Int backendSize = 0;
+            Int backendCount = 0;
             if (MG_Backend::gBackendFunctionsTable.GL.GetIntegeri_v) {
                 MG_Backend::gBackendFunctionsTable.GL.GetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, index,
-                                                                    &backendValue);
+                                                                    &backendSize);
+                MG_Backend::gBackendFunctionsTable.GL.GetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_COUNT, index,
+                                                                    &backendCount);
             }
             env->maxComputeWorkGroupSize[index] =
-                std::max(static_cast<Uint>(std::max(backendValue, 0)), kFrontendMinComputeWorkGroupSizes[index]);
+                std::max(static_cast<Uint>(std::max(backendSize, 0)), MIN_COMPUTE_WORK_GROUP_SIZE[index]);
+            env->maxComputeWorkGroupCount[index] =
+                std::max(static_cast<Uint>(std::max(backendCount, 0)), MIN_COMPUTE_WORK_GROUP_COUNT[index]);
         }
 
         constexpr Uint64 kFrontendMaxComputeWorkGroupInvocations = 1024;
@@ -73,9 +124,8 @@ namespace MobileGL::MG_Util::ShaderTranspiler {
                                      kFrontendMaxComputeWorkGroupInvocations)
                           : kFrontendMaxComputeWorkGroupInvocations;
 
-        env->subgroupPrefixScanQuirk = MG_Config::Features.SubgroupPrefixScanQuirk;
-
         env->fingerprint = ComputeCompileEnvFingerprint(*env);
+        env->frontendFingerprint = ComputeFrontendCompileEnvFingerprint(*env);
         return env;
     }
 
@@ -84,8 +134,8 @@ namespace MobileGL::MG_Util::ShaderTranspiler {
         // computed, and this must not run before MG_Config is loaded.
         static const SharedPtr<const CompileEnv> kDefault = [] {
             auto env = MakeShared<CompileEnv>();
-            env->subgroupPrefixScanQuirk = MG_Config::Features.SubgroupPrefixScanQuirk;
             env->fingerprint = ComputeCompileEnvFingerprint(*env);
+            env->frontendFingerprint = ComputeFrontendCompileEnvFingerprint(*env);
             return SharedPtr<const CompileEnv>(Move(env));
         }();
         return kDefault;

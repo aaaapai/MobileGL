@@ -11,6 +11,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
     env:
       CCACHE_BASEDIR: ${{ github.workspace }}
       CCACHE_COMPRESS: "true"
@@ -41,12 +44,11 @@ jobs:
           gradle-version: 8.10.2
 
       - name: Restore ccache
-        uses: actions/cache@v5
+        uses: actions/cache/restore@v5
         with:
           path: .ccache
-          key: ${{ runner.os }}-apk-${{ github.job }}-ccache-${{ github.ref_name }}-${{ github.run_id }}
+          key: ${{ runner.os }}-apk-${{ github.job }}-ccache-v1
           restore-keys: |
-            ${{ runner.os }}-apk-${{ github.job }}-ccache-${{ github.ref_name }}-
             ${{ runner.os }}-apk-${{ github.job }}-ccache-
 
       - name: Install ccache
@@ -125,6 +127,28 @@ jobs:
         if: always()
         run: ccache --show-stats
 
+      # Rewrite one rolling entry per job on the default branch. The upload stays
+      # cumulative - it carries every object restored at the top of this run plus
+      # the few TUs that actually changed - but Actions cache keys are immutable,
+      # so the superseded blob has to be released before the same key can be
+      # re-uploaded. Running after the build means a failed build leaves the
+      # existing entry untouched. The other trigger branches restore this entry
+      # rather than each writing a ~4 GB one of their own.
+      - name: Release superseded ccache entry
+        if: github.ref_name == github.event.repository.default_branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CACHE_KEY: ${{ runner.os }}-apk-${{ github.job }}-ccache-v1
+        run: gh cache delete "${CACHE_KEY}" || true
+
+      - name: Save ccache
+        if: github.ref_name == github.event.repository.default_branch
+        continue-on-error: true
+        uses: actions/cache/save@v5
+        with:
+          path: .ccache
+          key: ${{ runner.os }}-apk-${{ github.job }}-ccache-v1
+
       - name: Verify APK metadata and packaging
         run: |
           AAPT2="$(find "$ANDROID_HOME/build-tools" -name aapt2 -type f | sort -V | tail -n 1)"
@@ -185,7 +209,7 @@ jobs:
       - name: Load trace cases
         id: trace-cases
         run: |
-          echo "android=$(python3 tools/trace_replay/trace_cases.py --ci --format github-apk)" >> "$GITHUB_OUTPUT"
+          echo "android=$(python3 tools/trace_replay/trace_cases.py --ci --format github-apk-matrix)" >> "$GITHUB_OUTPUT"
           echo "names=$(python3 tools/trace_replay/trace_cases.py --ci --format names)" >> "$GITHUB_OUTPUT"
 
   trace-fixtures:
@@ -313,13 +337,7 @@ jobs:
     strategy:
       fail-fast: false
       max-parallel: 4
-      matrix:
-        backend:
-          - name: DirectGLES
-            gpu: software
-          - name: DirectVulkan
-            gpu: lavapipe
-        case: ${{ fromJSON(needs.trace-cases.outputs.android) }}
+      matrix: ${{ fromJSON(needs.trace-cases.outputs.android) }}
     steps:
       - name: Set Swap Space
         uses: pierotofy/set-swap-space@v1.0
@@ -402,6 +420,9 @@ jobs:
           MOBILEGL_USE_ANGLE: ${{ matrix.backend.name == 'DirectGLES' && '1' || '0' }}
           MOBILEGL_TRACE_ANGLE_VARIANT: ${{ matrix.case.name == 'minecraft-1.21.4-fabric-iris-bliss-in-world' && '90a62123d794' || 'ec889e6ea831' }}
           MOBILEGL_MAGMA_R11G11B10F_FALLBACK: ${{ matrix.backend.name == 'DirectVulkan' && '1' || '0' }}
+          MOBILEGL_FIX_ITERATIONRP_SUBGROUP_SCRATCH: ${{ matrix.backend.name == 'DirectVulkan' && matrix.case.name == 'minecraft-1.21.4-fabric-iris-iterationrp-in-world' && '1' || '0' }}
+          MOBILEGL_DERIVE_NUM_SUBGROUPS: ${{ matrix.backend.name == 'DirectVulkan' && matrix.case.name == 'minecraft-1.21.4-fabric-iris-iterationrp-in-world' && '1' || '0' }}
+          MOBILEGL_ITERATIONRP_FIX_BARRIER: ${{ matrix.backend.name == 'DirectVulkan' && matrix.case.name == 'minecraft-1.21.4-fabric-iris-iterationrp-in-world' && '1' || '0' }}
         run: |
           apk_file="android-retrace-apks/MobileGL-plugin-trace-release-${GITHUB_SHA}.apk"
           test -f "${apk_file}"
@@ -410,6 +431,9 @@ jobs:
           # min-filter downgrading on ANGLE llvmpipe.
           if [ "${{ matrix.backend.name }}" = "DirectGLES" ] && [ "${{ matrix.case.name }}" = "minecraft-1.21.4-fabric-iris-bliss-in-world" ]; then
             extra_retrace_args+=(--avoid-angle-llvmpipe-sampler-mipmap-min-filter)
+          fi
+          if [ "${{ matrix.backend.name }}" = "DirectGLES" ] && [ "${{ matrix.case.avoid_angle_llvmpipe_explicit_lod_bias || false }}" = "true" ]; then
+            extra_retrace_args+=(--avoid-angle-llvmpipe-explicit-lod-bias)
           fi
           if [ "${{ matrix.case.coherent_as_flush || false }}" = "true" ]; then
             extra_retrace_args+=(--coherent-as-flush)

@@ -34,6 +34,42 @@ namespace {
         GLint maxFragmentImageUniforms = 4;
         GLint maxComputeImageUniforms = 5;
         bool maxGeometryImageUniformsQueried = false;
+        // Per-stage GL_MAX_*_SHADER_STORAGE_BLOCKS. The vertex and fragment pnames are ES 3.1,
+        // but the tessellation and geometry ones only exist from ES 3.2 on, so asking for them
+        // on an older context raises GL_INVALID_ENUM - the same shape as the buffer-texture and
+        // anisotropy probes. The "queried" flags are what pin that gating; the "raises error"
+        // knob is what pins the drain.
+        GLint maxTessControlSsboBlocks = 6;
+        GLint maxTessEvaluationSsboBlocks = 7;
+        GLint maxGeometrySsboBlocks = 8;
+        GLint maxFragmentSsboBlocks = 9;
+        bool tessAndGeometrySsboBlocksQueried = false;
+        bool perStageSsboBlockQueryRaisesError = false;
+        // GL_MAX_CLIP_DISTANCES. Not ES core in any version - it exists only as
+        // GL_MAX_CLIP_DISTANCES_EXT under GL_EXT_clip_cull_distance - so asking a driver without
+        // the extension raises GL_INVALID_ENUM and leaves the out-param untouched. The "queried"
+        // flag is what pins the gating; the "raises error" knob is what pins the drain.
+        GLint maxClipDistances = 8;
+        bool maxClipDistancesQueried = false;
+        bool clipDistanceQueryRaisesError = false;
+        // GL_MAX_VIEWPORTS / GL_VIEWPORT_SUBPIXEL_BITS / GL_VIEWPORT_BOUNDS_RANGE are
+        // GL_OES_viewport_array state and, like the clip-distance pname, exist nowhere in ES core.
+        GLint maxViewports = 32;
+        GLint viewportSubpixelBits = 8;
+        bool viewportArrayLimitsQueried = false;
+        // GL_LAYER_PROVOKING_VERTEX is ES 3.2 core; GL_VIEWPORT_INDEX_PROVOKING_VERTEX comes with
+        // GL_OES_viewport_array. Both must go unasked where they do not exist, and a driver answer
+        // outside the four legal conventions must not be forwarded as one.
+        GLint layerProvokingVertex = GL_FIRST_VERTEX_CONVENTION;
+        GLint viewportIndexProvokingVertex = GL_LAST_VERTEX_CONVENTION;
+        bool layerProvokingVertexQueried = false;
+        // A driver rejecting one of the UNCONDITIONAL probes. GL_SMOOTH_LINE_WIDTH_RANGE is the
+        // realistic one - it is desktop-only state that every GLES driver refuses - and it stands
+        // in for the whole run: whatever it leaves behind must not reach the application.
+        bool smoothLineWidthQueryRaisesError = false;
+        // What the driver answers for the four multisample ceilings. Zero is the value that has
+        // to be floored away: the frontend would otherwise advertise a sample count it rejects.
+        GLint multisampleCeiling = 4;
         GLfloat minFragmentInterpolationOffset = -0.75f;
         GLfloat maxFragmentInterpolationOffset = 0.625f;
         GLint fragmentInterpolationOffsetBits = 6;
@@ -111,7 +147,30 @@ namespace {
         funcs.glGetIntegerv = [](GLenum pname, GLint* data) {
             switch (pname) {
             case GL_MAX_VERTEX_SHADER_STORAGE_BLOCKS:
-                *data = g_fake.maxVertexSsboBlocks;
+                if (g_fake.perStageSsboBlockQueryRaisesError) {
+                    g_fake.pendingError = GL_INVALID_ENUM;
+                } else {
+                    *data = g_fake.maxVertexSsboBlocks;
+                }
+                break;
+            case GL_MAX_FRAGMENT_SHADER_STORAGE_BLOCKS:
+                if (g_fake.perStageSsboBlockQueryRaisesError) {
+                    g_fake.pendingError = GL_INVALID_ENUM;
+                } else {
+                    *data = g_fake.maxFragmentSsboBlocks;
+                }
+                break;
+            case GL_MAX_TESS_CONTROL_SHADER_STORAGE_BLOCKS:
+                g_fake.tessAndGeometrySsboBlocksQueried = true;
+                *data = g_fake.maxTessControlSsboBlocks;
+                break;
+            case GL_MAX_TESS_EVALUATION_SHADER_STORAGE_BLOCKS:
+                g_fake.tessAndGeometrySsboBlocksQueried = true;
+                *data = g_fake.maxTessEvaluationSsboBlocks;
+                break;
+            case GL_MAX_GEOMETRY_SHADER_STORAGE_BLOCKS:
+                g_fake.tessAndGeometrySsboBlocksQueried = true;
+                *data = g_fake.maxGeometrySsboBlocks;
                 break;
             case GL_MAX_VERTEX_IMAGE_UNIFORMS:
                 *data = g_fake.maxVertexImageUniforms;
@@ -125,6 +184,37 @@ namespace {
                 break;
             case GL_MAX_COMPUTE_IMAGE_UNIFORMS:
                 *data = g_fake.maxComputeImageUniforms;
+                break;
+            case GL_MAX_CLIP_DISTANCES:
+                g_fake.maxClipDistancesQueried = true;
+                if (g_fake.clipDistanceQueryRaisesError) {
+                    g_fake.pendingError = GL_INVALID_ENUM;
+                } else {
+                    *data = g_fake.maxClipDistances;
+                }
+                break;
+            case GL_MAX_VIEWPORTS:
+                g_fake.viewportArrayLimitsQueried = true;
+                *data = g_fake.maxViewports;
+                break;
+            case GL_VIEWPORT_SUBPIXEL_BITS:
+                g_fake.viewportArrayLimitsQueried = true;
+                *data = g_fake.viewportSubpixelBits;
+                break;
+            case GL_VIEWPORT_INDEX_PROVOKING_VERTEX:
+                g_fake.viewportArrayLimitsQueried = true;
+                *data = g_fake.viewportIndexProvokingVertex;
+                break;
+            case GL_LAYER_PROVOKING_VERTEX:
+                g_fake.layerProvokingVertexQueried = true;
+                *data = g_fake.layerProvokingVertex;
+                break;
+            case GL_MAX_COLOR_TEXTURE_SAMPLES:
+            case GL_MAX_DEPTH_TEXTURE_SAMPLES:
+            case GL_MAX_FRAMEBUFFER_SAMPLES:
+            case GL_MAX_INTEGER_SAMPLES:
+            case GL_MAX_SAMPLES:
+                *data = g_fake.multisampleCeiling;
                 break;
             case GL_FRAGMENT_INTERPOLATION_OFFSET_BITS:
                 g_fake.fragmentInterpolationLimitsQueried = true;
@@ -205,11 +295,22 @@ namespace {
                     data[0] = g_fake.maxFragmentInterpolationOffset;
                 }
                 break;
+            case GL_SMOOTH_LINE_WIDTH_RANGE:
+                if (g_fake.smoothLineWidthQueryRaisesError) {
+                    g_fake.pendingError = GL_INVALID_ENUM;
+                } else {
+                    data[0] = 0.0f;
+                    data[1] = 0.0f;
+                }
+                break;
+            case GL_VIEWPORT_BOUNDS_RANGE:
+                g_fake.viewportArrayLimitsQueried = true;
+                data[0] = 0.0f;
+                data[1] = 0.0f;
+                break;
             // Two-component range queries.
             case GL_ALIASED_LINE_WIDTH_RANGE:
-            case GL_SMOOTH_LINE_WIDTH_RANGE:
             case GL_ALIASED_POINT_SIZE_RANGE:
-            case GL_VIEWPORT_BOUNDS_RANGE:
                 data[0] = 0.0f;
                 data[1] = 0.0f;
                 break;
@@ -400,6 +501,10 @@ namespace {
     MobileGL::MG_External::GLESCapabilities MakeEs31Capabilities() {
         MobileGL::MG_External::GLESCapabilities caps;
         caps.GLESVersion = {3, 1, 0};
+        // The probe reads its vertex storage-block gate from caps rather than re-querying the
+        // driver (FillInGLESCapabilities resolves the per-stage limits before calling it), so a
+        // caps struct handed to the probe directly has to carry what the fake reports.
+        caps.MaxVertexShaderStorageBlocks = g_fake.maxVertexSsboBlocks;
         return caps;
     }
 
@@ -525,6 +630,263 @@ TEST(ImageUniformCapabilities, QueriesRealPerStageLimitsAndConservativelyGatesGe
     EXPECT_EQ(es32Caps.MaxFragmentImageUniforms, g_fake.maxFragmentImageUniforms);
     EXPECT_EQ(es32Caps.MaxComputeImageUniforms, g_fake.maxComputeImageUniforms);
     EXPECT_TRUE(g_fake.maxGeometryImageUniformsQueried);
+}
+
+// The per-stage GL_MAX_*_SHADER_STORAGE_BLOCKS probes. These decide whether an application is
+// told it may declare a storage block in a graphics stage, and on a driver that cannot serve one
+// a wrong answer is not a cosmetic mis-report: the program is built, the driver refuses it at
+// link time, the frontend reports LINK_STATUS true anyway, and every draw with it renders
+// nothing. A Mali-G925-Immortalis reports 0 for vertex, both tessellation stages and geometry.
+TEST(PerStageStorageBlockCapabilities, TakesTheDriverValuesAndGatesTessAndGeometryOnEs32) {
+    const auto funcs = MakeFakeGLESFunctions();
+
+    // ES 3.1: the tessellation and geometry pnames do not exist, so they must not be asked for
+    // and the stages must report the spec minimum of 0 rather than a hopeful driver number.
+    ResetFakeDriver();
+    g_fake.maxVertexSsboBlocks = 3;
+    MobileGL::MG_External::GLESCapabilities es31Caps;
+    ASSERT_TRUE(MobileGL::MG_Util::BackendLoader::FillInGLESCapabilities(es31Caps, funcs));
+    EXPECT_EQ(es31Caps.MaxVertexShaderStorageBlocks, 3);
+    EXPECT_EQ(es31Caps.MaxFragmentShaderStorageBlocks, g_fake.maxFragmentSsboBlocks);
+    EXPECT_EQ(es31Caps.MaxTessControlShaderStorageBlocks, 0);
+    EXPECT_EQ(es31Caps.MaxTessEvaluationShaderStorageBlocks, 0);
+    EXPECT_EQ(es31Caps.MaxGeometryShaderStorageBlocks, 0);
+    EXPECT_FALSE(g_fake.tessAndGeometrySsboBlocksQueried);
+
+    // ES 3.2: all five are real pnames and all five driver values must come through verbatim.
+    ResetFakeDriver();
+    g_fake.maxVertexSsboBlocks = 3;
+    g_fake.glesMinorVersion = 2;
+    MobileGL::MG_External::GLESCapabilities es32Caps;
+    ASSERT_TRUE(MobileGL::MG_Util::BackendLoader::FillInGLESCapabilities(es32Caps, funcs));
+    EXPECT_EQ(es32Caps.MaxVertexShaderStorageBlocks, 3);
+    EXPECT_EQ(es32Caps.MaxTessControlShaderStorageBlocks, g_fake.maxTessControlSsboBlocks);
+    EXPECT_EQ(es32Caps.MaxTessEvaluationShaderStorageBlocks, g_fake.maxTessEvaluationSsboBlocks);
+    EXPECT_EQ(es32Caps.MaxGeometryShaderStorageBlocks, g_fake.maxGeometrySsboBlocks);
+    EXPECT_EQ(es32Caps.MaxFragmentShaderStorageBlocks, g_fake.maxFragmentSsboBlocks);
+    EXPECT_TRUE(g_fake.tessAndGeometrySsboBlocksQueried);
+}
+
+// Zero has to survive the round trip intact. It is the answer that matters most - it is what
+// ARM's driver actually reports - so a probe that silently substituted a floor would put the
+// bug straight back.
+TEST(PerStageStorageBlockCapabilities, AZeroFromTheDriverIsReportedAsZero) {
+    const auto funcs = MakeFakeGLESFunctions();
+
+    ResetFakeDriver();
+    g_fake.glesMinorVersion = 2;
+    g_fake.maxVertexSsboBlocks = 0;
+    g_fake.maxTessControlSsboBlocks = 0;
+    g_fake.maxTessEvaluationSsboBlocks = 0;
+    g_fake.maxGeometrySsboBlocks = 0;
+    g_fake.maxFragmentSsboBlocks = 16;
+
+    MobileGL::MG_External::GLESCapabilities maliLikeCaps;
+    ASSERT_TRUE(MobileGL::MG_Util::BackendLoader::FillInGLESCapabilities(maliLikeCaps, funcs));
+
+    EXPECT_EQ(maliLikeCaps.MaxVertexShaderStorageBlocks, 0);
+    EXPECT_EQ(maliLikeCaps.MaxTessControlShaderStorageBlocks, 0);
+    EXPECT_EQ(maliLikeCaps.MaxTessEvaluationShaderStorageBlocks, 0);
+    EXPECT_EQ(maliLikeCaps.MaxGeometryShaderStorageBlocks, 0);
+    EXPECT_EQ(maliLikeCaps.MaxFragmentShaderStorageBlocks, 16);
+}
+
+// A rejected query must leave no error behind for the application's first glGetError to find,
+// and must fall back to the spec minimums rather than to whatever the untouched out-param held.
+TEST(PerStageStorageBlockCapabilities, ARejectedQueryIsDrainedAndFallsBackToTheSpecMinimums) {
+    const auto funcs = MakeFakeGLESFunctions();
+
+    ResetFakeDriver();
+    g_fake.perStageSsboBlockQueryRaisesError = true;
+    g_fake.maxVertexSsboBlocks = 12;
+    g_fake.maxFragmentSsboBlocks = 12;
+
+    MobileGL::MG_External::GLESCapabilities caps;
+    ASSERT_TRUE(MobileGL::MG_Util::BackendLoader::FillInGLESCapabilities(caps, funcs));
+
+    EXPECT_EQ(caps.MaxVertexShaderStorageBlocks, 0);
+    EXPECT_EQ(caps.MaxFragmentShaderStorageBlocks, 4);
+    EXPECT_EQ(g_fake.pendingError, static_cast<GLenum>(GL_NO_ERROR));
+}
+
+// GL_MAX_CLIP_DISTANCES is the same defect as the per-stage storage blocks above, one pname
+// over: the query does not exist without GL_EXT_clip_cull_distance, so an unguarded probe left
+// an optimistic 8 behind on every ARM driver. Advertising eight clip planes a driver cannot host
+// does not make gl_ClipDistance work - SPIRV-Cross emits it behind an `#extension ... : require`
+// the ESSL compiler rejects, DirectGLES has nowhere to put the per-distance enables, and the
+// draw renders nothing while LINK_STATUS says everything is fine.
+TEST(ClipDistanceCapabilities, NoExtensionMeansNoClipDistancesAndNoQuery) {
+    const auto funcs = MakeFakeGLESFunctions();
+
+    ResetFakeDriver();
+    g_fake.maxVertexSsboBlocks = 0;
+
+    MobileGL::MG_External::GLESCapabilities caps;
+    ASSERT_TRUE(MobileGL::MG_Util::BackendLoader::FillInGLESCapabilities(caps, funcs));
+
+    EXPECT_FALSE(caps.SupportsClipDistance);
+    EXPECT_EQ(caps.MaxClipDistances, 0);
+    EXPECT_FALSE(g_fake.maxClipDistancesQueried)
+        << "GL_MAX_CLIP_DISTANCES is not ES core; asking for it without the extension only leaks "
+           "a GL_INVALID_ENUM";
+}
+
+// The other half of the same claim, and the one that keeps this from being a blanket zero: a
+// driver that HAS the extension must have its real limit come through untouched. Adreno does,
+// and it passes the clip-distance conformance cases on the strength of it.
+TEST(ClipDistanceCapabilities, TheExtensionIsQueriedAndItsLimitIsReportedVerbatim) {
+    ResetFakeDriver();
+    g_fake.maxVertexSsboBlocks = 0;
+    g_fake.extensions.emplace_back("GL_EXT_clip_cull_distance");
+    g_fake.maxClipDistances = 6;
+    const auto funcs = MakeFakeGLESFunctions();
+
+    MobileGL::MG_External::GLESCapabilities caps;
+    ASSERT_TRUE(MobileGL::MG_Util::BackendLoader::FillInGLESCapabilities(caps, funcs));
+
+    EXPECT_TRUE(caps.SupportsClipDistance);
+    EXPECT_TRUE(g_fake.maxClipDistancesQueried);
+    EXPECT_EQ(caps.MaxClipDistances, 6);
+}
+
+// A driver that advertises the extension and then refuses the query is a driver fault, not a
+// missing feature - but the answer has to be the honest zero either way, and the error must not
+// be left for the application's first glGetError to find.
+TEST(ClipDistanceCapabilities, ARejectedQueryIsDrainedAndReportsZero) {
+    ResetFakeDriver();
+    g_fake.maxVertexSsboBlocks = 0;
+    g_fake.extensions.emplace_back("GL_EXT_clip_cull_distance");
+    g_fake.clipDistanceQueryRaisesError = true;
+    const auto funcs = MakeFakeGLESFunctions();
+
+    MobileGL::MG_External::GLESCapabilities caps;
+    ASSERT_TRUE(MobileGL::MG_Util::BackendLoader::FillInGLESCapabilities(caps, funcs));
+
+    EXPECT_TRUE(g_fake.maxClipDistancesQueried);
+    EXPECT_EQ(caps.MaxClipDistances, 0);
+    EXPECT_EQ(funcs.glGetError(), GL_NO_ERROR) << "the failed query must not leave an error behind";
+}
+
+// The same defect one more time, for the three GL_OES_viewport_array pnames. Their advertised
+// values do not come from the driver (GL_Getter answers GL_MAX_VIEWPORTS from the frontend state
+// width and floors GL_SUBPIXEL_BITS at its own constant), so what this pins is the other half of
+// the class defect: a pname that does not exist must not be asked for, because the GL_INVALID_ENUM
+// it raises is then attributed to whatever the application calls next.
+TEST(ViewportArrayCapabilities, TheLimitsAreOnlyAskedForWhenTheExtensionIsPresent) {
+    const auto funcs = MakeFakeGLESFunctions();
+
+    ResetFakeDriver();
+    g_fake.maxVertexSsboBlocks = 0;
+    MobileGL::MG_External::GLESCapabilities withoutCaps;
+    ASSERT_TRUE(MobileGL::MG_Util::BackendLoader::FillInGLESCapabilities(withoutCaps, funcs));
+    EXPECT_FALSE(withoutCaps.SupportsViewportArray);
+    EXPECT_FALSE(g_fake.viewportArrayLimitsQueried);
+    EXPECT_EQ(withoutCaps.MaxViewports, 16) << "the OpenGL core minimum, not a driver answer";
+    EXPECT_FLOAT_EQ(withoutCaps.ViewportBoundsRangeMin, -32768.0f);
+    EXPECT_FLOAT_EQ(withoutCaps.ViewportBoundsRangeMax, 32767.0f);
+
+    ResetFakeDriver();
+    g_fake.maxVertexSsboBlocks = 0;
+    g_fake.extensions.emplace_back("GL_OES_viewport_array");
+    MobileGL::MG_External::GLESCapabilities withCaps;
+    ASSERT_TRUE(MobileGL::MG_Util::BackendLoader::FillInGLESCapabilities(withCaps, funcs));
+    EXPECT_TRUE(withCaps.SupportsViewportArray);
+    EXPECT_TRUE(g_fake.viewportArrayLimitsQueried);
+    EXPECT_EQ(withCaps.MaxViewports, g_fake.maxViewports);
+    EXPECT_EQ(withCaps.ViewportSubpixelBits, g_fake.viewportSubpixelBits);
+}
+
+// GL_LAYER_PROVOKING_VERTEX and GL_VIEWPORT_INDEX_PROVOKING_VERTEX name which vertex of a
+// primitive supplies gl_Layer and gl_ViewportIndex. MobileGL used to answer a hard-coded
+// GL_LAST_VERTEX_CONVENTION for both, derived from nothing, and got it wrong on both test devices
+// in OPPOSITE directions. GL_UNDEFINED_VERTEX is a legal answer (GL 4.6 table 23.65) and it is
+// the honest one wherever the capability that would give the convention meaning is absent.
+TEST(ProvokingVertexConventions, AreTakenFromTheDriverOnlyWhereThePnameExists) {
+    const auto funcs = MakeFakeGLESFunctions();
+
+    // ES 3.1, no viewport array: neither pname exists, so neither is asked for.
+    ResetFakeDriver();
+    g_fake.maxVertexSsboBlocks = 0;
+    MobileGL::MG_External::GLESCapabilities es31Caps;
+    ASSERT_TRUE(MobileGL::MG_Util::BackendLoader::FillInGLESCapabilities(es31Caps, funcs));
+    EXPECT_FALSE(g_fake.layerProvokingVertexQueried);
+    EXPECT_EQ(es31Caps.LayerProvokingVertex, static_cast<GLenum>(GL_UNDEFINED_VERTEX));
+    EXPECT_EQ(es31Caps.ViewportIndexProvokingVertex, static_cast<GLenum>(GL_UNDEFINED_VERTEX));
+
+    // ES 3.2 with the viewport array: both exist and both driver answers come through verbatim.
+    ResetFakeDriver();
+    g_fake.maxVertexSsboBlocks = 0;
+    g_fake.glesMinorVersion = 2;
+    g_fake.extensions.emplace_back("GL_OES_viewport_array");
+    MobileGL::MG_External::GLESCapabilities es32Caps;
+    ASSERT_TRUE(MobileGL::MG_Util::BackendLoader::FillInGLESCapabilities(es32Caps, funcs));
+    EXPECT_TRUE(g_fake.layerProvokingVertexQueried);
+    EXPECT_EQ(es32Caps.LayerProvokingVertex, static_cast<GLenum>(GL_FIRST_VERTEX_CONVENTION));
+    EXPECT_EQ(es32Caps.ViewportIndexProvokingVertex, static_cast<GLenum>(GL_LAST_VERTEX_CONVENTION));
+
+    // ES 3.2 WITHOUT the viewport array - the shape of both test devices. The layer convention is
+    // real and comes from the driver; the viewport-index one describes a selection that never
+    // happens, because only viewport 0 is ever rasterized, and stays undefined.
+    ResetFakeDriver();
+    g_fake.maxVertexSsboBlocks = 0;
+    g_fake.glesMinorVersion = 2;
+    MobileGL::MG_External::GLESCapabilities deviceLikeCaps;
+    ASSERT_TRUE(MobileGL::MG_Util::BackendLoader::FillInGLESCapabilities(deviceLikeCaps, funcs));
+    EXPECT_EQ(deviceLikeCaps.LayerProvokingVertex, static_cast<GLenum>(GL_FIRST_VERTEX_CONVENTION));
+    EXPECT_EQ(deviceLikeCaps.ViewportIndexProvokingVertex, static_cast<GLenum>(GL_UNDEFINED_VERTEX));
+}
+
+// A driver answering something that is not one of the four legal conventions must not have it
+// forwarded as one: GL_UNDEFINED_VERTEX describes "MobileGL cannot tell you" exactly.
+TEST(ProvokingVertexConventions, AnIllegalDriverAnswerBecomesUndefined) {
+    ResetFakeDriver();
+    g_fake.maxVertexSsboBlocks = 0;
+    g_fake.glesMinorVersion = 2;
+    g_fake.layerProvokingVertex = 0x1234;
+    const auto funcs = MakeFakeGLESFunctions();
+
+    MobileGL::MG_External::GLESCapabilities caps;
+    ASSERT_TRUE(MobileGL::MG_Util::BackendLoader::FillInGLESCapabilities(caps, funcs));
+
+    EXPECT_TRUE(g_fake.layerProvokingVertexQueried);
+    EXPECT_EQ(caps.LayerProvokingVertex, static_cast<GLenum>(GL_UNDEFINED_VERTEX));
+}
+
+// The multisample ceilings are ES 3.1 state; a driver that answers zero - or an older context
+// that answers nothing - must not have that reach GL_Getter, which would then reject the sample
+// count it just advertised.
+TEST(MultisampleCapabilities, TheAdvertisedSampleCountsNeverFallBelowOne) {
+    ResetFakeDriver();
+    g_fake.maxVertexSsboBlocks = 0;
+    g_fake.multisampleCeiling = 0;
+    const auto funcs = MakeFakeGLESFunctions();
+
+    MobileGL::MG_External::GLESCapabilities caps;
+    ASSERT_TRUE(MobileGL::MG_Util::BackendLoader::FillInGLESCapabilities(caps, funcs));
+
+    EXPECT_EQ(caps.MaxColorTextureSamples, 1);
+    EXPECT_EQ(caps.MaxDepthTextureSamples, 1);
+    EXPECT_EQ(caps.MaxFramebufferSamples, 1);
+    EXPECT_EQ(caps.MaxIntegerSamples, 1);
+    EXPECT_EQ(caps.MaxSamples, 1);
+    EXPECT_EQ(caps.MaxSampleMaskWords, 1);
+}
+
+// The whole point of the drain, stated once at the level that matters: capability init is the
+// first thing that ever touches the driver, so an error it leaves behind surfaces at the
+// APPLICATION's first glGetError and is blamed on an unrelated call. GL_SMOOTH_LINE_WIDTH_RANGE
+// is the stand-in because it is desktop-only state that every real GLES driver refuses.
+TEST(CapabilityProbeHygiene, ARejectedUnconditionalProbeLeavesNoErrorBehind) {
+    ResetFakeDriver();
+    g_fake.maxVertexSsboBlocks = 0;
+    g_fake.smoothLineWidthQueryRaisesError = true;
+    const auto funcs = MakeFakeGLESFunctions();
+
+    MobileGL::MG_External::GLESCapabilities caps;
+    ASSERT_TRUE(MobileGL::MG_Util::BackendLoader::FillInGLESCapabilities(caps, funcs));
+
+    EXPECT_EQ(funcs.glGetError(), GL_NO_ERROR)
+        << "capability init must not hand the application an error it never caused";
 }
 
 TEST(FragmentInterpolationCapabilities, QueriesOnlyWhenSupportedAndPreservesDriverLimits) {
@@ -725,20 +1087,55 @@ TEST(TextureAnisotropyCapabilities, ExtensionIsAdvertisedOnlyWhenTheHostDriverSu
         return std::find(extensions.begin(), extensions.end(), wanted) != extensions.end();
     };
 
-    const auto without = MobileGL::MG_Backend::DirectGLES::BuildAdvertisedExtensions(false, false);
+    const auto without = MobileGL::MG_Backend::DirectGLES::BuildAdvertisedExtensions(false, false, false, false);
     EXPECT_FALSE(contains(without, MobileGL::E_GL_EXT_texture_filter_anisotropic));
     EXPECT_FALSE(contains(without, MobileGL::E_GL_ARB_texture_filter_anisotropic));
 
-    const auto with = MobileGL::MG_Backend::DirectGLES::BuildAdvertisedExtensions(false, true);
+    const auto with = MobileGL::MG_Backend::DirectGLES::BuildAdvertisedExtensions(false, true, false, false);
     EXPECT_TRUE(contains(with, MobileGL::E_GL_EXT_texture_filter_anisotropic));
     EXPECT_TRUE(contains(with, MobileGL::E_GL_ARB_texture_filter_anisotropic));
 
     // Same rule on the Vulkan backend, where the gate is the samplerAnisotropy device feature.
-    const auto vkWithout = MobileGL::MG_Backend::DirectVulkan::BuildAdvertisedExtensions(false, false, false);
+    const auto vkWithout = MobileGL::MG_Backend::DirectVulkan::BuildAdvertisedExtensions(false, false, false, false);
     EXPECT_FALSE(contains(vkWithout, MobileGL::E_GL_EXT_texture_filter_anisotropic));
-    const auto vkWith = MobileGL::MG_Backend::DirectVulkan::BuildAdvertisedExtensions(false, false, true);
+    const auto vkWith = MobileGL::MG_Backend::DirectVulkan::BuildAdvertisedExtensions(false, false, true, false);
     EXPECT_TRUE(contains(vkWith, MobileGL::E_GL_EXT_texture_filter_anisotropic));
     EXPECT_TRUE(contains(vkWith, MobileGL::E_GL_ARB_texture_filter_anisotropic));
+}
+
+// Minecraft 26.3 checks ARB_draw_indirect before it considers the already-advertised
+// ARB_multi_draw_indirect, then separately requires ARB_base_instance before enabling its terrain
+// indirect path. Pin both strings and, just as importantly, the non-zero firstInstance gate.
+TEST(IndirectDrawAdvertisement, MatchesEachBackendsUsableCommandSemantics) {
+    const auto contains = [](const MobileGL::Vector<MobileGL::GLExtension>& extensions,
+                             MobileGL::GLExtension wanted) {
+        return std::find(extensions.begin(), extensions.end(), wanted) != extensions.end();
+    };
+
+    const auto esWithoutIndirect =
+        MobileGL::MG_Backend::DirectGLES::BuildAdvertisedExtensions(false, false, false, false);
+    EXPECT_FALSE(contains(esWithoutIndirect, MobileGL::E_GL_ARB_draw_indirect));
+    EXPECT_FALSE(contains(esWithoutIndirect, MobileGL::E_GL_ARB_base_instance));
+
+    const auto esWithoutBaseInstance =
+        MobileGL::MG_Backend::DirectGLES::BuildAdvertisedExtensions(false, false, true, false);
+    EXPECT_TRUE(contains(esWithoutBaseInstance, MobileGL::E_GL_ARB_draw_indirect));
+    EXPECT_FALSE(contains(esWithoutBaseInstance, MobileGL::E_GL_ARB_base_instance));
+
+    const auto esWithBoth =
+        MobileGL::MG_Backend::DirectGLES::BuildAdvertisedExtensions(false, false, true, true);
+    EXPECT_TRUE(contains(esWithBoth, MobileGL::E_GL_ARB_draw_indirect));
+    EXPECT_TRUE(contains(esWithBoth, MobileGL::E_GL_ARB_base_instance));
+
+    const auto vkWithoutBaseInstance =
+        MobileGL::MG_Backend::DirectVulkan::BuildAdvertisedExtensions(false, false, false, false);
+    EXPECT_TRUE(contains(vkWithoutBaseInstance, MobileGL::E_GL_ARB_draw_indirect));
+    EXPECT_FALSE(contains(vkWithoutBaseInstance, MobileGL::E_GL_ARB_base_instance));
+
+    const auto vkWithBoth =
+        MobileGL::MG_Backend::DirectVulkan::BuildAdvertisedExtensions(false, false, false, true);
+    EXPECT_TRUE(contains(vkWithBoth, MobileGL::E_GL_ARB_draw_indirect));
+    EXPECT_TRUE(contains(vkWithBoth, MobileGL::E_GL_ARB_base_instance));
 }
 
 TEST(TextureAnisotropyCapabilities, MaxAnisotropyIsQueriedOnlyWhenTheExtensionIsPresent) {
@@ -835,4 +1232,64 @@ TEST(MultiDrawCapabilities, ExtensionWithoutResolvedPointerIsNotSupport) {
     ASSERT_TRUE(MobileGL::MG_Util::BackendLoader::FillInGLESCapabilities(caps, funcs));
     EXPECT_FALSE(caps.SupportsMultiDrawIndirect);
     EXPECT_FALSE(caps.SupportsMultiDrawElementsBaseVertex);
+}
+
+TEST(DrawIndirectCapabilities, RequiresEs31AndBothCoreEntryPoints) {
+    ResetFakeDriver();
+    g_fake.maxVertexSsboBlocks = 0;
+    auto funcs = MakeFakeGLESFunctions();
+    funcs.glDrawElementsIndirect = [](GLenum, GLenum, const void*) {};
+
+    MobileGL::MG_External::GLESCapabilities supportedCaps;
+    ASSERT_TRUE(MobileGL::MG_Util::BackendLoader::FillInGLESCapabilities(supportedCaps, funcs));
+    EXPECT_TRUE(supportedCaps.SupportsDrawIndirect);
+
+    // The same pointers on an ES 3.0 context are not core entry points and cannot back the
+    // desktop extension contract.
+    ResetFakeDriver();
+    g_fake.maxVertexSsboBlocks = 0;
+    g_fake.glesMinorVersion = 0;
+    MobileGL::MG_External::GLESCapabilities es30Caps;
+    ASSERT_TRUE(MobileGL::MG_Util::BackendLoader::FillInGLESCapabilities(es30Caps, funcs));
+    EXPECT_FALSE(es30Caps.SupportsDrawIndirect);
+
+    ResetFakeDriver();
+    g_fake.maxVertexSsboBlocks = 0;
+    const auto missingElements = MakeFakeGLESFunctions();
+    MobileGL::MG_External::GLESCapabilities missingEntryPointCaps;
+    ASSERT_TRUE(
+        MobileGL::MG_Util::BackendLoader::FillInGLESCapabilities(missingEntryPointCaps, missingElements));
+    EXPECT_FALSE(missingEntryPointCaps.SupportsDrawIndirect);
+}
+
+TEST(BaseInstanceCapabilities, RequiresTheExtensionAndAllThreeEntryPoints) {
+    ResetFakeDriver();
+    g_fake.maxVertexSsboBlocks = 0;
+    auto funcs = MakeFakeGLESFunctions();
+    funcs.glDrawArraysInstancedBaseInstanceEXT = [](GLenum, GLint, GLsizei, GLsizei, GLuint) {};
+    funcs.glDrawElementsInstancedBaseInstanceEXT =
+        [](GLenum, GLsizei, GLenum, const void*, GLsizei, GLuint) {};
+    funcs.glDrawElementsInstancedBaseVertexBaseInstanceEXT =
+        [](GLenum, GLsizei, GLenum, const void*, GLsizei, GLint, GLuint) {};
+
+    // Resolved stubs alone must never make the capability true.
+    MobileGL::MG_External::GLESCapabilities pointersOnlyCaps;
+    ASSERT_TRUE(MobileGL::MG_Util::BackendLoader::FillInGLESCapabilities(pointersOnlyCaps, funcs));
+    EXPECT_FALSE(pointersOnlyCaps.SupportsBaseInstance);
+
+    ResetFakeDriver();
+    g_fake.maxVertexSsboBlocks = 0;
+    g_fake.extensions.emplace_back("GL_EXT_base_instance");
+    MobileGL::MG_External::GLESCapabilities supportedCaps;
+    ASSERT_TRUE(MobileGL::MG_Util::BackendLoader::FillInGLESCapabilities(supportedCaps, funcs));
+    EXPECT_TRUE(supportedCaps.SupportsBaseInstance);
+
+    ResetFakeDriver();
+    g_fake.maxVertexSsboBlocks = 0;
+    g_fake.extensions.emplace_back("GL_EXT_base_instance");
+    funcs.glDrawElementsInstancedBaseInstanceEXT = nullptr;
+    MobileGL::MG_External::GLESCapabilities missingEntryPointCaps;
+    ASSERT_TRUE(
+        MobileGL::MG_Util::BackendLoader::FillInGLESCapabilities(missingEntryPointCaps, funcs));
+    EXPECT_FALSE(missingEntryPointCaps.SupportsBaseInstance);
 }

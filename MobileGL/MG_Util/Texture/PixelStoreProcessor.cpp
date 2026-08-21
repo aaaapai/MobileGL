@@ -138,6 +138,11 @@ namespace MobileGL::MG_Util::PixelStoreProcessor {
             case TextureInternalFormat::DepthComponent32F:
                 out = {1, ShadowComponent::Float32, false};
                 return true;
+            // Stencil is the one single-channel INTEGER shadow that is not a colour format: eight
+            // bits, held as an unsigned index rather than a normalized value.
+            case TextureInternalFormat::StencilIndex8:
+                out = {1, ShadowComponent::UInt8, true};
+                return true;
 
             case TextureInternalFormat::R8:
             case TextureInternalFormat::Red:     out = {1, ShadowComponent::UNorm8, false}; return true;
@@ -259,6 +264,25 @@ namespace MobileGL::MG_Util::PixelStoreProcessor {
             }
         }
 
+        // The one client (format, type) pair whose word is bit-identical to the packed internal
+        // word, if any. Everything else has to go through the decode/encode conversion.
+        Bool IsRawPackedPixelPair(PackedInternalKind kind, TextureInputFormat format,
+                                  TexturePixelDataType type) {
+            switch (kind) {
+            case PackedInternalKind::UNorm2101010Rev:
+                return format == TextureInputFormat::RGBA && type == TexturePixelDataType::UnsignedInt2101010Rev;
+            case PackedInternalKind::UInt2101010Rev:
+                return format == TextureInputFormat::RGBAInteger &&
+                       type == TexturePixelDataType::UnsignedInt2101010Rev;
+            case PackedInternalKind::FloatR11G11B10:
+                return format == TextureInputFormat::RGB && type == TexturePixelDataType::UnsignedInt101111Rev;
+            case PackedInternalKind::FloatRGB9E5:
+                return format == TextureInputFormat::RGB && type == TexturePixelDataType::UnsignedInt5999Rev;
+            default:
+                return false;
+            }
+        }
+
         Uint32 EncodePackedInternalWordFloat(PackedInternalKind kind, const Float rgba[4]) {
             switch (kind) {
             case PackedInternalKind::UNorm2101010Rev: {
@@ -317,8 +341,13 @@ namespace MobileGL::MG_Util::PixelStoreProcessor {
             case TextureInputFormat::BGRAInteger:  out = {{2, 1, 0, 3}, 4, true};     return true;
             // A depth value converts like a single normalized/float channel.
             case TextureInputFormat::DepthComponent: out = {{0, -1, -1, -1}, 1, false}; return true;
+            // A stencil index is a single INTEGER channel (GL 4.6 core 8.4.4.3). Without this the
+            // upload fell to the raw-memcpy branch, which copies the client element width into the
+            // one-byte STENCIL_INDEX8 shadow verbatim - right for GL_UNSIGNED_BYTE and wrong for
+            // every wider type. The state layer keeps this paired with stencil-only storage.
+            case TextureInputFormat::StencilIndex: out = {{0, -1, -1, -1}, 1, true}; return true;
             default:
-                return false; // stencil / packed depth-stencil / unknown
+                return false; // packed depth-stencil / unknown
             }
         }
 
@@ -404,6 +433,26 @@ namespace MobileGL::MG_Util::PixelStoreProcessor {
             InternalPackedLayout internalPacked;
         };
 
+        Bool IsValidUnpackPixelPair(TextureInputFormat format, TexturePixelDataType type) {
+            UnpackChannelMapping mapping{};
+            if (!GetUnpackChannelMapping(format, mapping)) return false;
+
+            PackedTypeLayout packed{};
+            if (GetPackedTypeLayout(type, packed)) {
+                return packed.fieldCount == mapping.channelCount;
+            }
+
+            switch (type) {
+            case TexturePixelDataType::UnsignedInt5999Rev:
+            case TexturePixelDataType::UnsignedInt101111Rev:
+                return !mapping.isInteger && mapping.channelCount == 3;
+            default: {
+                ShadowComponent component{};
+                return GetDirectShadowComponentForType(type, mapping.isInteger, component);
+            }
+            }
+        }
+
         // Returns true when the (format, type) -> internal-format upload needs a per-texel conversion;
         // returns false both for layouts that already match the shadow bytes (memcpy fast path) and for
         // combinations the converter does not support (legacy copy behavior).
@@ -431,10 +480,7 @@ namespace MobileGL::MG_Util::PixelStoreProcessor {
                     return false;
                 }
                 // The client word already equals the packed internal word (memcpy fast path).
-                if (hasPackedInternal && type == TexturePixelDataType::UnsignedInt2101010Rev &&
-                    (format == TextureInputFormat::RGBA || format == TextureInputFormat::RGBAInteger) &&
-                    (packedInternal.kind == PackedInternalKind::UNorm2101010Rev ||
-                     packedInternal.kind == PackedInternalKind::UInt2101010Rev)) {
+                if (hasPackedInternal && IsRawPackedPixelPair(packedInternal.kind, format, type)) {
                     return false;
                 }
             } else {
@@ -458,11 +504,7 @@ namespace MobileGL::MG_Util::PixelStoreProcessor {
                     // GL_RGB, which the state layer already enforces.
                     if (mapping.isInteger || mapping.channelCount != 3) return false;
                     // The client word already equals the packed internal word.
-                    if (hasPackedInternal &&
-                        ((packedInternal.kind == PackedInternalKind::FloatRGB9E5 &&
-                          type == TexturePixelDataType::UnsignedInt5999Rev) ||
-                         (packedInternal.kind == PackedInternalKind::FloatR11G11B10 &&
-                          type == TexturePixelDataType::UnsignedInt101111Rev))) {
+                    if (hasPackedInternal && IsRawPackedPixelPair(packedInternal.kind, format, type)) {
                         return false;
                     }
                     break;
@@ -765,6 +807,23 @@ namespace MobileGL::MG_Util::PixelStoreProcessor {
         }
     } // namespace
 
+    Bool IsRawPackedPixelTransfer(TextureInternalFormat internalFormat, TextureInputFormat clientFormat,
+                                  TexturePixelDataType clientType) {
+        InternalPackedLayout packedInternal{};
+        if (!GetInternalPackedLayout(internalFormat, packedInternal)) {
+            return false;
+        }
+        return IsRawPackedPixelPair(packedInternal.kind, clientFormat, clientType);
+    }
+
+    Bool HasRedundantPackedEncoding(TextureInternalFormat internalFormat) {
+        InternalPackedLayout packedInternal{};
+        if (!GetInternalPackedLayout(internalFormat, packedInternal)) {
+            return false;
+        }
+        return packedInternal.kind == PackedInternalKind::FloatRGB9E5;
+    }
+
     // assume 8 bit per channel
     // swizzle.size() == channel count
     void ProcessColorSwizzle(void* data, SizeT pixelCount, const Vector<TextureSwizzleParam>& swizzle) {
@@ -941,6 +1000,37 @@ namespace MobileGL::MG_Util::PixelStoreProcessor {
         }
 
         return outputPixels;
+    }
+
+    Bool ConvertOnePixelToInternal(TextureInternalFormat targetInternalFormat,
+                                   TextureInputFormat textureInputFormat,
+                                   TexturePixelDataType inputDataType,
+                                   const void* inputPixel,
+                                   Vector<Uint8>& outputPixel) {
+        outputPixel.clear();
+        // A stencil index became a transferable format when STENCIL_INDEX8 texture storage did (see
+        // GetUnpackChannelMapping), but this helper serves glClearBufferData, whose internal formats
+        // are all colour (GL 4.6 core table 8.20): a stencil pattern would otherwise pass the size
+        // check and land silently in an equally-sized colour store.
+        if (textureInputFormat == TextureInputFormat::StencilIndex) return false;
+        if (inputPixel == nullptr || !IsValidUnpackPixelPair(textureInputFormat, inputDataType)) return false;
+
+        PixelStoreParameters params{};
+        params.Alignment = 1;
+        SizeT convertedSize = 0;
+        void* converted = ProcessTexturePixelsDataUnpack(
+            inputPixel, params, targetInternalFormat, textureInputFormat, inputDataType, {1, 1, 1}, false,
+            convertedSize);
+        const SizeT expectedSize = MG_Util::GetSizedInternalFormatSizeInBytes(targetInternalFormat);
+        if (converted == nullptr || convertedSize != expectedSize || expectedSize == 0) {
+            if (converted != nullptr) free(converted);
+            return false;
+        }
+
+        outputPixel.resize(convertedSize);
+        Memcpy(outputPixel.data(), converted, convertedSize);
+        free(converted);
+        return true;
     }
 
     void* ProcessTexturePixelsDataPack(const void* inputPixels, const PixelStoreParameters& params,

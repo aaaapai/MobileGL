@@ -66,22 +66,61 @@ namespace MobileGL::MG_Config {
     //   - DISPLAY: X11 session variable, not MobileGL configuration.
     //   - MOBILEGL_LOG_FILE_PATH: log-file init runs before MG_ConfigLoader::Init
     //     (see MG_Util/Debug/Log.cpp).
-    //   - MOBILEGL_VALIDATE_SPIRV: test suites like SpirvPassTest exercise
-    //     ShaderCompiler without ever running MobileGL::Initialize(), and every
-    //     Initialize() re-runs MG_ConfigLoader::Init, which would clobber a
-    //     programmatic override stored here (see ShaderCompiler.cpp,
-    //     SpirvValidationEnabled).
     struct FeaturesTable {
         // MOBILEGL_DISABLE_TIMERQUERY: do not advertise or use GPU timer queries.
         Bool DisableTimerQuery = false;
+        // MOBILEGL_ENABLE_SPIRV_VALIDATION: validate generated and transformed SPIR-V.
+        // Disabled by default because validation is a diagnostics-only cost.
+        Bool EnableSpirvValidation = false;
         // MOBILEGL_USE_ANGLE: load ANGLE EGL/GLES libraries.
         Bool UseAngle = false;
 #if defined(MOBILEGL_TRACE_ANGLE_VARIANTS)
         // MOBILEGL_TRACE_ANGLE_VARIANT: signed trace-APK ANGLE build short hash.
         String TraceAngleVariant;
 #endif
-        // MOBILEGL_DISABLE_SUBGROUP: force-disable Vulkan shader subgroup support.
+        // MOBILEGL_DISABLE_SUBGROUP: force-disable Vulkan shader subgroup support,
+        // including the opt-in emulated compute path below.
         Bool DisableSubgroup = false;
+        // MOBILEGL_MAGMA_EMULATE_SUBGROUP: implement GL_KHR_shader_subgroup's compute
+        // stage on a 32-lane VIRTUAL subgroup lowered to workgroup-shared memory
+        // (ShaderTranspiler::EmulateSubgroupsPass). Strictly a last resort: it only ever
+        // engages when this flag is set AND the device has no native subgroup support at
+        // all - a device with real subgroup operations always uses them natively,
+        // whatever their width (the known iterationRP defect is patched by
+        // FixIterationRPSubgroupScratch below instead). Off by default.
+        Bool MagmaEmulateSubgroup = false;
+        // MOBILEGL_FIX_ITERATIONRP_SUBGROUP_SCRATCH: patch iterationRP's own bug - the
+        // pack declares `shared vec2 prefixSumCache[32]` for a 512-invocation exposure
+        // reduction and indexes it by gl_SubgroupID, so any device with sub-16-lane
+        // subgroups (8-lane lavapipe -> 64 subgroups) writes shared memory out of
+        // bounds. The pass grows that one array to what the device's topology needs and
+        // touches nothing else; it only rewrites modules positively matching the pack's
+        // reduction fingerprint (ShaderTranspiler::FixIterationRPSubgroupScratchPass),
+        // so every other shader passes through byte-identical - as does iterationRP
+        // itself on >= 16-lane devices. Auto is ON; ForceOff replays the pack's bug
+        // verbatim.
+        QuirkOverride FixIterationRPSubgroupScratch = QuirkOverride::Auto;
+        // MOBILEGL_ITERATIONRP_FIX_BARRIER: repair Program 203's missing workgroup
+        // rendezvous between its two reductions over prefixSumCache. Off by default and
+        // fingerprint-gated by FixIterationRPBarrierPass when enabled.
+        Bool IterationRPFixBarrier = false;
+        // MOBILEGL_DERIVE_NUM_SUBGROUPS: replace compute gl_NumSubgroups loads with
+        // ceil(workgroup invocations / gl_SubgroupSize) on the NATIVE subgroup path
+        // (ShaderTranspiler::DeriveNumSubgroupsPass). Auto is ON: GL requires
+        // gl_SubgroupID < gl_NumSubgroups, Adreno's builtin reports 1 while the same
+        // dispatch emits IDs 0..7, and the derived value is the one Vulkan guarantees
+        // whenever the pipeline can request REQUIRE_FULL_SUBGROUPS (which the renderer
+        // does whenever local_size_x is a multiple of the native width). ForceOff returns
+        // to the raw driver builtin.
+        QuirkOverride DeriveNumSubgroups = QuirkOverride::Auto;
+        // MOBILEGL_ADVERTISE_FP64: add GL_ARB_gpu_shader_fp64 to the advertised extension
+        // string. `double` in a shader always WORKS - it is narrowed to 32 bits before any
+        // module reaches a backend (ShaderTranspiler::DemoteFloat64Pass) - but the extension
+        // promises 64-bit precision, and that is the one thing the narrowing cannot deliver.
+        // Off by default so an application that checks the string before using doubles keeps
+        // its float path; on for measuring what the conformance suite makes of the demoted
+        // precision. See the DemoteFloat64Pass header and the "fp64" POST row.
+        Bool AdvertiseFp64 = false;
         // MOBILEGL_MAGMA_R11G11B10F_FALLBACK: use fallback format for R11G11B10F on Vulkan.
         Bool MagmaR11G11B10FFallback = false;
         // MOBILEGL_MAGMA_FRAMESINFLIGHT: requested Magma frames in flight, defaulting to 3.
@@ -89,6 +128,13 @@ namespace MobileGL::MG_Config {
         // MOBILEGL_AVOID_SAMPLER_MIPMAP_MIN_FILTER: avoid mipmap min filters in samplers,
         // resolves certain rendering bugs on ANGLE + llvmpipe.
         Bool AvoidSamplerMipmapMinFilter = false;
+        // MOBILEGL_AVOID_EXPLICIT_LOD_BIAS: leave an already-explicit LOD argument alone when
+        // emulating GL_TEXTURE_LOD_BIAS, instead of adding the bias uniform to it. Injecting
+        // the uniform turns a compile-time-constant LOD into a runtime expression, which
+        // sends ANGLE + llvmpipe down a mip-selection path that dereferences a NULL
+        // descriptor and kills the process. Deviates from spec (Vulkan adds the bias to
+        // OpImageSampleExplicitLod), so it is an avoidance for that stack only.
+        Bool AvoidExplicitLodBias = false;
         // MOBILEGL_COHERENT_AS_FLUSH: app-compat for engines (e.g. Flywheel) that write
         // GPU-read data through persistent GL_MAP_FLUSH_EXPLICIT_BIT maps they never
         // flush. Persistent FLUSH_EXPLICIT map requests are rewritten to coherent
@@ -102,16 +148,19 @@ namespace MobileGL::MG_Config {
         // per-draw glBufferSubData path instead of the persistent-mapped ring allocator
         // (negative control / driver-bug escape hatch).
         Bool DisableUboRing = false;
+        // MOBILEGL_ESPRYT_FORCE_DS_READBACK_EMULATION: make DirectGLES skip the native ES
+        // depth/stencil reads and always go through the shader-sampling emulation. Core GL
+        // ES has no depth or stencil readback, but some drivers accept it anyway (Mesa does,
+        // Adreno does not), which means the emulation is dead code on exactly the stack the
+        // headless suite runs on. This forces it live so the scenarios and the CTS can
+        // exercise the path, and gives the device an A/B lever over the same choice.
+        Bool EsprytForceDepthStencilReadbackEmulation = false;
         // MOBILEGL_RELAXED_SEMANTICS: relax strict core-profile rules (e.g. VAO-0 draws,
         // texture-name reuse after delete) even on contexts that explicitly requested a core
         // profile. Without it, relaxed semantics still apply to every context that did not
         // explicitly request a core profile via EGL_CONTEXT_OPENGL_PROFILE_MASK / a >=3.1
         // version request.
         Bool RelaxedSemantics = false;
-        // MOBILEGL_QUIRK_SUBGROUP_PREFIX_SCAN: overrides the shader-source quirk that
-        // rewrites the recognized workgroup prefix-scan template on Qualcomm devices with
-        // subgroups wider than 32 lanes (see ShaderSourceProcessor's quirk registry).
-        QuirkOverride SubgroupPrefixScanQuirk = QuirkOverride::Auto;
         // MOBILEGL_MAGMA_DISABLE_BLENDED_DEPTH_WRITE: overrides the DirectVulkan quirk that
         // strips depth writes from accumulation-blended pipelines (MIN/MAX or additive
         // ONE+ONE - the multi-pass depth-equality signature) on drivers without
@@ -154,6 +203,15 @@ namespace MobileGL::MG_Config {
         // immediately stay serial by their own construction). Off by default; never
         // advertise it.
         QuirkOverride AsyncOptimisticShaderStatus = QuirkOverride::Auto;
+        // MOBILEGL_SHADER_CACHE: the three-level, in-memory shader translation memo
+        // (MG_Util/ShaderTranspiler/TranslationCache.h). The levels follow the GL
+        // entry points - L1c memoizes one glCompileShader's PARSE VERDICT, L1 a
+        // linked program's whole front end, L2 DirectGLES's emitted ESSL. Auto is
+        // ON; ForceOff turns ALL THREE off and makes every translation run from
+        // scratch. The escape hatch exists because a wrong cache hit is a silently
+        // miscompiled shader: if a device ever renders differently with the cache
+        // on, one run with this falsy says so.
+        QuirkOverride ShaderTranslationCache = QuirkOverride::Auto;
     };
     extern FeaturesTable Features;
 } // namespace MobileGL::MG_Config

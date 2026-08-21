@@ -23,7 +23,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
             VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
             VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT |
-            VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+            // "Every usage" has to mean every usage: a buffer texture reached through an IMAGE
+            // unit takes a VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER descriptor, and the write is
+            // invalid unless the buffer was created with this bit. Nothing asked for it until
+            // imageBuffer support existed, so the omission was invisible.
+            VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
         // Appended to kPersistentBackedUsage when VK_EXT_transform_feedback is enabled
         // (see VkBufferManagerInitInfo::transformFeedbackUsageEnabled).
         constexpr VkBufferUsageFlags kTransformFeedbackUsage =
@@ -298,7 +302,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             .requiredFlags = requiredFlags,
         });
         if (!created || resource.buffer.Map() == nullptr) {
-            MGLOG_E("VkBufferManager::CreateResidentStorage failed (size=%llu)",
+            MGLOG_E_ONCE("VkBufferManager::CreateResidentStorage failed (size=%llu)",
                     static_cast<unsigned long long>(size));
             resource.buffer.Destroy();
             resource.storageSize = 0;
@@ -320,7 +324,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return false;
         }
         if (!resource.buffer.Upload(bufferObject.MappedData(), size, 0)) {
-            MGLOG_E("VkBufferManager::SwapStorageAndUploadAll: upload failed");
+            MGLOG_E_ONCE("VkBufferManager::SwapStorageAndUploadAll: upload failed");
             resource.pendingFullUpload = true;
             return false;
         }
@@ -379,6 +383,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         BumpSliceEpoch(*resource);
         // Any cached streaming slice refers to the previous contents.
         resource->transientFrameSerial = 0;
+        // Redefining the store hands any adopted mapping back to the CPU shadow
+        // (BufferObject::RedefineStorage), so a buffer that reaches here persistent-mapped
+        // is an ordinary resident one again: it needs the busy-tracking and conditional
+        // orphan below, and the next AcquirePersistentMap has to mint storage for the new
+        // store rather than hand back a mapping of the old one.
+        resource->persistentMapped = false;
         if (!resource->buffer.IsValid()) {
             return; // streaming-only resource: shadow + serial are enough
         }
@@ -399,7 +409,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         if (!resource->buffer.Upload(bufferObject.MappedData(), size, 0)) {
-            MGLOG_E("VkBufferManager::OnRespecify: in-place upload failed");
+            MGLOG_E_ONCE("VkBufferManager::OnRespecify: in-place upload failed");
             resource->pendingFullUpload = true;
         }
     }
@@ -424,7 +434,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         if (!IsResourceBusy(*resource)) {
             if (!resource->buffer.Upload(bufferObject.MappedData() + offset,
                                          static_cast<VkDeviceSize>(size), static_cast<VkDeviceSize>(offset))) {
-                MGLOG_E("VkBufferManager::OnSubData: host upload failed");
+                MGLOG_E_ONCE("VkBufferManager::OnSubData: host upload failed");
                 resource->pendingFullUpload = true;
             }
             return;
@@ -461,7 +471,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         if ((appAccess & BufferMappingAccessBit::Unsynchronized) || !IsResourceBusy(*resource)) {
             if (!resource->buffer.Upload(bufferObject.MappedData() + offset,
                                          static_cast<VkDeviceSize>(size), static_cast<VkDeviceSize>(offset))) {
-                MGLOG_E("VkBufferManager::OnFlushMappedRange: host upload failed");
+                MGLOG_E_ONCE("VkBufferManager::OnFlushMappedRange: host upload failed");
                 resource->pendingFullUpload = true;
             }
             return;
@@ -553,7 +563,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         const VkDeviceSize size = static_cast<VkDeviceSize>(bufferObject->GetSize());
         if (size == 0) {
-            MGLOG_E("VkBufferManager::AcquireResidentSlice failed: buffer size is zero");
+            MGLOG_E_ONCE("VkBufferManager::AcquireResidentSlice failed: buffer size is zero");
             return false;
         }
 
@@ -575,7 +585,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 return false;
             }
             if (!resource->buffer.Upload(bufferObject->MappedData(), size, 0)) {
-                MGLOG_E("VkBufferManager::AcquireResidentSlice failed: initial upload failed");
+                MGLOG_E_ONCE("VkBufferManager::AcquireResidentSlice failed: initial upload failed");
                 resource->buffer.Destroy();
                 resource->storageSize = 0;
                 resource->usageFlags = 0;
@@ -610,7 +620,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         const VkDeviceSize size = static_cast<VkDeviceSize>(bufferObject->GetSize());
         if (size == 0) {
-            MGLOG_E("VkBufferManager::AcquireStreamedSlice failed: buffer size is zero");
+            MGLOG_E_ONCE("VkBufferManager::AcquireStreamedSlice failed: buffer size is zero");
             return false;
         }
 
@@ -708,7 +718,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         case BufferKind::Uniform:
             return VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
         case BufferKind::TextureBuffer:
-            return VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT;
+            // Both texel roles, for the same reason vertex/index carry both bits: one GL buffer
+            // texture can be read as a samplerBuffer and written as an imageBuffer, and which of
+            // the two it is only becomes known when a shader that uses it is bound - long after
+            // the resident buffer was created. A VkBufferView for a storage-texel descriptor is
+            // invalid unless the buffer was created with the storage bit, so a buffer that
+            // acquired only the uniform bit could never be given one.
+            return VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT;
         case BufferKind::ShaderStorage:
             return VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
         case BufferKind::Indirect:

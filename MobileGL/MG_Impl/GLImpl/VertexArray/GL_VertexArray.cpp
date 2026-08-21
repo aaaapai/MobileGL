@@ -315,9 +315,10 @@ namespace MobileGL::MG_Impl::GLImpl {
 
         auto offset = reinterpret_cast<SizeT>(pointer);
 
-        vao->SetAttributeFormat(index, size, dataType, false, stride, offset, true, false);
+        const int effectiveStride = EffectiveVertexStride(stride, size, type);
+        vao->SetAttributeFormat(index, size, dataType, false, stride, offset, true, false, effectiveStride);
         vao->BindAttributeBuffer(index, vbo);
-        vao->MirrorPointerIntoBinding(index, vbo, offset, EffectiveVertexStride(stride, size, type));
+        vao->MirrorPointerIntoBinding(index, vbo, offset, effectiveStride);
     }
 
     void VertexAttribPointer_State(GLuint index, GLint size, GLenum type, GLboolean normalized, GLsizei stride,
@@ -345,9 +346,11 @@ namespace MobileGL::MG_Impl::GLImpl {
         // backend can pick the reversed VkFormat / pass GL_BGRA through to a GLES driver.
         const bool isBgra = (size == static_cast<GLint>(GL_BGRA));
         const int effectiveSize = isBgra ? 4 : size;
-        vao->SetAttributeFormat(index, effectiveSize, dataType, normalized, stride, offset, false, isBgra);
+        const int effectiveStride = EffectiveVertexStride(stride, effectiveSize, type);
+        vao->SetAttributeFormat(index, effectiveSize, dataType, normalized, stride, offset, false, isBgra,
+                                effectiveStride);
         vao->BindAttributeBuffer(index, vbo);
-        vao->MirrorPointerIntoBinding(index, vbo, offset, EffectiveVertexStride(stride, effectiveSize, type));
+        vao->MirrorPointerIntoBinding(index, vbo, offset, effectiveStride);
     }
 
     void BindVertexArray_State(GLuint array) {
@@ -511,10 +514,15 @@ namespace MobileGL::MG_Impl::GLImpl {
     // recorded DataType is always Float64 - what IsLong adds is that this is the *unconverted* form,
     // as opposed to VertexAttribFormat(GL_DOUBLE), which asks for a float conversion.
     //
-    // Whether the backend can feed it is detected, not assumed: DirectVulkan needs shaderFloat64,
-    // and DirectGLES can never have it at all. A backend without it declines here, loudly - GL error
-    // plus a log line naming the reason - rather than accepting state no draw could honour and
-    // rendering garbage. The matching startup POST row is in MG_Util/SelfTest/DriverPost.cpp.
+    // Whether the backend can FEED it is detected, not assumed: DirectVulkan needs shaderFloat64,
+    // and DirectGLES can never have it at all. What that costs is the ARRAY, not the call: GL 4.6
+    // core 10.3.2 defines no error for a well-formed glVertexAttribLFormat, and a GL 4.3 context
+    // has 64-bit attributes in core, so declining the call would be non-conformant and would make
+    // the four pure state queries (VERTEX_ATTRIB_ARRAY_SIZE / _TYPE / _LONG / _RELATIVE_OFFSET)
+    // unanswerable (KHR-GL43.vertex_attrib_binding.basic-state1/3). The format is therefore
+    // RECORDED here and the enabled array is dropped at draw instead - loudly, once, naming the
+    // reason. The matching startup POST row is in MG_Util/SelfTest/DriverPost.cpp; the draw-side
+    // drop is DirectGLES/Managers.cpp and, on DirectVulkan, VertexInputStateFactory's Float64 case.
     static void VertexAttribLFormatSeparate_State(const SharedPtr<MG_State::GLState::VertexArrayObject>& vao,
                                                   GLuint attribindex, GLint size, GLenum type,
                                                   GLuint relativeoffset) {
@@ -524,15 +532,12 @@ namespace MobileGL::MG_Impl::GLImpl {
 
         if (!MG_Backend::pActiveBackendObject ||
             !MG_Backend::pActiveBackendObject->GetDynamicParameters().SupportsFloat64VertexAttributes) {
-            MGLOG_I("VertexAttribLFormat: attribute %u asked for a 64-bit (GL_DOUBLE) format, but this "
-                    "backend has no double-precision vertex attribute support - see the "
-                    "\"64-bit vertex attributes\" / \"shaderFloat64\" POST row for what that costs",
+            MGLOG_W_ONCE("VertexAttribLFormat: attribute %u asked for a 64-bit (GL_DOUBLE) format, but this "
+                    "backend has no double-precision vertex attribute support - the format is recorded "
+                    "and queryable, but the array will be DROPPED at draw and the attribute will read "
+                    "its generic current value; see the \"64-bit vertex attributes\" / \"shaderFloat64\" "
+                    "POST row for what that costs",
                     attribindex);
-            MG_State::pGLContext->RecordError(
-                ErrorCode::InvalidOperation,
-                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "VertexAttribLFormat",
-                                             "64-bit vertex attributes are not supported by this backend."));
-            return;
         }
 
         vao->SetAttributeFormatSeparate(attribindex, size, MG_Util::ConvertGLEnumToDataType(type),

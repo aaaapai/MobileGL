@@ -21,6 +21,16 @@ namespace MobileGL::MG_Backend::DirectGLES {
     String EmulateBaseInstanceInVertexShader(String source, GLenum shaderType);
     String PromoteDrawParameterGlobalsToUniforms(String source, GLenum shaderType);
 
+    // Whether a vertex shader may declare a storage block at all, given what the host driver
+    // reports for GL_MAX_VERTEX_SHADER_STORAGE_BLOCKS. Pure, and separated from the capability
+    // global purely so the decision can be tested without one.
+    //
+    // The indirect half of the gl_BaseInstance lowering in PromoteDrawParameterGlobalsToUniforms
+    // is the only thing that needs this, and it needs exactly one block. A driver reporting 0 is
+    // conformant - the minimum is 0 in GL 4.6 table 23.64 and ES 3.2 table 21.44 - and ARM's
+    // GLES driver does report 0, so this is a live path, not a defensive one.
+    Bool VertexStageStorageBlockUsable(Int maxVertexShaderStorageBlocks);
+
     // True once the process has entered exit(): past that point the EGL library and
     // the driver may already be unloaded, so a backend twin's destructor must not
     // call into g_GLESFuncs (the observed crash is a jump through an unmapped driver
@@ -82,14 +92,26 @@ namespace MobileGL::MG_Backend::DirectGLES {
     // GLES core supports only GL_PRIMITIVE_RESTART_FIXED_INDEX. Throws when the app enabled
     // the arbitrary GL_PRIMITIVE_RESTART with a non-fixed index for this index type.
     void CheckPrimitiveRestartSupported(GLenum indexType);
-    // Feed the current program's gl_BaseInstance / gl_DrawID emulation uniforms. Both are
-    // no-ops when the program does not read the corresponding builtin.
+    // Feed the current program's gl_BaseInstance / gl_DrawID / gl_BaseVertex emulation
+    // uniforms. All are no-ops when the program does not read the corresponding builtin.
     void SetCurrentBaseInstance(Uint32 baseInstance);
     void SetCurrentDrawID(Uint32 drawId);
+    // GL's gl_BaseVertex is the base-vertex parameter of an indexed draw and zero for every
+    // command that has none - including all the DrawArrays forms - so every draw path that
+    // does not carry one must leave this at zero rather than inherit the last draw's value.
+    void SetCurrentBaseVertex(Int32 baseVertex);
     // True when the current program actually reads gl_DrawID, i.e. when a batched
     // (single driver call) multi-draw tier would have to feed it one value for the whole
     // batch and would therefore be wrong.
     Bool CurrentProgramReadsDrawID();
+    // Same question for gl_BaseVertex: a batched multi-draw tier cannot give each sub-draw
+    // its own base vertex through a uniform either.
+    Bool CurrentProgramReadsBaseVertex();
+    // Both of the above, conservatively, for a caller that must decide BEFORE PrepareForDraw
+    // has synced the program - where "does not read it" is indistinguishable from "cannot be
+    // asked yet". Answers true whenever the backend twin is missing or predates the current
+    // link.
+    Bool CurrentProgramMayNeedPerSubDrawBuiltins(Bool batchCarriesBaseVertices);
 
     template <typename StateObject, typename BackendObject>
     class StateBackendObjectRegistry {
@@ -117,7 +139,28 @@ namespace MobileGL::MG_Backend::DirectGLES {
             // Twin creation is the moment a driver-owned id starts needing a guarded
             // destructor; cold path, so the once-guard costs nothing per draw.
             EnsureProcessTeardownSentinel();
+            // Sweep BEFORE the entry reference below exists: the map is open-addressed and an
+            // erase relocates the rest of the probe cluster, so collecting once that reference
+            // is taken would invalidate it. The sweep is therefore owed from an earlier call
+            // rather than triggered by this one.
+            if (m_creationTick >= kCreationGCInterval) {
+                m_creationTick = 0;
+                CollectGarbage();
+            }
+            const SizeT entryCountBeforeInsert = m_entries.size();
             auto& entry = m_entries[stateObj.get()];
+            if (m_entries.size() != entryCountBeforeInsert) {
+                // A key the registry has never held. Nothing tells the backend that a texture or
+                // renderbuffer was DELETED - the twin, and the driver storage it owns, lives
+                // until a collection - and CollectGarbageIfNeeded is ticked only from the
+                // per-draw sync paths, which a CTS-shaped workload runs about ten times per
+                // case. 1024 of those ticks then span ~100 cases, so ~100 cases' worth of dead
+                // (and, for this suite, gigabyte-sized) objects stay allocated at once. Object
+                // CHURN rather than draw count is what makes the sweep urgent, so a twin the
+                // registry has never seen ticks it too - and it does so on the path that is
+                // about to allocate, which is exactly when the memory is needed.
+                ++m_creationTick;
+            }
             if (entry.stateRef.expired()) {
                 // The previous owner of this address is gone and the allocator handed it
                 // to a new object: its twin describes ids the new state object never made.
@@ -191,8 +234,12 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
     private:
         static constexpr Uint32 kGCInterval = 1024;
+        // Creations are far rarer than draws, so this counts in a much smaller unit than
+        // kGCInterval does.
+        static constexpr Uint32 kCreationGCInterval = 64;
         BackendMap m_entries;
         Uint32 m_gcTick = 0;
+        Uint32 m_creationTick = 0;
         Bool m_isCollecting = false;
     };
 
@@ -274,6 +321,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
             // context loss.
             Bool persistentMapped = false;
             void* persistentPtr = nullptr;
+            // The GL store behind `id` was created with glBufferStorageEXT and is
+            // therefore IMMUTABLE - glBufferData cannot respecify it and it must never be
+            // recycled through the size-keyed buffer pool. Tracked separately from
+            // persistentMapped because the two come apart: a glMapBufferRange that fails
+            // after its glBufferStorageEXT succeeded leaves immutable storage behind with
+            // no map, and a respecification then has to retire the id rather than hand it
+            // to glBufferData, which the driver would silently refuse.
+            Bool immutableStorage = false;
         };
 
         // Registered as the frontend's BufferBackendOps at backend init and on
@@ -326,6 +381,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
         // client-attribute staging buffers): scrub every buffer-binding shadow that
         // could false-skip when the name is recycled.
         void NoteBufferIdDeleted(Uint id);
+        // Bumped whenever a live GLESBufferResource's driver id is retired and re-minted
+        // while its frontend buffer stays alive (persistent-map adoption, immutable-store
+        // retire). The VAO twins' baked glVertexAttribPointer / element-array bindings
+        // key on FRONTEND versions, which a backend-side re-mint does not move - without
+        // this generation the driver VAO would keep fetching through the deleted id (or
+        // its retained store) forever. Compared and stamped by
+        // BackendVertexArrayObject::SyncToBackend.
+        extern Uint64 g_bufferBackendIdGeneration;
         // Redundant-bind cache for INDEXED buffer bindings (glBindBufferBase/Range on
         // GL_UNIFORM_BUFFER / GL_SHADER_STORAGE_BUFFER): skips the GL call when the
         // (id, range) already at that index matches, like the array-buffer/texture/
@@ -333,6 +396,13 @@ namespace MobileGL::MG_Backend::DirectGLES {
         void BindBufferBaseCached(GLenum glTarget, Uint index, Uint id);
         void BindBufferRangeCached(GLenum glTarget, Uint index, Uint id, GLintptr offset, GLsizeiptr size);
         void InvalidateIndexedBufferBindingCache();
+        // Re-issues the GL_ATOMIC_COUNTER_BUFFER binding points a program's shaders declare as
+        // GL_SHADER_STORAGE_BUFFER bindings at the reserved slots the transpiled ESSL was built
+        // against (BackendProgramObjectImpl::GetAtomicCounterBindings /
+        // GetAtomicCounterEsslBindingTop). ES has no counter-buffer target at all, so without
+        // this the shader reads a storage block nobody ever bound a buffer to and the buffer the
+        // application bound never reaches the driver.
+        void SyncAtomicCounterBuffers(const Vector<Int>& glBindings, Int esslBindingTop);
         // Buffer-storage pool maintenance. TrimBufferPool evicts over-budget entries
         // (called once per frame from Present); ClearBufferPool drops all pooled ids
         // without glDeleteBuffers (called when the ES context is going away).
@@ -445,6 +515,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
             Array<Uint, MG_State::GLState::VertexArrayObject::MAX_VERTEX_ATTRIBS> m_clientAttributeBufferIds;
             Bool m_isInitialized = false;
             Uint16 m_syncedIndexBufferVersion = 0;
+            // Identity of the buffer the version above was stamped against. Raw and never
+            // dereferenced: the slot version is a wrapping Uint16 (see the ResolvedDrawBuffers
+            // IBO memo and the packed_pixels postmortem at BindCurrentFBO), so the version
+            // alone would read a wrapped-back count with a different buffer bound as clean.
+            const MG_State::GLState::BufferObject* m_syncedIndexBufferObject = nullptr;
             // Aggregate gate over the per-attribute walk below: the frontend bumps its config
             // version on every per-attribute version bump (the three Bump*Version functions are
             // its only writers), so an unchanged config version proves every per-attribute
@@ -454,6 +529,17 @@ namespace MobileGL::MG_Backend::DirectGLES {
             Uint32 m_syncedConfigVersion = 0;
             Array<MG_State::GLState::VertexAttributeVersion, MG_State::GLState::VertexArrayObject::MAX_VERTEX_ATTRIBS>
                 m_syncedAttributeVersions;
+            // Byte shift currently baked into the instanced arrays' offsets by the baseInstance
+            // emulation (see SetPendingFetchBaseInstance). It is draw state, not VAO state, so it
+            // is deliberately NOT covered by the config version: the frontend never bumps for it.
+            // Kept here because it describes what was last EMITTED, which is what the next sync
+            // has to correct.
+            Uint32 m_syncedFetchBaseInstance = 0;
+            // BufferImpl::g_bufferBackendIdGeneration as of this twin's last emit. A
+            // mismatch means some live buffer's driver id was re-minted since; the ids
+            // baked into the driver VAO's attribute/element bindings may be dead even
+            // though every frontend version matches, so the next sync re-emits them all.
+            Uint64 m_syncedBufferIdGeneration = 0;
         };
 
         extern StateBackendObjectRegistry<MG_State::GLState::VertexArrayObject, BackendVertexArrayObject>
@@ -467,6 +553,23 @@ namespace MobileGL::MG_Backend::DirectGLES {
         void InvalidateVAOBindingCache();
         // ES resets the binding to 0 when the currently bound VAO is deleted.
         void NoteVAOIdDeleted(Uint id);
+
+        // baseInstance emulation for drivers without GL_EXT_base_instance. GL fetches an
+        // instanced array at element "floor(instance / divisor) + baseInstance", and ES has no
+        // way to say the "+ baseInstance" part - so it is folded into the attribute's own byte
+        // offset (baseInstance * stride) for every divisor'd array, which is exactly equivalent.
+        // Must be set BEFORE PrepareForDraw so the VAO sync sees it, and cleared after the draw
+        // so the next one refetches from element 0; ScopedFetchBaseInstance does both.
+        void SetPendingFetchBaseInstance(Uint32 baseInstance);
+        Uint32 GetPendingFetchBaseInstance();
+
+        class ScopedFetchBaseInstance {
+        public:
+            explicit ScopedFetchBaseInstance(Uint32 baseInstance) { SetPendingFetchBaseInstance(baseInstance); }
+            ~ScopedFetchBaseInstance() { SetPendingFetchBaseInstance(0); }
+            ScopedFetchBaseInstance(const ScopedFetchBaseInstance&) = delete;
+            ScopedFetchBaseInstance& operator=(const ScopedFetchBaseInstance&) = delete;
+        };
     } // namespace VertexArrayImpl
 
     namespace TextureImpl {
@@ -656,8 +759,18 @@ namespace MobileGL::MG_Backend::DirectGLES {
             FloatVec4 m_cacheBorderColor = {0.0f, 0.0f, 0.0f, 0.0f};
             Vec4<TextureSwizzleParam> m_cacheSwizzleParams = {TextureSwizzleParam::Red, TextureSwizzleParam::Green,
                                                               TextureSwizzleParam::Blue, TextureSwizzleParam::Alpha};
+            // GL_DEPTH_STENCIL_TEXTURE_MODE. GL_DEPTH_COMPONENT is the GL and ES default, so a
+            // texture that never asks for the stencil aspect never emits the call. The
+            // depth/stencil readback and replicate-blit emulations also write this parameter
+            // raw, but only ever on their own scratch textures (never on an application
+            // texture), so they cannot desynchronise this cache.
+            GLenum m_cacheDepthStencilTextureMode = GL_DEPTH_COMPONENT;
             Uint16 m_syncedSamplerVersion = 0;
             Uint16 m_syncedTextureParamsVersion = 0;
+            // Set when the driver texture underneath was regenerated and has therefore lost every
+            // parameter already pushed onto it: the params-version early-out has to be overridden
+            // once, or an unchanged version would skip the re-push forever.
+            Bool m_forceTextureParamsResync = false;
         };
 
         void ActivateTextureUnit(Uint unit);
@@ -746,6 +859,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             using FramebufferObject = MG_State::GLState::FramebufferObject;
             FramebufferObject::FramebufferAttachmentVersionArray m_syncedFrontendAttachmentVersions = {0};
+            // g_attachmentBackendIdGeneration as of this twin's last attachment walk. A
+            // mismatch means some backend texture id was re-minted since, and any of this
+            // twin's attachment points may still hold the dead id even though the frontend
+            // attachment versions match - so the walk re-attaches everything first.
+            Uint64 m_syncedBackendIdGeneration = 0;
         };
 
         extern StateBackendObjectRegistry<MG_State::GLState::FramebufferObject, BackendFramebufferObject>
@@ -834,6 +952,19 @@ namespace MobileGL::MG_Backend::DirectGLES {
         // Which object was synced. Raw and never dereferenced: only compared for identity.
         extern Array<MG_State::GLState::FramebufferObject*, SizeT(FramebufferTarget::FramebufferTargetCount)>
             g_fboSyncedObjects;
+
+        // Bumped whenever a live backend texture's driver id is re-minted while its
+        // frontend texture may still be attached to application FBOs
+        // (BackendTextureObject::RecreateBackendTexture - e.g. a respecify of a texture
+        // whose backend storage went immutable). The FBO twins' attachment memos key on
+        // FRONTEND attachment versions, which a backend-side re-mint does not move, so
+        // the driver FBO would keep the deleted texture name attached forever. The
+        // SyncCurrentFBO gate compares this generation (below) to re-enter the sync,
+        // and each twin re-arms its per-attachment memo on a mismatch (SyncToBackend).
+        extern Uint64 g_attachmentBackendIdGeneration;
+        // What g_attachmentBackendIdGeneration was when SyncCurrentFBO last stamped each
+        // target; part of the synced tuple above.
+        extern Array<Uint64, SizeT(FramebufferTarget::FramebufferTargetCount)> g_fboSyncedBackendIdGenerations;
 
         // Driver-level READ/DRAW framebuffer-binding shadow. Every backend
         // glBindFramebuffer routes through BindFramebufferId so scoped helpers can
@@ -962,6 +1093,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
     }
 
     namespace PrgramImpl {
+        // Defined further down, next to CollectImageFormatBakeInputs; only referenced here.
+        struct ImageFormatBakeInputs;
+
         class BackendProgramObjectImpl {
         public:
             // Per-link cache of a sampler-style uniform's backend location: built once in
@@ -1025,9 +1159,13 @@ namespace MobileGL::MG_Backend::DirectGLES {
             void SetBaseInstance(Uint32 baseInstance) const;
             void SetBaseInstanceWordIndex(Int32 wordIndex) const;
             void SetDrawID(Uint32 drawId) const;
+            void SetBaseVertex(Int32 baseVertex) const;
             // True when the transpiled program kept a gl_DrawID uniform, i.e. SetDrawID
             // actually reaches a shader read rather than being discarded.
             Bool ReadsDrawID() const { return m_drawIdUniformLocation >= 0; }
+            // Same for gl_BaseVertex: only a program that reads it pays for the per-draw
+            // uniform write, and only such a program needs the reset after one.
+            Bool ReadsBaseVertex() const { return m_baseVertexUniformLocation >= 0; }
             Int GetIndirectParamsBinding() const { return m_indirectParamsBinding; }
             Uint GetBackendProgramId() const { return m_backendProgramId; }
             // False when the last SyncToBackend could not produce a usable program (a
@@ -1043,6 +1181,13 @@ namespace MobileGL::MG_Backend::DirectGLES {
             // qualifier, so the overrides are baked into the source). A mismatch means the
             // program is stale exactly like the clamp masks above.
             Uint64 GetShaderStorageBlockBindingSignature() const { return m_shaderStorageBlockBindingSignature; }
+            // GL atomic-counter binding points the transpiled stages declare (sorted, unique),
+            // and the top of the reserved shader-storage range their counter blocks were
+            // transpiled against - the slot for GL binding N is `top - N`. Empty for every
+            // program that uses no atomic counter, which is what keeps the per-draw cost of the
+            // counter sync at one empty-vector test.
+            const Vector<Int>& GetAtomicCounterBindings() const { return m_atomicCounterGlBindings; }
+            Int GetAtomicCounterEsslBindingTop() const { return m_atomicCounterEsslBindingTop; }
 
             Bool HasGlobalUboBlock() const { return m_globalUboBackendBlockIndex >= 0; }
             const Vector<Int>& GetUniformBlockBackendIndices() const { return m_uniformBlockBackendIndices; }
@@ -1065,9 +1210,48 @@ namespace MobileGL::MG_Backend::DirectGLES {
             // stale as one built before a relink - while the sampler half, which really is
             // re-issued per draw, needs nothing of the sort.
             Uint32 GetSyncedImageUnitVersion() const { return m_syncedImageUnitVersion; }
+            // Whether the (unit, bound format) pairs this program's FORMAT-LESS image uniforms
+            // resolve to are still the ones its ESSL was generated against.
+            //
+            // A fourth condition of the same family as the three above, and the only one that
+            // reads live state rather than a program-side counter, because that is where the
+            // dependency actually is. GLSL ES requires a format layout qualifier on every image
+            // where desktop GLSL lets a writeonly declaration omit one, and the only correct
+            // qualifier is whatever glBindImageTexture named - so a declaration with no format
+            // is compiled against the BINDING, and a rebind to a different format makes the
+            // built program wrong. Keyed on the units the program's own images address (cached
+            // at sync, since a unit can only move by glUniform1i, which bumps the image-unit
+            // version above and forces a re-sync anyway), so the cost on a program with no
+            // format-less image - which is all but a handful - is one empty-vector test.
+            //
+            // Deliberately NOT reached from glBindImageTexture: that entry point must never
+            // trigger a build (same constraint as glShaderStorageBlockBinding). It moves the
+            // state and this comparison notices at the next Prepare, which is also what makes
+            // an image first bound AFTER link work.
+            Bool ImageUnitFormatsStillMatch() const;
+            // The value ImageUnitFormatsStillMatch() compares against, recomputed from live
+            // image-unit state. 0 when the program has no format-less image uniform.
+            Uint64 ComputeImageUnitFormatSignature() const;
 
         private:
             void CacheResourceLocations(const SharedPtr<MG_State::GLState::ProgramObject>& stateProgramObject);
+
+            // One stage's SPIR-V through the DirectGLES pass chain and SPIRV-Cross, producing
+            // the raw emitted ESSL and the interface blocks this stage's XFB flattening
+            // rewrote. This is the segment the L2 shader-translation memo keys on, so every
+            // input it reads must appear in EsslTranslationKeyInputs - see the definition's
+            // header comment in Managers.cpp and MG_Util/ShaderTranspiler/TranslationCache.h.
+            // False means SPIRV-Cross refused the module; `outError` then carries its message.
+            Bool TranspileSpirvToEssl(const Vector<unsigned int>& spirvCode, GLenum glShaderType,
+                                      const std::set<String>& xfbCaptureBlockNames,
+                                      const ImageFormatBakeInputs& imageFormatBake,
+                                      const UnorderedMap<String, Int>& storageBlockBindingOverrides,
+                                      const std::map<String, String>& inputBlockRenames,
+                                      const std::map<String, String>& outputBlockRenames,
+                                      Int atomicCounterEsslBindingTop, Bool enableSpirvValidation,
+                                      String& outSource,
+                                      std::set<String>& outFlattenedXfbBlockNames,
+                                      Vector<Int>& outAtomicCounterGlBindings, String& outError) const;
 
             Uint m_backendProgramId = 0;
             // GL name of the frontend program this was last synced from; diagnostics only, so
@@ -1077,6 +1261,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             Uint m_backendGlobalUBOId = 0;
             Int m_baseInstanceUniformLocation = -1;
             Int m_drawIdUniformLocation = -1;
+            Int m_baseVertexUniformLocation = -1;
             Int m_baseInstanceWordIndexUniformLocation = -1;
             Int m_indirectParamsBinding = -1;
             Uint32 m_snormFallbackClampOutputMask = 0;
@@ -1086,6 +1271,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
             Uint m_fragColorBroadcastCount = 1;
             // 0 is the signature of an empty override set, i.e. what almost every program has.
             Uint64 m_shaderStorageBlockBindingSignature = 0;
+            Vector<Int> m_atomicCounterGlBindings;
+            Int m_atomicCounterEsslBindingTop = -1;
             Bool m_isInitialized = false;
             Bool m_backendProgramUsable = false;
 
@@ -1097,6 +1284,12 @@ namespace MobileGL::MG_Backend::DirectGLES {
             BufferImpl::UboRingAllocation m_globalUboRingAllocation;
             Uint32 m_syncedLinkVersion = ~0u;
             Uint32 m_syncedImageUnitVersion = ~0u;
+            // Image units addressed by the program's FORMAT-LESS image uniforms, and the digest
+            // of the (unit, format) pairs the generated ESSL baked. Empty/0 for every program
+            // that declares a format on all of its images, which is the overwhelming majority -
+            // and what keeps the per-draw comparison free for them.
+            Vector<Int> m_formatlessImageUnits;
+            Uint64 m_imageUnitFormatSignature = 0;
             SamplerPassMemo m_samplerPassMemo;
         };
 
@@ -1139,6 +1332,40 @@ namespace MobileGL::MG_Backend::DirectGLES {
         // has to rebuild it. Computed from the values, so re-setting a block to the binding it
         // already has costs nothing. 0 when nothing was ever rebound.
         Uint64 ComputeShaderStorageBlockBindingSignature(
+            const MG_State::GLState::ProgramObject& stateProgramObject);
+
+        // Everything the image-format bake needs from one walk of a program's uniform
+        // reflection. GLSL ES requires a format layout qualifier on every image uniform;
+        // desktop GLSL lets a writeonly (or readonly) declaration omit one, and the only
+        // format that is CORRECT to substitute is whatever glBindImageTexture named for the
+        // unit that uniform addresses - so the transpile bakes it in and the build is keyed
+        // on it.
+        struct ImageFormatBakeInputs {
+            // Uniform name (SPIR-V spelling, i.e. an array named once, unsubscripted) to the GL
+            // internal format to bake. Holds only uniforms that DECLARED no format; a declared
+            // one is authoritative and is never overridden.
+            UnorderedMap<String, Uint> glFormatByUniformName;
+            // The same uniforms whose format SPIRV-Cross REFUSES to print for ESSL (it throws on
+            // its desktop-only set, which loses the stage), paired with the ESSL spelling to
+            // write into the emitted declaration instead. Disjoint from the map above by
+            // construction: a format is baked into the module or completed in the text, never
+            // both. r8ui - the stencil half of the packed_depth_stencil case - lands here.
+            UnorderedMap<String, String> esslFormatQualifierByUniformName;
+            // Units those uniforms address, kept so the draw path can re-read their formats
+            // without walking the reflection again.
+            Vector<Int> units;
+            // Digest of the (unit, format) pairs above. 0 when the program has no format-less
+            // image uniform, which is all but a handful.
+            Uint64 signature = 0;
+            // Array uniforms whose elements resolved to units holding DIFFERENT formats: one
+            // declaration carries one qualifier, so there is nothing correct to bake and they
+            // are dropped from the map above. Kept for diagnostics.
+            Vector<String> conflictedNames;
+            // Some format in play - declared or baked - is outside the GLSL ES core image
+            // format set, so the emitted ESSL needs the GL_NV_image_formats directive.
+            Bool needsExtendedImageFormats = false;
+        };
+        ImageFormatBakeInputs CollectImageFormatBakeInputs(
             const MG_State::GLState::ProgramObject& stateProgramObject);
     } // namespace PrgramImpl
 

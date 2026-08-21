@@ -23,6 +23,7 @@
 #include "VkTimerQueryManager.h"
 #include "MG_Util/Math/VectorTypes.h"
 #include <Includes.h>
+#include <MG_Backend/BackendObject.h>
 #include <vk_mem_alloc.h>
 
 #include "../VkIncludes.h"
@@ -197,9 +198,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                   GLbitfield mask, GLenum filter);
         void CopyTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset,
                        GLint x, GLint y, GLsizei width, GLsizei height);
-        void CopyImageSubData(const SharedPtr<MG_State::GLState::ITextureObject>& srcTexture,
+        void CopyImageSubData(const CopyImageEndpoint& srcEndpoint,
                               GLenum srcTarget, GLint srcLevel, GLint srcX, GLint srcY, GLint srcZ,
-                              const SharedPtr<MG_State::GLState::ITextureObject>& dstTexture,
+                              const CopyImageEndpoint& dstEndpoint,
                               GLenum dstTarget, GLint dstLevel, GLint dstX, GLint dstY, GLint dstZ,
                               GLsizei srcWidth, GLsizei srcHeight, GLsizei srcDepth);
         void GenerateMipmap(GLenum target);
@@ -216,10 +217,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         // depth/stencil image, which this renderer stores display-side-up: the copy rect then
         // has to be mapped out of GL's bottom-origin space and the copied rows re-oriented on
         // the way back, exactly as the colour ReadPixels path does.
+        // `sourceLayerCount` above 1 says the `height` rows the client is owed are stored as that
+        // many ARRAY LAYERS of a one-row image rather than as rows of one layer - the shape a GL
+        // 1D array has in Vulkan. The two produce byte-identical tightly-packed readbacks, so
+        // only the copy region differs; everything after it is written against `height`.
         void ReadDepthStencilImageToClient(VkImage image, VkFormat vkFormat, VkImageLayout* trackedLayout,
                                            VkImageAspectFlags imageAspect, Uint32 mipLevel, Uint32 baseArrayLayer,
                                            GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type,
-                                           void* pixels, Bool defaultFramebufferOrientation = false);
+                                           void* pixels, Bool defaultFramebufferOrientation = false,
+                                           Uint32 sourceLayerCount = 1);
         // Same-extent depth blit between images of different depth formats: host
         // round-trip with a per-texel re-encode (see BlitNamedFramebuffer).
         Bool BlitDepthAcrossFormats(FrameContext::FrameData& frame, VkImage srcImage, VkFormat srcFormat,
@@ -229,6 +235,18 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                     GLint dstY, GLint width, GLint height, VkImageLayout srcRestoreLayout,
                                     VkImageLayout dstRestoreLayout, Bool stencilAspect);
         static SizeT GetReadbackTexelSize(VkFormat sourceFormat);
+        // Map a GL bottom-left-origin rectangle into the display-oriented swapchain image.
+        // Quarter-turn surface transforms swap the copy extent's axes.
+        static Bool MapDefaultFramebufferReadbackRect(GLint x, GLint y, GLsizei width, GLsizei height,
+                                                      VkExtent2D imageExtent,
+                                                      VkSurfaceTransformFlagBitsKHR preTransform,
+                                                      VkOffset2D* imageOffset, VkExtent2D* imageCopyExtent);
+        // Reorder a tightly packed block copied with MapDefaultFramebufferReadbackRect back into
+        // GL row order. The input block has swapped dimensions for 90/270 degree transforms.
+        static Bool RemapDefaultFramebufferReadback(const Uint8* rawPixels, Uint32 logicalWidth,
+                                                    Uint32 logicalHeight,
+                                                    VkSurfaceTransformFlagBitsKHR preTransform,
+                                                    SizeT texelSize, Uint8* outPixels);
         static Bool ConvertReadbackPixels(const Uint8* sourcePixels, VkFormat sourceFormat,
                                           GLsizei width, GLsizei height, GLenum destinationFormat,
                                           GLenum destinationType, SizeT destinationRowStride,
@@ -298,6 +316,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         // The samplerAnisotropy device feature was granted, so GL_TEXTURE_MAX_ANISOTROPY_EXT is
         // honored rather than accepted-and-ignored.
         Bool IsSamplerAnisotropySupported() const { return m_samplerAnisotropyFeatureEnabled; }
+        // ARB_base_instance extends indirect command records with a non-zero firstInstance and
+        // requires gl_InstanceID to remain zero-based. Vulkan needs both features to honor that
+        // complete contract: one legalizes the command word, the other enables the shader rebase.
+        Bool IsNonZeroIndirectBaseInstanceSupported() const {
+            return m_drawIndirectFirstInstanceFeatureEnabled && m_shaderDrawParametersFeatureEnabled;
+        }
         // Ensures the frame command buffer is recording (same lazy pattern as
         // SetupDraw) and writes a bottom-of-pipe timestamp into the current
         // frame's pool. Null when unsupported or the pool is exhausted.
@@ -536,7 +560,20 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Bool m_samplerAnisotropyFeatureEnabled = false;
         Bool m_shaderDrawParametersExtensionEnabled = false;
         Bool m_shaderDrawParametersFeatureEnabled = false;
+        // Native subgroup topology, queried at device creation for the compute-module
+        // subgroup repairs (SubgroupSupportPolicy.h) and the REQUIRE_FULL_SUBGROUPS
+        // stage flag; 0 / false when the device has no usable compute subgroups or
+        // MOBILEGL_DISABLE_SUBGROUP forced them off.
+        Uint32 m_nativeSubgroupSize = 0;
+        Bool m_nativeSubgroupSupported = false;
+        Bool m_computeFullSubgroupsFeatureEnabled = false;
+        // VkPhysicalDeviceSubgroupSizeControlProperties::maxComputeWorkgroupSubgroups;
+        // 0 when the extension (and therefore the full-subgroups flag) is unavailable.
+        Uint32 m_maxComputeWorkgroupSubgroups = 0;
         Bool m_unformattedFloatStorageImagesEnabled = false;
+        // Set only after descriptor-indexing feature AND property queries prove that
+        // update-after-bind is legal for every descriptor category this renderer emits.
+        ProgramFactory::UpdateAfterBindLimits m_updateAfterBindLimits{};
         // fillModeNonSolid gates VK_POLYGON_MODE_LINE/_POINT (glPolygonMode); independentBlend gates
         // per-draw-buffer color write masks (glColorMaski). Both are cached at device creation and
         // drive a runtime fallback when the device lacks them.
@@ -547,6 +584,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         // needs no feature). Both cached at device creation and drive a hard-fail-at-draw when absent.
         Bool m_dualSrcBlendFeatureEnabled = false;
         Bool m_primitiveTopologyListRestartFeatureEnabled = false;
+        // multiViewport gates rasterizing into more than one of ARB_viewport_array's 16 viewports
+        // (gl_ViewportIndex). m_maxRasterizableViewports is min(MAX_VIEWPORTS, device limit), or 1
+        // when the feature is off, and is the viewportCount a gl_ViewportIndex-writing pipeline
+        // declares - it is NOT what GL_MAX_VIEWPORTS reports, which is the frontend state width.
+        Bool m_multiViewportFeatureEnabled = false;
+        Uint32 m_maxRasterizableViewports = 1;
         // Union of shader stages sampled-read barriers may name; built at device creation
         // because geometry/tessellation stage bits are invalid in a barrier when their
         // feature is off (VUID-vkCmdPipelineBarrier-srcStageMask-04090/-04091), and
@@ -770,8 +813,25 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Uint32 m_lastLodProgramVersion = 0;
         Uint64 m_lastLodBindGeneration = 0;
         Uint64 m_lastLodParamsSum = 0;
+        // Sampling-resolution generation at probe time. The probe reads the effective
+        // sampler's filters/aniso/LOD range, whose setters bump only this counter -
+        // the params-version sum above never moves for them.
+        Uint64 m_lastLodSamplingGeneration = 0;
         ProgramFactory::CompileOptionFlags m_lastLodBaseFlags = {};
         ProgramFactory::CompileOptionFlags m_lastLodResultFlags = {};
+
+        // Does the current program's vertex stage declare the BaseVertex builtin? A property
+        // of the program's SPIR-V, so (lifetime id, backend-state version) is the whole key.
+        //
+        // Memoized rather than re-asked because asking means resolving the UN-zeroed program
+        // variant, and a program that only ever draws non-indexed would then compile a variant
+        // no draw uses AND re-stamp its use every draw, so the idle sweep could never retire
+        // it. With the memo the answer is known before the first lookup and only the variant
+        // the draw actually needs is resolved.
+        Bool m_lastBaseVertexQueryValid = false;
+        Uint64 m_lastBaseVertexProgramLifetimeId = 0;
+        Uint32 m_lastBaseVertexProgramVersion = 0;
+        Bool m_lastBaseVertexReads = false;
 
         // Snapshot behind TrySetupDrawFastPath. Values only: the program and
         // render-pass caches are open-addressing maps whose entries move on
@@ -794,6 +854,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             Uint64 vaoLifetimeId = 0;
             Uint32 vaoConfigVersion = 0;
             const void* drawFbo = nullptr;
+            // Never-reused lifetime id beside the raw pointer + Uint16 version: a
+            // deleted FBO recycled at the same address with the same fresh version
+            // count would otherwise compare equal (same ABA as the render-pass
+            // manager's fast-path memo).
+            Uint64 drawFboLifetimeId = 0;
             Uint16 fboVersion = 0;
             Bool drawFboIsDefault = false;
             Uint renderStateVersion = 0;
@@ -817,6 +882,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             // re-resolve just the pipeline against the active pass; a change that
             // flips it must fall back to the full path's pass selection.
             Bool drawUsesDepthStencil = false;
+            // The snapshotting draw's pipeline viewportCount. A pure function of the PROGRAM
+            // (writesViewportIndexBuiltin) and of a device feature fixed at renderer init, both
+            // of which the programLifetimeId/programVersion guards above already pin - carried
+            // here so the fast path does not re-fetch the program object to re-derive it.
+            Uint32 viewportCount = 1;
             IntVec2 renderPassExtent = {0, 0};
             // colorAttachmentCount of the snapshotting draw's render pass: the
             // pipeline-state hash input, so the fast path can refresh that hash and
@@ -884,6 +954,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         // already sampleable.
         Vector<VkTextureManager::TextureResource*> m_sampledResourcesScratch;
         Vector<MG_State::GLState::ITextureObject*> m_storageImageTexturesScratch;
+        Vector<UniformManager::SamplerImageFeedbackBinding> m_samplerImageFeedbackScratch;
+        Vector<UniformManager::SamplerBindingOverride> m_samplerImageBindingOverridesScratch;
         Vector<VkBuffer> m_vertexBuffersScratch;
         Vector<VkDeviceSize> m_vertexOffsetsScratch;
         Vector<VkVertexInputAttributeDescription> m_patchedAttributesScratch;
@@ -1010,6 +1082,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             VkBuffer indexVkBuffer = VK_NULL_HANDLE;
             VkDeviceSize indexSliceOffset = 0;
             Uint64 indexFrameSerial = 0;
+            // The EBO carried a host map when the slice was recorded - the mirror of
+            // anyBufferMapped on the vertex half. A shadow-backed (non-adopted)
+            // persistent map mutates its shadow with no API call and no epoch bump, so
+            // the one-compare rescue must decline and re-run the acquire, whose
+            // SyncPersistentMappedRange is the push-down. A map taken AFTER the record
+            // is already covered: AcquirePersistentMap bumps the slice epoch for the
+            // request itself, adopted or declined.
+            Bool indexBufferMapped = false;
 
             // Bound per draw (first bindingCount elements).
             VkBuffer vkBuffers[kMaxBindings] = {};
@@ -1103,11 +1183,34 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             FrameContext::FrameData& frame,
             const MG_State::GLState::ProgramObject& program,
             const ProgramFactory::VkProgramObject& programObj);
+        // Vulkan forbids a sampled descriptor and writable storage descriptor from naming the
+        // same image subresource in one shader operation. Snapshot only the sampler side; the
+        // storage descriptor continues to name the application texture.
+        Bool PrepareSamplerImageFeedbackSnapshots(
+            FrameContext::FrameData& frame,
+            const MG_State::GLState::ProgramObject& program,
+            const ProgramFactory::VkProgramObject& programObj,
+            VkPipelineStageFlags consumerShaderStageMask);
 
         // The per-draw dynamic-state tail (viewport, scissor, blend constants, depth
         // bias, line width, stencil), gated behind one render-state-parameters-version
         // compare per command buffer - see the gate fields in DynamicStateShadow.
-        void ApplyDynamicDrawStateTail(FrameContext::FrameData& frame, const IntVec2& extent, Bool isDefaultFbo);
+        // viewportCount is the bound pipeline's declared viewport count: 1 for every program that
+        // does not write gl_ViewportIndex (the memoized fast path), otherwise the renderer's
+        // rasterizable viewport count, which takes the unmemoized array path.
+        void ApplyDynamicDrawStateTail(FrameContext::FrameData& frame, const IntVec2& extent, Bool isDefaultFbo,
+                                       Uint32 viewportCount = 1);
+        void ApplyMultiViewportDynamicState(VkCommandBuffer commandBuffer, Uint32 viewportCount, const IntVec2& extent,
+                                            VkSurfaceTransformFlagBitsKHR preTransform, Bool isDefaultFbo);
+        VkRect2D ComputeGLScissorRect(Uint32 index, const IntVec2& extent,
+                                      VkSurfaceTransformFlagBitsKHR preTransform, Bool isDefaultFbo) const;
+        // How many viewports a draw with this program rasterizes into: 1 unless the program
+        // assigns gl_ViewportIndex AND the device enabled multiViewport. Both the pipeline's
+        // baked viewportCount and the dynamic arrays come from this one answer, so they cannot
+        // disagree.
+        Uint32 ResolveDrawViewportCount(Bool programWritesViewportIndex) const {
+            return programWritesViewportIndex && m_multiViewportFeatureEnabled ? m_maxRasterizableViewports : 1u;
+        }
 
         Bool UploadAndBindVertexBuffers(VkCommandBuffer commandBuffer, const MG_State::GLState::VertexArrayObject& vao,
                                         const ProgramFactory::VkProgramObject& programObj,

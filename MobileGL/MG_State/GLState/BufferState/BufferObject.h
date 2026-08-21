@@ -132,6 +132,9 @@ namespace MobileGL {
 
             void UploadData(DataPtr data, SizeT atOffset);
             void UploadSubData(DataPtr data, SizeT atOffset);
+            // Repeats one already-converted element through [atOffset, atOffset + size) and
+            // publishes the range as one content mutation.
+            void FillSubData(DataPtr pattern, SizeT atOffset, SizeT size);
             // Reads `size` bytes from the CPU shadow at `atOffset` into `dst` (glGetBufferSubData).
             // The shadow reflects CPU writes (BufferData/SubData/maps) and backend write-backs, but not
             // arbitrary GPU-side writes.
@@ -205,6 +208,9 @@ namespace MobileGL {
             void SetBackendResource(SharedPtr<BackendBufferResource> resource);
 
         private:
+            // Sizes the store for a (re)definition, renewing an adopted GPU-resident
+            // mapping across it. See the definition for why the renewal is not optional.
+            void RedefineStorage(SizeT size);
             void NotifyRespecify();
             void NotifySubData(SizeT offset, SizeT size);
             void NotifyFlushMappedRange(Range1D range, Flags<BufferMappingAccessBit> appAccess);
@@ -233,7 +239,14 @@ namespace MobileGL {
             // Set by MarkGpuWritten, cleared by SyncGpuWrites once the shadow is refreshed.
             Bool m_gpuWritePending = false;
             Range1D m_mappedRange;
-            Vector<Uint8> m_stagingData;
+            // The write-map staging store. MapAlignedData because the application is handed a
+            // pointer into it, and biased by m_stagingBias because ARB_map_buffer_alignment
+            // requires (returned pointer - offset) to be aligned, not the pointer itself: a range
+            // map at offset 63 must hand back a pointer sitting 63 bytes past the alignment grid.
+            // The bias is the offset's phase, so the mapped bytes still start at
+            // m_stagingData.data() + m_stagingBias and the allocation is that much longer.
+            MapAlignedData m_stagingData;
+            SizeT m_stagingBias = 0;
             Bool m_ownsStagingData;
         };
     } // namespace MG_State::GLState

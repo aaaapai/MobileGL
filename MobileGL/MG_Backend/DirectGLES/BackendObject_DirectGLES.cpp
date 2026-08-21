@@ -8,6 +8,7 @@
 
 #include "BackendObject_DirectGLES.h"
 #include "MG_Backend/BackendObject.h"
+#include "MG_Backend/BackendObjects.h"
 #include <MG_Backend/DirectGLES/DirectGLES.h>
 #include <MG_Backend/DirectGLES/Managers.h>
 #include <MG_Backend/DirectGLES/Utils.h>
@@ -212,7 +213,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
             if (options & PixelFormatNormalizeOptionBit::NoThreeChannelRenderTarget) {
                 reasons.push_back("no colour-renderable three-channel format on OpenGL ES");
             }
-            if (options & PixelFormatNormalizeOptionBit::NoSnorm16RenderTarget) {
+            // A format is either 8- or 16-bit signed normalized, so at most one of the two ever
+            // survives GetApplicablePixelFormatNormalizeOptions and the reason is not duplicated.
+            if ((options & PixelFormatNormalizeOptionBit::NoSnorm16RenderTarget) ||
+                (options & PixelFormatNormalizeOptionBit::NoSnorm8RenderTarget)) {
                 reasons.push_back("EXT_render_snorm not supported");
             }
 
@@ -406,9 +410,12 @@ namespace MobileGL::MG_Backend::DirectGLES {
             return complete;
         }
 
+        // `samples` only reaches the multisample targets; every other target ignores it. The
+        // descending sample walk (ProbeTextureSampleCounts) reuses this whole routine rather than
+        // repeating the gen/bind/completeness/delete dance.
         Bool ProbeTexture(const MG_External::GLESFunctionsTable& gl, TextureTarget target, GLenum internalFormat,
                           GLenum imageFormat, GLenum imageType, TextureInternalFormat logicalFormat,
-                          Bool* outRenderable) {
+                          Bool* outRenderable, Int samples = 1) {
             if (!IsGLESProbeTextureTarget(target) || !gl.glGenTextures || !gl.glBindTexture || !gl.glDeleteTextures) {
                 return false;
             }
@@ -428,10 +435,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             const Bool isMultisample = IsGLESProbeMultisampleTarget(target);
             if (isMultisample) {
+                const auto probeSamples = static_cast<GLsizei>(std::max(samples, 1));
                 if (target == TextureTarget::Texture2DMultisample && gl.glTexStorage2DMultisample) {
-                    gl.glTexStorage2DMultisample(glTarget, 1, internalFormat, 1, 1, GL_TRUE);
+                    gl.glTexStorage2DMultisample(glTarget, probeSamples, internalFormat, 1, 1, GL_TRUE);
                 } else if (target == TextureTarget::Texture2DMultisampleArray && gl.glTexStorage3DMultisample) {
-                    gl.glTexStorage3DMultisample(glTarget, 1, internalFormat, 1, 1, 1, GL_TRUE);
+                    gl.glTexStorage3DMultisample(glTarget, probeSamples, internalFormat, 1, 1, 1, GL_TRUE);
                 } else {
                     gl.glBindTexture(glTarget, static_cast<GLuint>(previousBinding));
                     gl.glDeleteTextures(1, &texture);
@@ -520,6 +528,29 @@ namespace MobileGL::MG_Backend::DirectGLES {
             Vector<Int> sampleCounts;
             for (Int samples = std::max(maxSamples, 1); samples > 1; samples >>= 1) {
                 if (ProbeRenderbuffer(gl, internalFormat, logicalFormat, true, samples)) {
+                    sampleCounts.push_back(samples);
+                }
+            }
+            sampleCounts.push_back(1);
+            return sampleCounts;
+        }
+
+        // The multisample TEXTURE twin of ProbeRenderbufferSampleCounts. It used to be a
+        // hardcoded {1}, which made glGetInternalformativ(GL_SAMPLES) claim a one-sample maximum
+        // for every format on the multisample targets even where glTexImage2DMultisample happily
+        // accepts four - GL 4.6 core 8.8 makes that query the definition of the maximum, so the
+        // two answers cannot both be right. Completeness is required at every count, exactly as
+        // the renderbuffer walk requires it; the caller only reaches here once the one-sample
+        // probe has already succeeded, so 1 terminates the list without being re-probed.
+        Vector<Int> ProbeTextureSampleCounts(const MG_External::GLESFunctionsTable& gl, TextureTarget target,
+                                             GLenum internalFormat, GLenum imageFormat, GLenum imageType,
+                                             TextureInternalFormat logicalFormat, Int maxSamples) {
+            Vector<Int> sampleCounts;
+            for (Int samples = std::max(maxSamples, 1); samples > 1; samples >>= 1) {
+                Bool renderable = false;
+                const Bool created = ProbeTexture(gl, target, internalFormat, imageFormat, imageType, logicalFormat,
+                                                  &renderable, samples);
+                if (created && renderable) {
                     sampleCounts.push_back(samples);
                 }
             }
@@ -627,7 +658,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
                             AddFullFormatCaps(cache, targetIndex, formatIndex,
                                               BuildTextureCapsFromProbe(logicalFormat, target, nativeRenderable));
                             if (IsGLESProbeMultisampleTarget(target)) {
-                                cache.SampleCounts[targetIndex][formatIndex] = {1};
+                                const Int maxSamples =
+                                    GetGLESFormatMaxSamples(capabilities, logicalFormat, nativeInfo.ImageFormat);
+                                cache.SampleCounts[targetIndex][formatIndex] = ProbeTextureSampleCounts(
+                                    gl, probeTarget, nativeInfo.InternalFormat, nativeInfo.ImageFormat,
+                                    nativeInfo.ImageType, logicalFormat, maxSamples);
                             }
                         }
                         shouldProbeFallback = !nativeCreated || !nativeRenderable;
@@ -645,7 +680,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                 LogGLESFormatCaveat(logicalFormat, targetIndex, fallbackInfo);
                             }
                             if (IsGLESProbeMultisampleTarget(target)) {
-                                cache.SampleCounts[targetIndex][formatIndex] = {1};
+                                const Int maxSamples =
+                                    GetGLESFormatMaxSamples(capabilities, logicalFormat, fallbackInfo.ImageFormat);
+                                cache.SampleCounts[targetIndex][formatIndex] = ProbeTextureSampleCounts(
+                                    gl, probeTarget, fallbackInfo.InternalFormat, fallbackInfo.ImageFormat,
+                                    fallbackInfo.ImageType, logicalFormat, maxSamples);
                             }
                         }
                     }
@@ -712,9 +751,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     {
                         .TargetGLVersion = {4, 0, 0},   // GL target version
                         .TargetGLSLVersion = {4, 6, 0}, // Target Shading Language Version
-                        // Baseline advertisement (no timer queries / anisotropy yet); reconciled
-                        // once the ES capabilities exist, see UpdateAdvertisedCapabilityExtensions.
-                        .Extensions = BuildAdvertisedExtensions(false, false),
+                        // Baseline advertisement (no runtime capabilities yet); reconciled once
+                        // the ES capabilities exist, see UpdateAdvertisedCapabilityExtensions.
+                        .Extensions = BuildAdvertisedExtensions(false, false, false, false),
                         .IsCompatibilityProfile = false // Is Compatibility Profile
                     },
                 .StaticBackendCapability = {.AllowVSOnlyPrograms = false} // Backend Capability
@@ -734,15 +773,40 @@ namespace MobileGL::MG_Backend::DirectGLES {
         // thread can only observe the extension string after the
         // advertisement for its context has settled; rebuilding the whole
         // list keeps the re-run after a context recreation idempotent.
-        void UpdateAdvertisedCapabilityExtensions(Bool anisotropicFilteringSupported) {
-            MutableRendererInfo().RendererGLInfo.Extensions =
-                BuildAdvertisedExtensions(AreTimerQueriesSupported(), anisotropicFilteringSupported);
+        void UpdateAdvertisedCapabilityExtensions(const MG_External::GLESCapabilities& capabilities) {
+            MutableRendererInfo().RendererGLInfo.Extensions = BuildAdvertisedExtensions(
+                AreTimerQueriesSupported(), capabilities.SupportsTextureFilterAnisotropy,
+                capabilities.SupportsDrawIndirect,
+                capabilities.SupportsDrawIndirect && capabilities.SupportsBaseInstance);
         }
     } // namespace
 
     void PopulateFormatCapabilities(const MG_External::GLESFunctionsTable& gl,
                                     const MG_External::GLESCapabilities& capabilities, FormatCapabilityCache& cache) {
         PopulateFormatCapabilitiesImpl(gl, capabilities, cache);
+    }
+
+    Int ClampSamplesToBackendSupport(SizeT targetIndex, TextureInternalFormat logicalFormat, GLenum imageFormat,
+                                     Int samples) {
+        if (samples <= 1) {
+            return samples;
+        }
+
+        Int maxSamples = 0;
+        const SizeT formatIndex = static_cast<SizeT>(logicalFormat);
+        if (pActiveBackendObject && targetIndex < kFormatCapabilityTargetCount &&
+            formatIndex < kFormatCapabilityFormatCount) {
+            // Descending, so the head is the largest count this device actually allocated.
+            const Vector<Int>& probedCounts =
+                pActiveBackendObject->GetFormatCapabilities().SampleCounts[targetIndex][formatIndex];
+            if (!probedCounts.empty()) {
+                maxSamples = probedCounts.front();
+            }
+        }
+        if (maxSamples <= 0) {
+            maxSamples = GetGLESFormatMaxSamples(g_GLESCapabilities, logicalFormat, imageFormat);
+        }
+        return std::min(samples, std::max(maxSamples, 1));
     }
 
     BackendObject_DirectGLES::~BackendObject_DirectGLES() {
@@ -779,11 +843,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
             return false;
         }
         DirectGLES::SetGLESCapabilities(m_GLESCapabilities);
-        // Now that g_GLESCapabilities knows about GL_EXT_disjoint_timer_query and
-        // GL_EXT_texture_filter_anisotropic, reconcile the advertisement (see the comment on
-        // UpdateAdvertisedCapabilityExtensions for why it cannot happen when the extension
-        // list is first built).
-        UpdateAdvertisedCapabilityExtensions(m_GLESCapabilities.SupportsTextureFilterAnisotropy);
+        // Now that g_GLESCapabilities knows the host extensions, entry points, and ES version,
+        // reconcile every runtime-gated advertisement (see the comment on
+        // UpdateAdvertisedCapabilityExtensions for why this cannot happen when the list is first
+        // built).
+        UpdateAdvertisedCapabilityExtensions(m_GLESCapabilities);
         UpdateDynamicBackendParameters();
         PopulateFormatCapabilities(m_GLESFunctions, m_GLESCapabilities, MutableFormatCapabilities());
         PrintFormatCapabilities(GetFormatCapabilities());
@@ -924,11 +988,13 @@ namespace MobileGL::MG_Backend::DirectGLES {
         return MutableRendererInfo();
     }
 
-    Vector<GLExtension> BuildAdvertisedExtensions(Bool timerQueriesSupported, Bool anisotropicFilteringSupported) {
+    Vector<GLExtension> BuildAdvertisedExtensions(Bool timerQueriesSupported, Bool anisotropicFilteringSupported,
+                                                  Bool drawIndirectSupported,
+                                                  Bool nonZeroIndirectBaseInstanceSupported) {
         Vector<GLExtension> extensions = {
             V_OpenGL30, V_OpenGL31, V_OpenGL32, V_OpenGL33, V_OpenGL40, E_GL_ARB_draw_buffers_blend,
             E_GL_ARB_compute_shader, E_GL_ARB_shader_storage_buffer_object, E_GL_ARB_shader_image_load_store,
-            E_GL_ARB_program_interface_query, E_GL_ARB_framebuffer_object, E_GL_EXT_framebuffer_object,
+            E_GL_ARB_clear_buffer_object, E_GL_ARB_program_interface_query, E_GL_ARB_framebuffer_object, E_GL_EXT_framebuffer_object,
             E_GL_ARB_depth_texture, E_GL_ARB_buffer_storage, E_GL_ARB_texture_storage,
             E_GL_ARB_texture_storage_multisample, E_GL_ARB_clear_texture, E_GL_ARB_direct_state_access,
             E_GL_ARB_multi_draw_indirect, E_GL_ARB_indirect_parameters, E_GL_ARB_shader_draw_parameters,
@@ -940,10 +1006,34 @@ namespace MobileGL::MG_Backend::DirectGLES {
             // picks a whole different shader for draw_buffers without
             // explicit_attrib_location. DirectVulkan advertises both.
             E_GL_ARB_explicit_attrib_location, E_GL_ARB_texture_multisample, E_GL_ARB_shader_image_size,
+            // Core since GL 3.1 and implemented for every version advertised here. The string
+            // matters because applications gate the ENTRY POINTS on it rather than on the
+            // version: a caller that finds the extension missing never resolves
+            // glGetUniformBlockIndex / glUniformBlockBinding, and one that then uses uniform
+            // blocks anyway calls through a null pointer.
+            E_GL_ARB_uniform_buffer_object,
+            // Sampling the stencil aspect through DEPTH_STENCIL_TEXTURE_MODE. Core from 4.3,
+            // so on a 4.0 context the string is the only way to reach it. The host ES driver
+            // has had the same texture parameter since ES 3.1, which every device MobileGL
+            // runs on provides.
+            E_GL_ARB_stencil_texturing,
             // Advertised with GL_NUM_PROGRAM_BINARY_FORMATS = 0, which the
             // extension explicitly permits. It is also the only thing that
             // exposes glProgramParameteri before GL 4.1.
             E_GL_ARB_get_program_binary};
+        // Minecraft 26.3 checks this prerequisite before it even considers
+        // GL_ARB_multi_draw_indirect. ES 3.1 supplies both single-draw entry points; the loader
+        // folds the version and pointer checks into SupportsDrawIndirect.
+        if (drawIndirectSupported) {
+            extensions.push_back(E_GL_ARB_draw_indirect);
+        }
+        // ARB_base_instance also defines the last word of an indirect command. Direct calls are
+        // emulated on every Espryt device, but without host GL_EXT_base_instance a native indirect
+        // draw cannot shift divisor attributes by a GPU-authored non-zero value, so do not promise
+        // that incomplete case.
+        if (drawIndirectSupported && nonZeroIndirectBaseInstanceSupported) {
+            extensions.push_back(E_GL_ARB_base_instance);
+        }
         // GL_KHR_parallel_shader_compile is MobileGL's own capability, not the host ES
         // driver's: the compiler threads are MobileGL's, and glCompileShader/glLinkProgram
         // are serviced entirely inside the frontend. Whether the device driver advertises
@@ -959,6 +1049,15 @@ namespace MobileGL::MG_Backend::DirectGLES {
         // change as well as the threading, or the kill switch would only be half a switch.
         if (MG_Util::Async::AsyncShaderCompileEnabled()) {
             extensions.push_back(E_GL_KHR_parallel_shader_compile);
+        }
+        // GL_ARB_gpu_shader_fp64 is opt-in (MOBILEGL_ADVERTISE_FP64). Every `double` in a
+        // shader compiles and runs already - it is narrowed to 32 bits before the module
+        // reaches this backend - so an application that simply uses doubles needs nothing
+        // advertised. What the extension additionally promises is 64-bit PRECISION, which no
+        // mobile GPU has and the narrowing cannot fake, so advertising it by default would
+        // make an application that checks the string take a path MobileGL cannot honour.
+        if (MG_Config::Features.AdvertiseFp64) {
+            extensions.push_back(E_GL_ARB_gpu_shader_fp64);
         }
         // Only advertised when the device driver actually has usable timer queries
         // (GL_EXT_disjoint_timer_query plus its entry points) and the
@@ -1002,6 +1101,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             funcsTable.GL.MultiDrawElementsIndirect = MultiDrawElementsIndirect;
             funcsTable.GL.MultiDrawElementsIndirectCount = MultiDrawElementsIndirectCount;
             funcsTable.GL.MultiDrawArraysIndirect = MultiDrawArraysIndirect;
+            funcsTable.GL.MultiDrawArraysIndirectCount = MultiDrawArraysIndirectCount;
             funcsTable.GL.DrawRangeElementsBaseVertex = DrawRangeElementsBaseVertex;
             funcsTable.GL.DrawRangeElements = DrawRangeElements;
             funcsTable.GL.DrawElementsInstancedBaseVertexBaseInstance = DrawElementsInstancedBaseVertexBaseInstance;
@@ -1069,6 +1169,12 @@ namespace MobileGL::MG_Backend::DirectGLES {
             // geometry shader's amplification.
             funcsTable.GL.BeginXfbPrimitivesQuery = BeginXfbPrimitivesQuery;
             funcsTable.GL.EndXfbPrimitivesQuery = EndXfbPrimitivesQuery;
+            // ...but where it CAN see the whole capture - no geometry stage - the frontend's
+            // own count is the desktop-exact one and the ES driver's is only as good as the
+            // vendor made it (Adreno doubles PRIMITIVES_WRITTEN for a vertex-only capture that
+            // follows a large render pass). The query above stays installed: it is still what
+            // answers an amplifying span, and PRIMITIVES_GENERATED always.
+            funcsTable.GL.PrefersCpuXfbPrimitiveAccounting = true;
             funcsTable.GL.IsQueryResultAvailable = IsQueryResultAvailable;
             funcsTable.GL.GetQueryResult64 = GetQueryResult64;
             funcsTable.GL.DeleteBackendQuery = DeleteBackendQuery;
@@ -1148,9 +1254,31 @@ namespace MobileGL::MG_Backend::DirectGLES {
                      static_cast<Int>(MG_State::GLState::VertexArrayObject::MAX_VERTEX_ATTRIBS));
         m_dynamicParameters.MaxComputeShaderStorageBlocks = m_GLESCapabilities.MaxComputeShaderStorageBlocks;
         m_dynamicParameters.MaxCombinedShaderStorageBlocks = m_GLESCapabilities.MaxCombinedShaderStorageBlocks;
+        // Per-stage storage-block counts, forwarded from the host driver rather than invented.
+        // A stage the driver cannot serve reports 0, which is a legal answer everywhere these
+        // limits appear (GL 4.6 table 23.64, ES 3.2 table 21.44 - the minimum is 0 for every
+        // graphics stage except fragment) and is the only answer that lets an application take
+        // its own fallback instead of building a program the driver will refuse to link. The
+        // stage limit cannot exceed the combined limit or the number of binding points there
+        // are to bind buffers to, so clamp to both.
+        const auto clampStageStorageBlocks = [this](Int stageLimit) {
+            return std::min({std::max(stageLimit, 0), std::max(m_dynamicParameters.MaxCombinedShaderStorageBlocks, 0),
+                             std::max(m_dynamicParameters.MaxShaderStorageBufferBindings, 0)});
+        };
+        m_dynamicParameters.MaxShaderStorageBufferBindings = m_GLESCapabilities.MaxShaderStorageBufferBindings;
+        m_dynamicParameters.MaxVertexShaderStorageBlocks =
+            clampStageStorageBlocks(m_GLESCapabilities.MaxVertexShaderStorageBlocks);
+        m_dynamicParameters.MaxTessControlShaderStorageBlocks =
+            clampStageStorageBlocks(m_GLESCapabilities.MaxTessControlShaderStorageBlocks);
+        m_dynamicParameters.MaxTessEvaluationShaderStorageBlocks =
+            clampStageStorageBlocks(m_GLESCapabilities.MaxTessEvaluationShaderStorageBlocks);
+        m_dynamicParameters.MaxGeometryShaderStorageBlocks =
+            clampStageStorageBlocks(m_GLESCapabilities.MaxGeometryShaderStorageBlocks);
+        m_dynamicParameters.MaxFragmentShaderStorageBlocks =
+            clampStageStorageBlocks(m_GLESCapabilities.MaxFragmentShaderStorageBlocks);
         m_dynamicParameters.MaxComputeUniformBlocks = m_GLESCapabilities.MaxComputeUniformBlocks;
         m_dynamicParameters.MaxComputeWorkGroupInvocations = m_GLESCapabilities.MaxComputeWorkGroupInvocations;
-        m_dynamicParameters.MaxShaderStorageBufferBindings = m_GLESCapabilities.MaxShaderStorageBufferBindings;
+        // (MaxShaderStorageBufferBindings is assigned above, before the per-stage clamp reads it.)
         // This is the number glGetIntegerv(GL_MAX_TEXTURE_BUFFER_SIZE) hands the application, and
         // on a host without buffer textures it is knowingly a floor MobileGL cannot honour rather
         // than a driver answer (m_GLESCapabilities.MaxTextureBufferSizeIsDriverReported says
@@ -1211,6 +1339,13 @@ namespace MobileGL::MG_Backend::DirectGLES {
         m_dynamicParameters.MaxColorAttachments = m_GLESCapabilities.MaxColorAttachments;
         m_dynamicParameters.MaxClipDistances = m_GLESCapabilities.MaxClipDistances;
         m_dynamicParameters.MaxViewports = m_GLESCapabilities.MaxViewports;
+        // Whatever the driver said about which vertex supplies gl_Layer, and GL_UNDEFINED_VERTEX
+        // for gl_ViewportIndex on every driver without GL_OES_viewport_array - which is both test
+        // devices. That is not a shortfall being hidden: without the extension only viewport 0 is
+        // ever rasterized, so no vertex "selects" a viewport index and naming a convention would
+        // describe behaviour this backend does not implement.
+        m_dynamicParameters.LayerProvokingVertex = m_GLESCapabilities.LayerProvokingVertex;
+        m_dynamicParameters.ViewportIndexProvokingVertex = m_GLESCapabilities.ViewportIndexProvokingVertex;
         m_dynamicParameters.MaxViewportWidth = m_GLESCapabilities.MaxViewportWidth;
         m_dynamicParameters.MaxViewportHeight = m_GLESCapabilities.MaxViewportHeight;
         m_dynamicParameters.ViewportBoundsRangeMin = m_GLESCapabilities.ViewportBoundsRangeMin;

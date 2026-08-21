@@ -21,6 +21,7 @@
 #include <MG_Util/ShaderTranspiler/ShaderCompiler.h>
 #include <MG_Util/ShaderTranspiler/ShaderSourceProcessor.h>
 #include <MG_Util/ShaderTranspiler/SpirvPasses/LegalizeFragmentOutputIndexPass.h>
+#include <MG_Util/ShaderTranspiler/SpirvPasses/Lower1DArrayImagesPass.h>
 #include <MG_Util/ShaderTranspiler/SpirvPasses/RenameSamplerFunctionParameterPass.h>
 #include <MG_Util/ShaderTranspiler/Types.h>
 #include <MG_Util/ShaderTranspiler/glslang/UniformTraverser.h>
@@ -51,20 +52,24 @@ TEST_F(ProgramUtilTest, RenameSamplerFunctionParameterInSpirvPass) {
                OpEntryPoint Fragment %main "main" %outColor
                OpExecutionMode %main OriginUpperLeft
                OpName %globalSampler "sampler"
+               OpName %globalNew "new"
                OpName %paramSampler "sampler"
+               OpName %paramNew "new"
                OpName %main "main"
                OpDecorate %outColor Location 0
        %void = OpTypeVoid
       %float = OpTypeFloat 32
     %v4float = OpTypeVector %float 4
      %mainFn = OpTypeFunction %void
-    %paramFn = OpTypeFunction %void %float
+    %paramFn = OpTypeFunction %void %float %float
   %outV4Ptr = OpTypePointer Output %v4float
  %privatePtr = OpTypePointer Private %float
    %outColor = OpVariable %outV4Ptr Output
 %globalSampler = OpVariable %privatePtr Private
+    %globalNew = OpVariable %privatePtr Private
      %helper = OpFunction %void None %paramFn
 %paramSampler = OpFunctionParameter %float
+    %paramNew = OpFunctionParameter %float
  %helperBody = OpLabel
                OpReturn
                OpFunctionEnd
@@ -90,6 +95,7 @@ TEST_F(ProgramUtilTest, RenameSamplerFunctionParameterInSpirvPass) {
     ASSERT_TRUE(tools.Disassemble(outputBinary, &outputText));
 
     EXPECT_NE(outputText.find("\"MGL_COMPAT_sampler\""), String::npos);
+    EXPECT_NE(outputText.find("\"MGL_COMPAT_new\""), String::npos);
 
     SizeT exactSamplerNameCount = 0;
     SizeT searchOffset = 0;
@@ -98,6 +104,14 @@ TEST_F(ProgramUtilTest, RenameSamplerFunctionParameterInSpirvPass) {
         searchOffset += std::strlen("\"sampler\"");
     }
     EXPECT_EQ(exactSamplerNameCount, 1u);
+
+    SizeT exactNewNameCount = 0;
+    searchOffset = 0;
+    while ((searchOffset = outputText.find("\"new\"", searchOffset)) != String::npos) {
+        ++exactNewNameCount;
+        searchOffset += std::strlen("\"new\"");
+    }
+    EXPECT_EQ(exactNewNameCount, 1u);
 }
 
 TEST_F(ProgramUtilTest, UnformattedFloatStorageImagesKeepIntegerAtomicImagesTyped) {
@@ -2059,153 +2073,6 @@ void main() {
     EXPECT_NE(source.find("layout(std140) uniform Blk"), String::npos);
 }
 
-namespace {
-    String MakeLinearSubgroupPrefixScanShader() {
-        return R"(#version 460 core
-#extension GL_KHR_shader_subgroup_arithmetic : enable
-layout(local_size_x = 1024) in;
-shared float prefixSumCache[64];
-
-layout(std430, binding = 0) writeonly buffer OutputBuffer {
-    float outputValues[];
-};
-
-void main() {
-    float importance = 1.0f;
-    float prefixSum = subgroupInclusiveAdd(importance);
-    if (gl_SubgroupInvocationID == gl_SubgroupSize - 1u) prefixSumCache[gl_SubgroupID] = prefixSum;
-    barrier();
-    uint loopLength = uint(findMSB(gl_NumSubgroups));
-    loopLength += uint(gl_NumSubgroups - (1u << (loopLength - 1u)) > 0u);
-    for (uint i = 0; i < loopLength; i++) {
-        if ((gl_SubgroupID & (1u << i)) > 0u) {
-            prefixSum += prefixSumCache[(gl_SubgroupID >> i << i) - 1u];
-            if (gl_SubgroupInvocationID == gl_SubgroupSize - 1u) prefixSumCache[gl_SubgroupID] = prefixSum;
-        }
-        barrier();
-    }
-    if (gl_LocalInvocationID.x == uint(1024 - 1)) prefixSumCache[0] = prefixSum;
-    barrier();
-    float sum = prefixSumCache[0];
-    float warp = (prefixSum - importance) / sum - float(gl_LocalInvocationID.x + 1u) / float(1024);
-    outputValues[gl_GlobalInvocationID.x] = warp;
-}
-)";
-    }
-} // namespace
-
-TEST_F(ProgramUtilTest, RewriteLinearSubgroupPrefixScanUsesSharedMemoryAndProducesValidSpirv) {
-    using namespace MG_Util::ShaderTranspiler;
-
-    String source = MakeLinearSubgroupPrefixScanShader();
-    ASSERT_TRUE(RewriteLinearSubgroupPrefixScanForVulkan(ShaderStage::Compute, 64, source));
-
-    EXPECT_NE(source.find("shared float prefixSumCache[1024]"), String::npos) << source;
-    EXPECT_NE(source.find("mglVirtualSubgroupInvocation"), String::npos) << source;
-    EXPECT_NE(source.find("for (uint mglPrefixLane"), String::npos) << source;
-    EXPECT_EQ(source.find("subgroupInclusiveAdd"), String::npos) << source;
-    EXPECT_EQ(source.find("gl_Subgroup"), String::npos) << source;
-
-    const String onceRewritten = source;
-    EXPECT_FALSE(RewriteLinearSubgroupPrefixScanForVulkan(ShaderStage::Compute, 64, source));
-    EXPECT_EQ(source, onceRewritten);
-
-    ShaderAttrib shaderAttrib{.shaderType = GL_COMPUTE_SHADER, .sourceStr = source};
-    auto shaderResult = ShaderCompiler::CompileShader(shaderAttrib);
-    ASSERT_TRUE(shaderResult) << shaderResult.error().log << "\nsource:\n" << source;
-
-    ProgramAttrib programAttrib{.shaders = {shaderResult.value()}};
-    auto programResult = ShaderCompiler::LinkProgram(programAttrib);
-    ASSERT_TRUE(programResult) << programResult.error().log;
-
-    ProgramBinaryAttrib binaryAttrib{.shaderTypes = {GL_COMPUTE_SHADER}, .program = *programResult.value()};
-    auto binaryResult = ShaderCompiler::GetSpirvBinaryFromProgram(binaryAttrib);
-    ASSERT_TRUE(binaryResult) << binaryResult.error().log;
-    ASSERT_EQ(binaryResult->size(), 1u);
-
-    String validationDiagnostics;
-    spvtools::SpirvTools tools(SPV_ENV_VULKAN_1_1);
-    tools.SetMessageConsumer([&](spv_message_level_t, const char*, const spv_position_t&, const char* message) {
-        validationDiagnostics += message;
-        validationDiagnostics += '\n';
-    });
-    EXPECT_TRUE(tools.Validate(binaryResult->front())) << validationDiagnostics;
-
-    String spirvText;
-    ASSERT_TRUE(tools.Disassemble(binaryResult->front(), &spirvText));
-    EXPECT_EQ(spirvText.find("OpGroupNonUniform"), String::npos) << spirvText;
-}
-
-TEST_F(ProgramUtilTest, RewriteLinearSubgroupPrefixScanRejectsOtherStagesAndSubgroupWidths) {
-    using namespace MG_Util::ShaderTranspiler;
-
-    const String original = MakeLinearSubgroupPrefixScanShader();
-    for (const auto& [stage, subgroupSize] :
-         {std::pair{ShaderStage::Compute, Uint32{32}}, std::pair{ShaderStage::Fragment, Uint32{64}},
-          std::pair{ShaderStage::Compute, Uint32{96}}}) {
-        String source = original;
-        EXPECT_FALSE(RewriteLinearSubgroupPrefixScanForVulkan(stage, subgroupSize, source));
-        EXPECT_EQ(source, original);
-    }
-}
-
-TEST_F(ProgramUtilTest, RewriteLinearSubgroupPrefixScanRejectsPartialOrUnsafeTemplateMatches) {
-    using namespace MG_Util::ShaderTranspiler;
-
-    const auto expectUnchanged = [](String source) {
-        const String original = source;
-        EXPECT_FALSE(RewriteLinearSubgroupPrefixScanForVulkan(ShaderStage::Compute, 64, source));
-        EXPECT_EQ(source, original);
-    };
-
-    String wrongLocalSize = MakeLinearSubgroupPrefixScanShader();
-    wrongLocalSize.replace(wrongLocalSize.find("local_size_x = 1024"), std::strlen("local_size_x = 1024"),
-                           "local_size_x = 512");
-    expectUnchanged(std::move(wrongLocalSize));
-
-    String cacheHasAnotherUse = MakeLinearSubgroupPrefixScanShader();
-    cacheHasAnotherUse.insert(cacheHasAnotherUse.find("float importance"), "prefixSumCache[0] = 0.0f;\n    ");
-    expectUnchanged(std::move(cacheHasAnotherUse));
-
-    String extraSubgroupBuiltin = MakeLinearSubgroupPrefixScanShader();
-    extraSubgroupBuiltin.insert(extraSubgroupBuiltin.find("float importance"),
-                                "uvec4 extraMask = gl_SubgroupEqMask;\n    ");
-    expectUnchanged(std::move(extraSubgroupBuiltin));
-
-    String alteredBarrier = MakeLinearSubgroupPrefixScanShader();
-    alteredBarrier.replace(alteredBarrier.find("barrier();"), std::strlen("barrier();"), "memoryBarrierShared();");
-    expectUnchanged(std::move(alteredBarrier));
-
-    String nestedScan = MakeLinearSubgroupPrefixScanShader();
-    nestedScan.insert(nestedScan.find("float prefixSum ="), "if (importance > 0.0f) {\n    ");
-    const SizeT consumerEnd = nestedScan.find(';', nestedScan.find("float warp ="));
-    ASSERT_NE(consumerEnd, String::npos);
-    nestedScan.insert(consumerEnd + 1, "\n    }");
-    expectUnchanged(std::move(nestedScan));
-
-    // ARB/NV spellings of lane-width-sensitive builtins must block the rewrite exactly
-    // like their KHR counterparts.
-    String arbSubgroupBuiltin = MakeLinearSubgroupPrefixScanShader();
-    arbSubgroupBuiltin.insert(arbSubgroupBuiltin.find("float importance"),
-                              "uint arbLane = gl_SubGroupInvocationARB;\n    ");
-    expectUnchanged(std::move(arbSubgroupBuiltin));
-
-    String arbBallotCall = MakeLinearSubgroupPrefixScanShader();
-    arbBallotCall.insert(arbBallotCall.find("float importance"),
-                         "uint64_t arbMask = ballotARB(true);\n    ");
-    expectUnchanged(std::move(arbBallotCall));
-
-    String nvWarpBuiltin = MakeLinearSubgroupPrefixScanShader();
-    nvWarpBuiltin.insert(nvWarpBuiltin.find("float importance"),
-                         "uint warpSize = gl_WarpSizeNV;\n    ");
-    expectUnchanged(std::move(nvWarpBuiltin));
-
-    String nvShuffleCall = MakeLinearSubgroupPrefixScanShader();
-    nvShuffleCall.insert(nvShuffleCall.find("float importance"),
-                         "float other = shuffleNV(1.0f, 0u, 32u);\n    ");
-    expectUnchanged(std::move(nvShuffleCall));
-}
-
 // The LEXICAL half must fire at the source level (before the parse) for the
 // preempt-list names - the end-to-end ESSL tests cannot tell which half did the
 // rename, and for these names the parse would fail without the source rewrite.
@@ -2434,9 +2301,6 @@ TEST_F(ProgramUtilTest, CompileEnvFingerprintTracksEveryInput) {
     otherExtensions.advertisedExtensions.push_back(MobileGL::E_GL_ARB_gpu_shader_int64);
     EXPECT_NE(ComputeCompileEnvFingerprint(otherExtensions), baseline);
 
-    CompileEnv otherQuirk = base;
-    otherQuirk.subgroupPrefixScanQuirk = MobileGL::MG_Config::QuirkOverride::ForceOn;
-    EXPECT_NE(ComputeCompileEnvFingerprint(otherQuirk), baseline);
 }
 
 // The no-backend fallback must stay exactly what the pipeline used to do inline:
@@ -2835,16 +2699,6 @@ vec4 helperTint() { return vec4(1.0); }
         return binaryResult->front();
     }
 
-    struct SpirvValidationScope {
-        bool previous;
-        explicit SpirvValidationScope(bool enabled)
-            : previous(MG_Util::ShaderTranspiler::ShaderCompiler::SpirvValidationEnabled()) {
-            MG_Util::ShaderTranspiler::ShaderCompiler::SetSpirvValidationEnabled(enabled);
-        }
-        ~SpirvValidationScope() {
-            MG_Util::ShaderTranspiler::ShaderCompiler::SetSpirvValidationEnabled(previous);
-        }
-    };
 } // namespace
 
 TEST_F(ProgramUtilTest, DeadPrivateChainVertexInputIsEliminatedFromOptimizedBinary) {
@@ -2866,7 +2720,7 @@ TEST_F(ProgramUtilTest, DeadPrivateChainVertexInputIsEliminatedFromOptimizedBina
         << "entry-point-with-calls shape it exists for";
 
     Vector<Uint32> optimized;
-    ASSERT_TRUE(ShaderCompiler::SanitizeAndOptimizeBinary(raw, optimized));
+    ASSERT_TRUE(ShaderCompiler::SanitizeAndOptimizeBinary(raw, optimized, true, true));
 
     const SpirvVariableCensus after = TakeVariableCensus(optimized);
     EXPECT_EQ(after.inputCount, 1u)
@@ -2904,7 +2758,7 @@ void main() {
     ASSERT_GE(before.outputCount, 3u);
 
     Vector<Uint32> optimized;
-    ASSERT_TRUE(ShaderCompiler::SanitizeAndOptimizeBinary(raw, optimized));
+    ASSERT_TRUE(ShaderCompiler::SanitizeAndOptimizeBinary(raw, optimized, true, true));
     EXPECT_EQ(TakeVariableCensus(optimized).outputCount, before.outputCount)
         << "a declared-but-unwritten output was deleted; a fragment stage reading it now "
         << "fails to link (ES) or breaks the Vulkan stage interface";
@@ -2963,17 +2817,15 @@ void main() {
         // succeeds - fail-open call sites downstream must not see a different world),
         // and the failure latch is the signal. This is the catch that took a device
         // bisect to find when the validator was off everywhere.
-        SpirvValidationScope validationOn(true);
         const Uint64 failuresBefore = ShaderCompiler::SpirvValidationFailureCount();
-        EXPECT_TRUE(ShaderCompiler::SanitizeAndOptimizeBinary(raw, optimized));
+        EXPECT_TRUE(ShaderCompiler::SanitizeAndOptimizeBinary(raw, optimized, true, true));
         EXPECT_GT(ShaderCompiler::SpirvValidationFailureCount(), failuresBefore)
             << "an invalid optimized module must bump the validation-failure latch";
     }
     {
         // The shipping configuration: same result, no validation, latch untouched.
-        SpirvValidationScope validationOff(false);
         const Uint64 failuresBefore = ShaderCompiler::SpirvValidationFailureCount();
-        EXPECT_TRUE(ShaderCompiler::SanitizeAndOptimizeBinary(raw, optimized));
+        EXPECT_TRUE(ShaderCompiler::SanitizeAndOptimizeBinary(raw, optimized, true, false));
         EXPECT_EQ(ShaderCompiler::SpirvValidationFailureCount(), failuresBefore);
     }
 }
@@ -3043,10 +2895,9 @@ void main() {
     ASSERT_FALSE(raw.empty());
     ASSERT_GE(CountRectImageTypes(raw), 1u) << "glslang no longer emits Dim::Rect for sampler2DRect";
 
-    SpirvValidationScope validationOn(true);
     const Uint64 failuresBefore = ShaderCompiler::SpirvValidationFailureCount();
     Vector<Uint32> optimized;
-    ASSERT_TRUE(ShaderCompiler::SanitizeAndOptimizeBinary(raw, optimized));
+    ASSERT_TRUE(ShaderCompiler::SanitizeAndOptimizeBinary(raw, optimized, true, true));
     EXPECT_EQ(CountRectImageTypes(optimized), 0u);
     EXPECT_EQ(ShaderCompiler::SpirvValidationFailureCount(), failuresBefore)
         << "a rectangle module must leave the chain valid, not latched as a failure";
@@ -3071,10 +2922,9 @@ void main() {
     ASSERT_TRUE(AnyLocationOnUniformStorage(raw))
         << "glslang no longer keeps the explicit uniform location; the strip pass may be obsolete";
 
-    SpirvValidationScope validationOn(true);
     const Uint64 failuresBefore = ShaderCompiler::SpirvValidationFailureCount();
     Vector<Uint32> optimized;
-    ASSERT_TRUE(ShaderCompiler::SanitizeAndOptimizeBinary(raw, optimized));
+    ASSERT_TRUE(ShaderCompiler::SanitizeAndOptimizeBinary(raw, optimized, true, true));
     EXPECT_FALSE(AnyLocationOnUniformStorage(optimized));
     EXPECT_EQ(ShaderCompiler::SpirvValidationFailureCount(), failuresBefore)
         << "the stripped module must validate clean";
@@ -3171,11 +3021,10 @@ void main() {
         << "the fixture must reproduce the defect before the fix is asked to remove it:\n"
         << DisassembleSpirv(raw);
 
-    SpirvValidationScope validationOn(true);
     const Uint64 failuresBefore = ShaderCompiler::SpirvValidationFailureCount();
 
     Vector<Uint32> legalized;
-    ASSERT_TRUE(ShaderCompiler::LegalizeFragmentOutputIndexingForEssl(raw, legalized));
+    ASSERT_TRUE(ShaderCompiler::LegalizeFragmentOutputIndexingForEssl(raw, legalized, true));
     ASSERT_FALSE(legalized.empty());
 
     const String disassembly = DisassembleSpirv(legalized);
@@ -3212,11 +3061,10 @@ void main() {
     ASSERT_TRUE(LegalizeFragmentOutputIndexPass::BinaryHasDynamicOutputIndexing(raw))
         << DisassembleSpirv(raw);
 
-    SpirvValidationScope validationOn(true);
     const Uint64 failuresBefore = ShaderCompiler::SpirvValidationFailureCount();
 
     Vector<Uint32> legalized;
-    ASSERT_TRUE(ShaderCompiler::LegalizeFragmentOutputIndexingForEssl(raw, legalized));
+    ASSERT_TRUE(ShaderCompiler::LegalizeFragmentOutputIndexingForEssl(raw, legalized, true));
     ASSERT_FALSE(legalized.empty());
 
     const String disassembly = DisassembleSpirv(legalized);
@@ -3256,11 +3104,10 @@ void main() {
     ASSERT_FALSE(raw.empty());
     ASSERT_TRUE(LegalizeFragmentOutputIndexPass::BinaryHasDynamicOutputIndexing(raw));
 
-    SpirvValidationScope validationOn(true);
     const Uint64 failuresBefore = ShaderCompiler::SpirvValidationFailureCount();
 
     Vector<Uint32> legalized;
-    ASSERT_TRUE(ShaderCompiler::LegalizeFragmentOutputIndexingForEssl(raw, legalized));
+    ASSERT_TRUE(ShaderCompiler::LegalizeFragmentOutputIndexingForEssl(raw, legalized, true));
     ASSERT_FALSE(legalized.empty());
 
     const String disassembly = DisassembleSpirv(legalized);
@@ -3299,7 +3146,7 @@ void main() {
     ASSERT_FALSE(LegalizeFragmentOutputIndexPass::BinaryHasDynamicOutputIndexing(raw));
 
     Vector<Uint32> legalized;
-    ASSERT_TRUE(ShaderCompiler::LegalizeFragmentOutputIndexingForEssl(raw, legalized));
+    ASSERT_TRUE(ShaderCompiler::LegalizeFragmentOutputIndexingForEssl(raw, legalized, true));
     EXPECT_EQ(legalized, raw) << "the module must not be rewritten - not even re-serialized - when "
                                  "nothing indexes a fragment output dynamically";
 }
@@ -3480,4 +3327,741 @@ void main() { fragColor = vec4(texelFetch(Data, 3)); }
         << "ES 3.2 has buffer textures in core; requiring the extension there would be wrong:\n"
         << essl320;
 
+}
+
+namespace {
+    // OpTypeImage words: result id (+1), sampled type (+2), Dim (+3), Depth (+4), Arrayed (+5),
+    // MS (+6), Sampled (+7). Dim::Dim1D == 0, and Sampled == 2 is a storage image.
+    SizeT Count1DArrayStorageImageTypes(const Vector<Uint32>& spirv) {
+        constexpr unsigned kOpTypeImage = 25, kDim1D = 0;
+        SizeT count = 0;
+        for (SizeT i = 5; i < spirv.size();) {
+            const unsigned wordCount = spirv[i] >> 16;
+            const unsigned opcode = spirv[i] & 0xFFFFu;
+            if (wordCount == 0 || i + wordCount > spirv.size()) break;
+            if (opcode == kOpTypeImage && wordCount >= 8 && spirv[i + 3] == kDim1D && spirv[i + 5] == 1u &&
+                spirv[i + 7] == 2u) {
+                ++count;
+            }
+            i += wordCount;
+        }
+        return count;
+    }
+
+    const char* k1DArrayImageCompute = R"(#version 440 core
+layout (local_size_x = 1) in;
+layout (location = 0, r32ui) readonly uniform uimage1DArray i0;
+layout (std430, binding = 0) buffer SSB { uint sum; } ssb;
+void main() { ssb.sum = imageLoad(i0, ivec2(2, 3)).r; }
+)";
+} // namespace
+
+// The negative control, and the whole reason the pass exists: SPIRV-Cross's ES emulation of 1D
+// images does not ask whether the type is arrayed, so it wraps an already-two-component
+// coordinate in a two-component constructor. Pinning the upstream behaviour here means that if a
+// future SPIRV-Cross bump fixes it, this test fails and says so, rather than the pass quietly
+// becoming dead weight.
+TEST_F(ProgramUtilTest, SpirvCrossEmitsAMalformedCoordinateFor1DArrayImages) {
+    using namespace MG_Util::ShaderTranspiler;
+
+    const Vector<Uint32> spirv = BuildSpirvForStage(k1DArrayImageCompute, GL_COMPUTE_SHADER);
+    ASSERT_FALSE(spirv.empty());
+    ASSERT_EQ(Count1DArrayStorageImageTypes(spirv), 1u)
+        << "glslang no longer emits a Dim1D/Arrayed/Sampled=2 image for uimage1DArray";
+
+    const String essl = DecompileToEssl(spirv);
+    ASSERT_FALSE(essl.empty());
+    EXPECT_NE(essl.find("ivec2(ivec2("), String::npos)
+        << "SPIRV-Cross is expected to emit ivec2(ivec2(...), 0) here - three components in a "
+           "two-component constructor, which every ES driver rejects. If this no longer happens, "
+           "Lower1DArrayImagesForEssl may no longer be needed:\n"
+        << essl;
+}
+
+// The fix: the type becomes a 2D array and the coordinate becomes three components, so
+// SPIRV-Cross's 1D path never fires and the emitted ESSL is something a driver accepts.
+TEST_F(ProgramUtilTest, Lower1DArrayImagesRewritesTheTypeAndWidensTheCoordinate) {
+    using namespace MG_Util::ShaderTranspiler;
+
+    const Vector<Uint32> raw = BuildSpirvForStage(k1DArrayImageCompute, GL_COMPUTE_SHADER);
+    ASSERT_FALSE(raw.empty());
+
+    // Through the shared chain first, exactly as the DirectGLES transpile path does: the pass
+    // runs on sanitized bytes, and the explicit uniform LOCATION this fixture carries (the
+    // conformance case's own spelling) is illegal on UniformConstant storage until
+    // StripUniformLocationsPass has removed it. Validating raw glslang output would latch that
+    // pre-existing property against this pass.
+    Vector<Uint32> spirv;
+    ASSERT_TRUE(ShaderCompiler::SanitizeAndOptimizeBinary(raw, spirv));
+    ASSERT_EQ(Count1DArrayStorageImageTypes(spirv), 1u)
+        << "the shared chain must leave the 1D-array image for this pass to handle";
+
+    const Uint64 failuresBefore = ShaderCompiler::SpirvValidationFailureCount();
+
+    Vector<Uint32> lowered;
+    ASSERT_TRUE(ShaderCompiler::Lower1DArrayImagesForEssl(spirv, lowered, true));
+    ASSERT_FALSE(lowered.empty());
+
+    EXPECT_EQ(Count1DArrayStorageImageTypes(lowered), 0u)
+        << "no 1D-array storage image type may survive the pass:\n"
+        << DisassembleSpirv(lowered);
+    EXPECT_EQ(ShaderCompiler::SpirvValidationFailureCount(), failuresBefore)
+        << "the lowered module must stay validator-clean";
+
+    const String essl = DecompileToEssl(lowered);
+    ASSERT_FALSE(essl.empty());
+    EXPECT_NE(essl.find("uimage2DArray"), String::npos)
+        << "the image must be declared as the 2D array the texture is stored as:\n" << essl;
+    EXPECT_EQ(essl.find("ivec2(ivec2("), String::npos)
+        << "the malformed constructor must be gone:\n" << essl;
+    // The ORDER is the whole point, and it is what a widening that merely appended the 0 would
+    // get wrong while still producing a three-component constructor that compiles. The fixture
+    // reads (u=2, layer=3), and the ES 2D array holds height 1 with the layers in depth
+    // (TextureImpl::GetBackendUploadSize), so the only correct spelling is (2, 0, 3).
+    EXPECT_NE(essl.find("ivec3(2, 0, 3)"), String::npos)
+        << "the layer must land in the third component and Y must be 0; ivec3(2, 3, 0) would read "
+           "row 3 of a one-row texture and layer 0 of every access:\n"
+        << essl;
+}
+
+// The shape that made the first cut of this pass emit INVALID SPIR-V, and the shape the
+// conformance case actually has: a 1D-array image and a real 2D-array image of the same sampled
+// type and format in one module. Rewriting the first one's Dim in place makes the two
+// OpTypeImage declarations structurally identical, and SPIR-V forbids duplicate non-aggregate
+// types - so the module the ESSL path hands on failed validation and quietly bumped the latch.
+// A single-image fixture cannot see any of that.
+TEST_F(ProgramUtilTest, Lower1DArrayImagesDeduplicatesAgainstAnExisting2DArrayImage) {
+    using namespace MG_Util::ShaderTranspiler;
+
+    const Vector<Uint32> raw = BuildSpirvForStage(R"(#version 440 core
+layout (local_size_x = 1) in;
+layout (location = 0, r32ui) readonly uniform uimage1DArray i0;
+layout (location = 1, r32ui) readonly uniform uimage2DArray i1;
+layout (std430, binding = 0) buffer SSB { uint sum; } ssb;
+void main() { ssb.sum = imageLoad(i0, ivec2(2, 3)).r + imageLoad(i1, ivec3(1, 1, 1)).r; }
+)",
+                                                  GL_COMPUTE_SHADER);
+    ASSERT_FALSE(raw.empty());
+
+    Vector<Uint32> spirv;
+    ASSERT_TRUE(ShaderCompiler::SanitizeAndOptimizeBinary(raw, spirv));
+    ASSERT_EQ(Count1DArrayStorageImageTypes(spirv), 1u);
+
+    const Uint64 failuresBefore = ShaderCompiler::SpirvValidationFailureCount();
+
+    Vector<Uint32> lowered;
+    ASSERT_TRUE(ShaderCompiler::Lower1DArrayImagesForEssl(spirv, lowered, true));
+    ASSERT_FALSE(lowered.empty());
+
+    EXPECT_EQ(Count1DArrayStorageImageTypes(lowered), 0u) << DisassembleSpirv(lowered);
+    EXPECT_EQ(ShaderCompiler::SpirvValidationFailureCount(), failuresBefore)
+        << "the rewritten 1D-array image collided with the module's own 2D-array image and left a "
+           "duplicate type declaration behind:\n"
+        << DisassembleSpirv(lowered);
+
+    const String essl = DecompileToEssl(lowered);
+    ASSERT_FALSE(essl.empty());
+    EXPECT_NE(essl.find("ivec3(2, 0, 3)"), String::npos) << essl;
+}
+
+// Scope, half one: a NON-arrayed 1D storage image is emitted correctly by the very same
+// SPIRV-Cross code, so the pass must not touch it - replacing working emission with our own buys
+// nothing and risks everything.
+TEST_F(ProgramUtilTest, Lower1DArrayImagesLeavesNonArrayed1DImagesToSpirvCross) {
+    using namespace MG_Util::ShaderTranspiler;
+
+    const Vector<Uint32> spirv = BuildSpirvForStage(R"(#version 440 core
+layout (local_size_x = 1) in;
+layout (location = 0, r32ui) readonly uniform uimage1D i0;
+layout (std430, binding = 0) buffer SSB { uint sum; } ssb;
+void main() { ssb.sum = imageLoad(i0, 2).r; }
+)",
+                                                   GL_COMPUTE_SHADER);
+    ASSERT_FALSE(spirv.empty());
+
+    Vector<Uint32> lowered;
+    ASSERT_TRUE(ShaderCompiler::Lower1DArrayImagesForEssl(spirv, lowered, true));
+    EXPECT_EQ(lowered, spirv) << "a non-arrayed 1D storage image must pass through byte for byte";
+
+    const String essl = DecompileToEssl(lowered);
+    ASSERT_FALSE(essl.empty());
+    EXPECT_NE(essl.find("uimage2D "), String::npos)
+        << "SPIRV-Cross's own 1D-as-2D emulation must still be what handles this:\n" << essl;
+}
+
+// Scope, half two: a 1D-array SAMPLER reaches SPIRV-Cross's sampler path, which does check
+// `arrayed` and does move the layer into the third component. The pass is storage-image only.
+TEST_F(ProgramUtilTest, Lower1DArrayImagesLeavesSampledImagesAlone) {
+    using namespace MG_Util::ShaderTranspiler;
+
+    const Vector<Uint32> spirv = BuildSpirvForStage(R"(#version 440 core
+uniform sampler1DArray uTex;
+in vec2 vUv;
+out vec4 fragColor;
+void main() { fragColor = texture(uTex, vUv); }
+)",
+                                                   GL_FRAGMENT_SHADER);
+    ASSERT_FALSE(spirv.empty());
+
+    Vector<Uint32> lowered;
+    ASSERT_TRUE(ShaderCompiler::Lower1DArrayImagesForEssl(spirv, lowered, true));
+    EXPECT_EQ(lowered, spirv) << "a sampled 1D-array image must pass through byte for byte";
+}
+
+// The declined shape. After the rewrite the image is a 2D array, so a size query on it yields
+// three components where the shader consumes two, and there is no correct two-component answer to
+// substitute - the ES texture genuinely has a height the GL one does not. The module is handed
+// back untouched rather than half-translated.
+TEST_F(ProgramUtilTest, Lower1DArrayImagesDeclinesAModuleThatQueriesTheImageSize) {
+    using namespace MG_Util::ShaderTranspiler;
+
+    const Vector<Uint32> spirv = BuildSpirvForStage(R"(#version 440 core
+layout (local_size_x = 1) in;
+layout (location = 0, r32ui) readonly uniform uimage1DArray i0;
+layout (std430, binding = 0) buffer SSB { uint sum; } ssb;
+void main() { ssb.sum = uint(imageSize(i0).x) + imageLoad(i0, ivec2(0, 0)).r; }
+)",
+                                                   GL_COMPUTE_SHADER);
+    ASSERT_FALSE(spirv.empty());
+    const auto traits = Lower1DArrayImagesPass::InspectBinary(spirv);
+    ASSERT_TRUE(traits.declaresImage && traits.queriesImageSize)
+        << "the fixture must contain the shape the pass declines";
+
+    Vector<Uint32> lowered;
+    ASSERT_TRUE(ShaderCompiler::Lower1DArrayImagesForEssl(spirv, lowered, true));
+    EXPECT_EQ(lowered, spirv) << "a declined module must be handed back untouched, not partly rewritten";
+    EXPECT_EQ(Count1DArrayStorageImageTypes(lowered), 1u)
+        << "declining means the 1D-array type is still there for the driver to reject";
+}
+
+// --- image format qualifier bake (BakeImageFormatsPass) ---------------------------------------
+//
+// Desktop GLSL 4.2 lets a writeonly image declaration omit its format layout qualifier; GLSL ES
+// requires one of every image, and Adreno says so as "all images have to define layout format",
+// losing the whole program. The only correct qualifier to substitute is the format the
+// application passed to glBindImageTexture for that unit, so the transpile bakes it in.
+
+namespace {
+    Uint CountSpirvOpcode(const String& disassembly, const String& opcode) {
+        Uint count = 0;
+        SizeT offset = 0;
+        const String needle = opcode + " ";
+        while ((offset = disassembly.find(needle, offset)) != String::npos) {
+            count += 1;
+            offset += needle.size();
+        }
+        return count;
+    }
+
+    constexpr Uint kGlR32ui = 0x8236;
+    constexpr Uint kGlRgba32ui = 0x8D70;
+    constexpr Uint kGlR8ui = 0x8232;
+    constexpr Uint kGlR32f = 0x822E;
+} // namespace
+
+// The KHR-GL4x.packed_depth_stencil.stencil_texturing compute shader, reduced: one format-less
+// writeonly image, and a bind of a concrete format to the unit it addresses. (The DEPTH half of
+// that case binds GL_R32F; the stencil half's GL_R8UI is one SPIRV-Cross will not print and takes
+// the text route instead - see the test below.)
+TEST_F(ProgramUtilTest, BakeImageFormatsGivesAFormatlessImageTheFormatBoundToItsUnit) {
+    using namespace MG_Util::ShaderTranspiler;
+
+    const Vector<Uint32> spirv = BuildSpirvForStage(R"(#version 430 core
+layout (local_size_x = 1) in;
+writeonly uniform uimage2D uni_image;
+void main() { imageStore(uni_image, ivec2(gl_GlobalInvocationID.xy), uvec4(15u, 0u, 0u, 0u)); }
+)",
+                                                   GL_COMPUTE_SHADER);
+    ASSERT_FALSE(spirv.empty());
+    ASSERT_TRUE(ShaderCompiler::DeclaresFormatlessStorageImage(spirv))
+        << "the fixture must reproduce the defect before the fix is asked to remove it:\n"
+        << DisassembleSpirv(spirv);
+    // Precondition: SPIRV-Cross prints no format for it, which is the ESSL the driver refuses.
+    EXPECT_EQ(DecompileToEssl(spirv).find("r32ui"), String::npos);
+
+    const Uint64 failuresBefore = ShaderCompiler::SpirvValidationFailureCount();
+
+    Vector<Uint32> baked;
+    ASSERT_TRUE(ShaderCompiler::BakeImageFormatsForEssl(spirv, {{"uni_image", kGlR32ui}}, baked, true));
+    ASSERT_FALSE(baked.empty());
+    EXPECT_FALSE(ShaderCompiler::DeclaresFormatlessStorageImage(baked)) << DisassembleSpirv(baked);
+    EXPECT_EQ(ShaderCompiler::SpirvValidationFailureCount(), failuresBefore)
+        << "the baked module must stay validator-clean:\n"
+        << DisassembleSpirv(baked);
+
+    const String essl = DecompileToEssl(baked);
+    ASSERT_FALSE(essl.empty());
+    EXPECT_NE(essl.find("r32ui"), String::npos)
+        << "the bound format must reach the declaration as a layout qualifier:\n" << essl;
+    EXPECT_NE(essl.find("writeonly"), String::npos)
+        << "the access qualifier the declaration already had must survive:\n" << essl;
+}
+
+// SPIRV-Cross THROWS rather than printing the formats it calls desktop-only when it targets ESSL
+// (Compiler::is_desktop_only_format), and a throw loses the whole stage - so baking one of those
+// into the module would trade a missing qualifier for a missing shader. They are left format-less
+// here and completed on the emitted text instead (PrgramImpl::BakeImageFormatQualifiers). r8ui,
+// which the stencil half of the packed_depth_stencil case binds, is one of them.
+TEST_F(ProgramUtilTest, BakeImageFormatsLeavesTheFormatsSpirvCrossRefusesToPrint) {
+    using namespace MG_Util::ShaderTranspiler;
+
+    ASSERT_FALSE(ShaderCompiler::SpirvCrossCanPrintEsslImageFormat(kGlR8ui))
+        << "if SPIRV-Cross ever learns to print r8ui for ES, the text completion can go";
+    ASSERT_TRUE(ShaderCompiler::SpirvCrossCanPrintEsslImageFormat(kGlR32ui));
+    EXPECT_EQ(ShaderCompiler::EsslImageFormatSpelling(kGlR8ui), "r8ui");
+    EXPECT_EQ(ShaderCompiler::EsslImageFormatSpelling(0x8051 /*GL_RGB8*/), "");
+
+    const Vector<Uint32> spirv = BuildSpirvForStage(R"(#version 430 core
+layout (local_size_x = 1) in;
+writeonly uniform uimage2D uni_image;
+void main() { imageStore(uni_image, ivec2(0), uvec4(15u)); }
+)",
+                                                   GL_COMPUTE_SHADER);
+    ASSERT_FALSE(spirv.empty());
+
+    Vector<Uint32> baked;
+    ASSERT_TRUE(ShaderCompiler::BakeImageFormatsForEssl(spirv, {{"uni_image", kGlR8ui}}, baked));
+    EXPECT_EQ(baked, spirv) << "a format SPIRV-Cross cannot print must leave the module untouched";
+    // ...and the stage still transpiles, which is the whole point of declining.
+    EXPECT_FALSE(DecompileToEssl(baked).empty());
+}
+
+// A DECLARED format is authoritative: GL requires the qualifier, the bind format and the
+// texture's internal format to be in the same class, but the qualifier is what the shader is
+// specified to read the memory as, and a bake that overrode it would change what the shader does.
+TEST_F(ProgramUtilTest, BakeImageFormatsNeverOverridesADeclaredFormat) {
+    using namespace MG_Util::ShaderTranspiler;
+
+    const Vector<Uint32> spirv = BuildSpirvForStage(R"(#version 430 core
+layout (local_size_x = 1) in;
+layout (binding = 0, rgba32ui) writeonly uniform uimage2D uni_image;
+void main() { imageStore(uni_image, ivec2(0), uvec4(1u)); }
+)",
+                                                   GL_COMPUTE_SHADER);
+    ASSERT_FALSE(spirv.empty());
+    ASSERT_FALSE(ShaderCompiler::DeclaresFormatlessStorageImage(spirv));
+
+    Vector<Uint32> baked;
+    // Even asked to, with a format of the right component class.
+    ASSERT_TRUE(ShaderCompiler::BakeImageFormatsForEssl(spirv, {{"uni_image", kGlR32ui}}, baked, true));
+    EXPECT_EQ(baked, spirv) << "a module with nothing format-less must pass through byte for byte";
+    EXPECT_NE(DecompileToEssl(baked).find("rgba32ui"), String::npos);
+}
+
+// Review finding. Every use has to be one the retype can carry end to end, and the decision has
+// to be made BEFORE anything is mutated - a half-retyped module is not something a later decline
+// could undo. An image handed to a FUNCTION is the shape that reaches SPIRV-Cross intact (nothing
+// in the ESSL chain inlines), and its OpFunctionCall is a use this pass does not follow.
+TEST_F(ProgramUtilTest, BakeImageFormatsDeclinesAnImagePassedToAFunction) {
+    using namespace MG_Util::ShaderTranspiler;
+
+    const Vector<Uint32> spirv = BuildSpirvForStage(R"(#version 430 core
+layout (local_size_x = 1) in;
+writeonly uniform uimage2D uni_image;
+void writeIt(writeonly uimage2D img) { imageStore(img, ivec2(0), uvec4(1u)); }
+void main() { writeIt(uni_image); }
+)",
+                                                   GL_COMPUTE_SHADER);
+    ASSERT_FALSE(spirv.empty());
+    ASSERT_TRUE(ShaderCompiler::DeclaresFormatlessStorageImage(spirv));
+
+    const Uint64 failuresBefore = ShaderCompiler::SpirvValidationFailureCount();
+
+    Vector<Uint32> baked;
+    ASSERT_TRUE(ShaderCompiler::BakeImageFormatsForEssl(spirv, {{"uni_image", kGlR32ui}}, baked, true));
+    EXPECT_EQ(baked, spirv) << "a shape the retype cannot follow must leave the module untouched, "
+                               "not partly rewritten:\n"
+                            << DisassembleSpirv(baked);
+    EXPECT_EQ(ShaderCompiler::SpirvValidationFailureCount(), failuresBefore);
+}
+
+// spirv-val requires the Image Format's component class to agree with the OpTypeImage's Sampled
+// Type. Binding a uint format to a float image is an application error GL leaves undefined;
+// baking it would turn that into an INVALID module, which is strictly worse than the compile
+// error the shader already has, so the image is left format-less.
+TEST_F(ProgramUtilTest, BakeImageFormatsDeclinesAFormatOfTheWrongComponentClass) {
+    using namespace MG_Util::ShaderTranspiler;
+
+    const Vector<Uint32> spirv = BuildSpirvForStage(R"(#version 430 core
+layout (local_size_x = 1) in;
+writeonly uniform image2D uni_image;
+void main() { imageStore(uni_image, ivec2(0), vec4(1.0)); }
+)",
+                                                   GL_COMPUTE_SHADER);
+    ASSERT_FALSE(spirv.empty());
+
+    const Uint64 failuresBefore = ShaderCompiler::SpirvValidationFailureCount();
+
+    Vector<Uint32> baked;
+    ASSERT_TRUE(ShaderCompiler::BakeImageFormatsForEssl(spirv, {{"uni_image", kGlR32ui}}, baked, true));
+    EXPECT_EQ(baked, spirv) << "a declined module must be handed back untouched, not partly rewritten";
+    EXPECT_EQ(ShaderCompiler::SpirvValidationFailureCount(), failuresBefore);
+
+    // ...and the same image with a float bind format is baked, so the decline above is about the
+    // class and not about the pass refusing float images.
+    Vector<Uint32> bakedFloat;
+    ASSERT_TRUE(ShaderCompiler::BakeImageFormatsForEssl(spirv, {{"uni_image", kGlR32f}}, bakedFloat, true));
+    EXPECT_NE(DecompileToEssl(bakedFloat).find("r32f"), String::npos) << DisassembleSpirv(bakedFloat);
+}
+
+// Two format-less images of the same type share ONE OpTypeImage. Giving them different formats
+// therefore cannot be an in-place edit of that type - each needs its own declaration, and the
+// variable, the loads and (for arrays) the access chains all have to follow.
+TEST_F(ProgramUtilTest, BakeImageFormatsSplitsATypeTwoImagesShareWhenTheirFormatsDiffer) {
+    using namespace MG_Util::ShaderTranspiler;
+
+    const Vector<Uint32> spirv = BuildSpirvForStage(R"(#version 430 core
+layout (local_size_x = 1) in;
+writeonly uniform uimage2D imgA;
+writeonly uniform uimage2D imgB;
+void main() {
+    imageStore(imgA, ivec2(0), uvec4(1u));
+    imageStore(imgB, ivec2(0), uvec4(2u));
+}
+)",
+                                                   GL_COMPUTE_SHADER);
+    ASSERT_FALSE(spirv.empty());
+    ASSERT_EQ(CountSpirvOpcode(DisassembleSpirv(spirv), "OpTypeImage"), 1u)
+        << "the fixture must have the two images sharing one type:\n" << DisassembleSpirv(spirv);
+
+    const Uint64 failuresBefore = ShaderCompiler::SpirvValidationFailureCount();
+
+    Vector<Uint32> baked;
+    ASSERT_TRUE(ShaderCompiler::BakeImageFormatsForEssl(
+        spirv, {{"imgA", kGlR32ui}, {"imgB", kGlRgba32ui}}, baked, true));
+    ASSERT_FALSE(baked.empty());
+    EXPECT_EQ(ShaderCompiler::SpirvValidationFailureCount(), failuresBefore)
+        << "splitting the shared type must not leave a dangling or duplicate declaration:\n"
+        << DisassembleSpirv(baked);
+    EXPECT_FALSE(ShaderCompiler::DeclaresFormatlessStorageImage(baked));
+
+    const String essl = DecompileToEssl(baked);
+    ASSERT_FALSE(essl.empty());
+    EXPECT_NE(essl.find("r32ui"), String::npos) << essl;
+    EXPECT_NE(essl.find("rgba32ui"), String::npos) << essl;
+}
+
+// The mirror of the split: when the module ALREADY declares the type the bake wants, the two must
+// be JOINED, not duplicated. SPIR-V forbids two identical non-aggregate type declarations, and
+// that is exactly the defect an earlier image pass shipped and a reviewer caught.
+TEST_F(ProgramUtilTest, BakeImageFormatsJoinsATypeTheModuleAlreadyDeclares) {
+    using namespace MG_Util::ShaderTranspiler;
+
+    const Vector<Uint32> spirv = BuildSpirvForStage(R"(#version 430 core
+layout (local_size_x = 1) in;
+writeonly uniform uimage2D formatless;
+layout (binding = 1, r32ui) writeonly uniform uimage2D declared;
+void main() {
+    imageStore(formatless, ivec2(0), uvec4(1u));
+    imageStore(declared, ivec2(0), uvec4(2u));
+}
+)",
+                                                   GL_COMPUTE_SHADER);
+    ASSERT_FALSE(spirv.empty());
+    ASSERT_EQ(CountSpirvOpcode(DisassembleSpirv(spirv), "OpTypeImage"), 2u)
+        << "the fixture needs one Unknown-format and one r32ui image type:\n" << DisassembleSpirv(spirv);
+
+    const Uint64 failuresBefore = ShaderCompiler::SpirvValidationFailureCount();
+
+    Vector<Uint32> baked;
+    ASSERT_TRUE(ShaderCompiler::BakeImageFormatsForEssl(spirv, {{"formatless", kGlR32ui}}, baked, true));
+    ASSERT_FALSE(baked.empty());
+    EXPECT_EQ(ShaderCompiler::SpirvValidationFailureCount(), failuresBefore)
+        << "the baked image collided with the module's own r32ui image and left a duplicate type:\n"
+        << DisassembleSpirv(baked);
+    EXPECT_EQ(CountSpirvOpcode(DisassembleSpirv(baked), "OpTypeImage"), 1u)
+        << "the two identical image types must be the same declaration:\n" << DisassembleSpirv(baked);
+}
+
+// An ARRAY of format-less images: the variable's type is a pointer to an array, every use goes
+// through an OpAccessChain, and all three levels have to be rebuilt for the load to still type-check.
+TEST_F(ProgramUtilTest, BakeImageFormatsRetypesAnArrayOfFormatlessImagesThroughItsAccessChains) {
+    using namespace MG_Util::ShaderTranspiler;
+
+    const Vector<Uint32> spirv = BuildSpirvForStage(R"(#version 430 core
+layout (local_size_x = 1) in;
+writeonly uniform uimage2D imgs[2];
+void main() {
+    for (int i = 0; i < 2; ++i) imageStore(imgs[i], ivec2(0), uvec4(uint(i)));
+}
+)",
+                                                   GL_COMPUTE_SHADER);
+    ASSERT_FALSE(spirv.empty());
+    ASSERT_TRUE(ShaderCompiler::DeclaresFormatlessStorageImage(spirv));
+
+    const Uint64 failuresBefore = ShaderCompiler::SpirvValidationFailureCount();
+
+    Vector<Uint32> baked;
+    ASSERT_TRUE(ShaderCompiler::BakeImageFormatsForEssl(spirv, {{"imgs", kGlR32ui}}, baked, true));
+    ASSERT_FALSE(baked.empty());
+    EXPECT_FALSE(ShaderCompiler::DeclaresFormatlessStorageImage(baked)) << DisassembleSpirv(baked);
+    EXPECT_EQ(ShaderCompiler::SpirvValidationFailureCount(), failuresBefore)
+        << "the array and pointer types above the image must have been rebuilt too:\n"
+        << DisassembleSpirv(baked);
+    EXPECT_NE(DecompileToEssl(baked).find("r32ui"), String::npos);
+}
+
+// A SAMPLED image's format operand is Unknown in every GLSL dialect and has no qualifier to bake;
+// only storage images (Sampled == 2) are in scope.
+TEST_F(ProgramUtilTest, BakeImageFormatsLeavesSampledImagesAlone) {
+    using namespace MG_Util::ShaderTranspiler;
+
+    const Vector<Uint32> spirv = BuildSpirvForStage(R"(#version 430 core
+uniform usampler2D uni_sampler;
+out uvec4 fragColor;
+in vec2 vUv;
+void main() { fragColor = texture(uni_sampler, vUv); }
+)",
+                                                   GL_FRAGMENT_SHADER);
+    ASSERT_FALSE(spirv.empty());
+    EXPECT_FALSE(ShaderCompiler::DeclaresFormatlessStorageImage(spirv))
+        << "a sampled image must not read as a format-less STORAGE image:\n" << DisassembleSpirv(spirv);
+
+    Vector<Uint32> baked;
+    ASSERT_TRUE(ShaderCompiler::BakeImageFormatsForEssl(spirv, {{"uni_sampler", kGlR32ui}}, baked, true));
+    EXPECT_EQ(baked, spirv) << "a sampled image must pass through byte for byte";
+}
+
+// The core/extended split the emitted ESSL depends on: GLSL ES has thirteen image formats, and a
+// bind format outside them only compiles with GL_NV_image_formats - which the backend must not
+// request on a driver that does not advertise it.
+TEST_F(ProgramUtilTest, EsslCoreImageFormatSetIsTheThirteenTheSpecLists) {
+    using namespace MG_Util::ShaderTranspiler;
+
+    EXPECT_TRUE(ShaderCompiler::GLInternalFormatIsCoreEsslImageFormat(kGlR32ui));
+    EXPECT_TRUE(ShaderCompiler::GLInternalFormatIsCoreEsslImageFormat(kGlRgba32ui));
+    EXPECT_TRUE(ShaderCompiler::GLInternalFormatIsCoreEsslImageFormat(kGlR32f));
+    EXPECT_TRUE(ShaderCompiler::GLInternalFormatIsCoreEsslImageFormat(0x8058 /*GL_RGBA8*/));
+    // The stencil half of KHR-GL4x.packed_depth_stencil.stencil_texturing binds this one, and it
+    // is NOT core - the whole reason the directive machinery exists.
+    EXPECT_FALSE(ShaderCompiler::GLInternalFormatIsCoreEsslImageFormat(kGlR8ui));
+    EXPECT_FALSE(ShaderCompiler::GLInternalFormatIsCoreEsslImageFormat(0x822D /*GL_R16F*/));
+    // Not an image format at all.
+    EXPECT_FALSE(ShaderCompiler::GLInternalFormatIsCoreEsslImageFormat(0x8051 /*GL_RGB8*/));
+    EXPECT_FALSE(ShaderCompiler::GLInternalFormatIsCoreEsslImageFormat(0 /*GL_NONE*/));
+}
+
+// KHR-GL43.shader_storage_buffer_object.basic-syntax iteration 6. glslang assigns a block's member
+// offsets at DECLARATION time, where a member array that is still unsized contributes zero bytes -
+// so `vec4 position01[]; vec4 position2;` put both members at offset 0 and the shader read
+// position01[0] where it asked for position2. The preprocessor sizes the non-final member from the
+// largest constant index the source uses, which is what the language says it means.
+TEST_F(ProgramUtilTest, ANonFinalUnsizedBufferBlockMemberIsSizedFromItsLargestConstantIndex) {
+    using namespace MG_Util::ShaderTranspiler;
+
+    String source = R"(#version 430 core
+layout(packed) coherent buffer Buffer {
+  vec4 position01[];
+  vec4 position2;
+} g_buffer;
+void main() {
+  if (gl_VertexID == 0) gl_Position = g_buffer.position01[0];
+  else if (gl_VertexID == 1) gl_Position = g_buffer.position01[1];
+  else if (gl_VertexID == 2) gl_Position = g_buffer.position2;
+}
+)";
+    PreprocessShaderSource(ShaderStage::Vertex, source);
+    EXPECT_NE(source.find("vec4 position01[2];"), String::npos) << source;
+    EXPECT_EQ(source.find("position01[];"), String::npos) << source;
+
+    // The LAST member of a storage block is a run-time sized array, which is legal and already
+    // laid out correctly - sizing it would be a wire-format change, not a repair.
+    String lastMember = R"(#version 430 core
+buffer Buffer {
+  vec4 head;
+  vec4 tail[];
+} g_buffer;
+void main() {
+  gl_Position = g_buffer.tail[0] + g_buffer.tail[3];
+}
+)";
+    PreprocessShaderSource(ShaderStage::Vertex, lastMember);
+    EXPECT_NE(lastMember.find("vec4 tail[];"), String::npos) << lastMember;
+
+    // A member the shader subscripts with anything but a literal cannot be sized from the source,
+    // so it is left exactly as it was.
+    String dynamicIndex = R"(#version 430 core
+buffer Buffer {
+  vec4 head[];
+  vec4 tail;
+} g_buffer;
+uniform int g_index;
+void main() {
+  gl_Position = g_buffer.head[g_index] + g_buffer.tail;
+}
+)";
+    PreprocessShaderSource(ShaderStage::Vertex, dynamicIndex);
+    EXPECT_NE(dynamicIndex.find("vec4 head[];"), String::npos) << dynamicIndex;
+
+    // `buffer` is also a member memory qualifier; a declaration that uses it must not be mistaken
+    // for a block header.
+    String memberQualifier = R"(#version 430 core
+coherent buffer Buffer {
+  buffer vec4 position0;
+  vec4 position1[];
+  vec4 position2;
+} g_buffer;
+void main() {
+  gl_Position = g_buffer.position0 + g_buffer.position1[2] + g_buffer.position2;
+}
+)";
+    PreprocessShaderSource(ShaderStage::Vertex, memberQualifier);
+    EXPECT_NE(memberQualifier.find("vec4 position1[3];"), String::npos) << memberQualifier;
+}
+
+// KHR-GL43.shader_storage_buffer_object.negative-glsl-compileTime: a storage block declared at
+// GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS must fail to compile, and so must an arrayed one whose
+// LAST element passes the ceiling. The relaxed Vulkan-rules parse enforces neither.
+TEST_F(ProgramUtilTest, StorageBlockBindingCeilingIsCheckedAtItsExactBoundary) {
+    using namespace MG_Util::ShaderTranspiler;
+
+    constexpr Int kMaxBindings = 36;
+    const auto violation = [](const String& body) {
+        return FindShaderStorageBindingViolation("#version 430 core\n" + body + "void main() {}\n", kMaxBindings);
+    };
+
+    // The boundary itself: max - 1 is the last legal point, max is one past it.
+    EXPECT_FALSE(violation("layout(binding = 35) buffer Buffer { int x; };\n").has_value());
+    EXPECT_TRUE(violation("layout(binding = 36) buffer Buffer { int x; };\n").has_value());
+
+    // An instance array takes CONSECUTIVE points, so what has to fit is base + count - 1.
+    EXPECT_FALSE(violation("layout(binding = 32) buffer Buffer { int x; } g_array[4];\n").has_value());
+    EXPECT_TRUE(violation("layout(binding = 34) buffer Buffer { int x; } g_array[4];\n").has_value());
+
+    // Qualifiers and a second layout list may sit between the binding and the keyword.
+    EXPECT_TRUE(violation("layout(std430) layout(binding = 36) coherent restrict buffer B { int x; };\n")
+                    .has_value());
+
+    // Things the scanner must NOT judge: a uniform block (a different ceiling), a storage block
+    // with no explicit binding, the bare default-qualifier form, and an instance array whose size
+    // is not a literal.
+    EXPECT_FALSE(violation("layout(binding = 40) uniform Block { int x; };\n"
+                           "layout(binding = 0) buffer Buffer { int y; };\n")
+                     .has_value());
+    EXPECT_FALSE(violation("buffer Buffer { int x; };\nconst int binding = 40;\n").has_value());
+    EXPECT_FALSE(violation("layout(binding = 1) buffer;\nbuffer Buffer { int x; };\n").has_value());
+    EXPECT_FALSE(violation("const int kCount = 4;\nlayout(binding = 34) buffer B { int x; } g[kCount];\n")
+                     .has_value());
+
+    // A backend that advertises no binding points has no ceiling to enforce.
+    EXPECT_FALSE(FindShaderStorageBindingViolation("layout(binding = 36) buffer B { int x; };\n", 0).has_value());
+}
+
+// KHR-GL43.explicit_uniform_location.uniform-loc-nondecimal: GLSL integer literals are C-style, so
+// layout(location = 0xA) is 10 and layout(location = 010) is OCTAL 8. The extractor used to accept
+// a base-10 digit run and nothing else: the hex spelling failed the test entirely and the
+// declaration silently lost its explicit location, while the octal one was read as decimal 10.
+// The identical defect sat on every array dimension and on layout(binding = N).
+TEST_F(ProgramUtilTest, ExtractExplicitUniformLocationsReadsNonDecimalIntegerLiterals) {
+    using namespace MG_Util::ShaderTranspiler;
+
+    const String source = R"(#version 430 core
+layout(location = 0xA) uniform vec4 hexLower;
+layout(location = 0X1f) uniform vec4 hexUpper;
+layout(location = 010) uniform vec4 octal;
+layout(location = 3u) uniform vec4 unsignedSuffix;
+layout(location = 0x2) uniform float hexArray[0x3];
+layout(location = 1.0) uniform vec4 notAnInteger;
+layout(location = 7f) uniform vec4 unknownSuffix;
+void main() {}
+)";
+
+    const UnorderedMap<String, Int> locations = ExtractExplicitUniformLocations(source);
+    ASSERT_EQ(locations.count("hexLower"), 1u);
+    EXPECT_EQ(locations.at("hexLower"), 10);
+    ASSERT_EQ(locations.count("hexUpper"), 1u);
+    EXPECT_EQ(locations.at("hexUpper"), 31);
+    ASSERT_EQ(locations.count("octal"), 1u);
+    EXPECT_EQ(locations.at("octal"), 8) << "a leading zero is octal in GLSL, not decimal";
+    ASSERT_EQ(locations.count("unsignedSuffix"), 1u);
+    EXPECT_EQ(locations.at("unsignedSuffix"), 3);
+    ASSERT_EQ(locations.count("hexArray"), 1u);
+    EXPECT_EQ(locations.at("hexArray"), 2);
+
+    // Still never guessed at: a float and an unknown suffix are skipped, not rounded.
+    EXPECT_EQ(locations.count("notAnInteger"), 0u);
+    EXPECT_EQ(locations.count("unknownSuffix"), 0u);
+}
+
+// A hexadecimal array dimension has to size the declarator's span too, or the declarator after it
+// in the same statement starts at the wrong location.
+TEST_F(ProgramUtilTest, ExtractExplicitUniformLocationsSpansANonDecimalArrayDimension) {
+    using namespace MG_Util::ShaderTranspiler;
+
+    const UnorderedMap<String, Int> locations = ExtractExplicitUniformLocations(
+        "#version 430 core\nlayout(location = 50) uniform float first[0x3], second;\nvoid main() {}\n");
+    ASSERT_EQ(locations.count("first"), 1u);
+    EXPECT_EQ(locations.at("first"), 50);
+    ASSERT_EQ(locations.count("second"), 1u);
+    EXPECT_EQ(locations.at("second"), 53) << "0x3 is three elements, not zero and not three hundred";
+}
+
+// KHR-GL43.explicit_uniform_location.uniform-loc-array-of-arrays: glslang reflects
+// `float u[2][3]` as "u[0][0]" and "u[1][0]", and the linker resolves such a name by stripping the
+// single trailing "[0]" - so the map has to answer "u[1]", not just "u". Without the pre-flattened
+// keys both records missed the map entirely and were first-fitted from location 0.
+TEST_F(ProgramUtilTest, ExtractExplicitUniformLocationsExpandsArrayOfArraysElements) {
+    using namespace MG_Util::ShaderTranspiler;
+
+    const String source = R"(#version 430 core
+layout(location = 2) uniform float two_d[2][3];
+layout(location = 20) uniform float three_d[2][2][4];
+layout(location = 40) uniform float one_d[3];
+void main() {}
+)";
+
+    const UnorderedMap<String, Int> locations = ExtractExplicitUniformLocations(source);
+
+    // The root entry is unchanged - the synthesized keys are additional, never a replacement.
+    ASSERT_EQ(locations.count("two_d"), 1u);
+    EXPECT_EQ(locations.at("two_d"), 2);
+    // One key per outer index, each starting a run of the innermost dimension (3 here).
+    ASSERT_EQ(locations.count("two_d[0]"), 1u);
+    EXPECT_EQ(locations.at("two_d[0]"), 2);
+    ASSERT_EQ(locations.count("two_d[1]"), 1u);
+    EXPECT_EQ(locations.at("two_d[1]"), 5);
+
+    // Three dimensions: glslang expands all but the innermost, so both outer indices are spelled.
+    ASSERT_EQ(locations.count("three_d"), 1u);
+    EXPECT_EQ(locations.at("three_d"), 20);
+    ASSERT_EQ(locations.count("three_d[0][0]"), 1u);
+    EXPECT_EQ(locations.at("three_d[0][0]"), 20);
+    ASSERT_EQ(locations.count("three_d[0][1]"), 1u);
+    EXPECT_EQ(locations.at("three_d[0][1]"), 24);
+    ASSERT_EQ(locations.count("three_d[1][0]"), 1u);
+    EXPECT_EQ(locations.at("three_d[1][0]"), 28);
+    ASSERT_EQ(locations.count("three_d[1][1]"), 1u);
+    EXPECT_EQ(locations.at("three_d[1][1]"), 32);
+
+    // A 1-D array needs no expansion: stripping "[0]" already reaches the root.
+    ASSERT_EQ(locations.count("one_d"), 1u);
+    EXPECT_EQ(locations.at("one_d"), 40);
+    EXPECT_EQ(locations.count("one_d[0]"), 0u);
+
+    // The declarator after an array-of-arrays still advances by the WHOLE element count.
+    const UnorderedMap<String, Int> pair = ExtractExplicitUniformLocations(
+        "#version 430 core\nlayout(location = 0) uniform float a[2][3], b;\nvoid main() {}\n");
+    ASSERT_EQ(pair.count("b"), 1u);
+    EXPECT_EQ(pair.at("b"), 6);
+}
+
+// KHR-GL43.explicit_uniform_location: layout(binding = 0x2) on a sampler is the same literal defect
+// as the location one, and losing it costs the sampler its initial texture unit.
+TEST_F(ProgramUtilTest, ExtractExplicitOpaqueBindingsReadsNonDecimalIntegerLiterals) {
+    using namespace MG_Util::ShaderTranspiler;
+
+    const String source = R"(#version 430 core
+layout(binding = 0x2) uniform sampler2D hexUnit;
+layout(binding = 012) uniform sampler2D octalUnit;
+layout(binding = 1u) uniform sampler2D suffixedUnit;
+void main() {}
+)";
+
+    const UnorderedMap<String, Uint> bindings = ExtractExplicitOpaqueBindings(source);
+    ASSERT_EQ(bindings.count("hexUnit"), 1u);
+    EXPECT_EQ(bindings.at("hexUnit"), 2u);
+    ASSERT_EQ(bindings.count("octalUnit"), 1u);
+    EXPECT_EQ(bindings.at("octalUnit"), 10u) << "012 is octal ten, not twelve";
+    ASSERT_EQ(bindings.count("suffixedUnit"), 1u);
+    EXPECT_EQ(bindings.at("suffixedUnit"), 1u);
 }

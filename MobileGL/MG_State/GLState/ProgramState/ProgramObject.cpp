@@ -165,10 +165,18 @@ namespace MobileGL::MG_State::GLState {
             const Int elements = init.arraySize;
             if (componentsPerElement <= 0 || elements <= 0) continue;
 
-            const Bool isFloat = init.basicType == glslang::EbtFloat || init.basicType == glslang::EbtFloat16;
+            // EbtDouble belongs with the floats now, not with the skipped types: every 64-bit
+            // float in a shader is narrowed to 32 bits before the module reaches a backend
+            // (ShaderTranspiler::DemoteFloat64Pass), so a `uniform double d = 1.5;` has exactly
+            // the 32-bit shadow encoding a `uniform float` does - and glslang already folded its
+            // value into floatValues, which is a vector<double> either way. Leaving it out meant
+            // the initializer was silently dropped and the uniform came up zero.
+            const Bool isFloat = init.basicType == glslang::EbtFloat ||
+                                 init.basicType == glslang::EbtFloat16 ||
+                                 init.basicType == glslang::EbtDouble;
             const Bool isInt = init.basicType == glslang::EbtInt || init.basicType == glslang::EbtUint ||
                                init.basicType == glslang::EbtBool;
-            // Anything else (fp64, 64-bit integers) has no 32-bit shadow encoding here, and a
+            // Anything else (64-bit integers) has no 32-bit shadow encoding here, and a
             // half-written uniform is worse than an untouched one.
             if (!isFloat && !isInt) continue;
             const SizeT provided = isFloat ? init.floatValues.size() : init.intValues.size();
@@ -247,7 +255,7 @@ namespace MobileGL::MG_State::GLState {
                 static_cast<SizeT>(offset) + write.byteOffsetInUniform + write.byteSize > uboSize) {
                 // Same verdict the live write path reaches for a uniform without backing
                 // storage: log and drop, rather than fault.
-                MGLOG_E("ProgramObject %u: buffered uniform write at location %u has no backing storage "
+                MGLOG_E_ONCE("ProgramObject %u: buffered uniform write at location %u has no backing storage "
                         "(offset=%u size=%u uboSize=%zu); dropping write",
                         m_externalIndex, write.location, offset, write.byteSize, uboSize);
                 continue;
@@ -385,6 +393,14 @@ namespace MobileGL::MG_State::GLState {
         return true;
     }
 
+    bool ProgramObject::AttachShaderWithPinnedLinkInput(const LinkedShaderRef& ref) {
+        if (!AttachShader(ref.shader)) {
+            return false;
+        }
+        m_pinnedLinkInputs[ref.shader.get()] = ref;
+        return true;
+    }
+
     SizeT ProgramObject::DetachShader(const SharedPtr<ShaderObject>& shader) {
         MGLOG_D("DetachShader called for shader %p from ProgramObject %u", shader.get(), m_externalIndex);
         if (!ShaderIsAttached(shader)) {
@@ -428,7 +444,7 @@ namespace MobileGL::MG_State::GLState {
         defaultFS->Compile(); // TODO: use a global default FS object.
         auto status = defaultFS->GetCompileStatus();
         if (!status) {
-            MGLOG_E("ProgramObject %u: Failed to compile default fragment shader. InfoLog:\n%s", m_externalIndex,
+            MGLOG_E_ONCE("ProgramObject %u: Failed to compile default fragment shader. InfoLog:\n%s", m_externalIndex,
                     defaultFS->GetInfoLog().c_str());
             return;
         }
@@ -467,6 +483,8 @@ namespace MobileGL::MG_State::GLState {
             AddDefaultFragmentShaderIfMissing();
         }
         if (m_shaders.empty()) {
+            // This IS the last link now, and it consumed nothing.
+            m_linkedShaderSnapshot.clear();
             m_artifacts.infoLog = "No shader objects are attached to program.";
             MGLOG_E("ProgramObject %u: Link failed - no shader objects attached.", m_externalIndex);
             return;
@@ -486,6 +504,7 @@ namespace MobileGL::MG_State::GLState {
         auto task = MakeShared<ProgramLinkTask>();
         task->in.externalIndex = m_externalIndex;
         task->in.env = MG_Util::ShaderTranspiler::GetCurrentCompileEnv();
+        task->in.enableSpirvValidation = MG_Config::Features.EnableSpirvValidation;
         task->in.explicitAttribLocations = m_explicitAttribLocations;
         task->in.explicitFragDataLocation = m_explicitFragDataLocation;
         task->in.explicitFragDataIndex = m_explicitFragDataIndex;
@@ -496,8 +515,19 @@ namespace MobileGL::MG_State::GLState {
         Vector<SharedPtr<ShaderCompileTask>> deps;
         deps.reserve(m_shaders.size());
         task->in.shaders.reserve(m_shaders.size());
+        m_linkedShaderSnapshot.clear();
+        m_linkedShaderSnapshot.reserve(m_shaders.size());
         for (const auto& shader : m_shaders) {
-            const SharedPtr<ShaderCompileTask>& node = shader->CompiledNodeForLink();
+            // A pipeline composite pins the (source, node) each stage program's LAST link
+            // consumed (AttachShaderWithPinnedLinkInput); an ordinary program takes the
+            // shader's current ones. Without the pin a post-link recompile would leak a
+            // shader the stage program never linked into the composite.
+            SharedPtr<const String> sourcePtr = shader->GetShaderSourcePtr();
+            SharedPtr<ShaderCompileTask> node = shader->CompiledNodeForLink();
+            if (const auto pinned = m_pinnedLinkInputs.find(shader.get()); pinned != m_pinnedLinkInputs.end()) {
+                sourcePtr = pinned->second.source;
+                node = pinned->second.node;
+            }
             if (node) {
                 // This link is now an observer of that node's result, and the ShaderObject is
                 // no longer the only route to it: without the marker, the ordinary
@@ -506,7 +536,10 @@ namespace MobileGL::MG_State::GLState {
                 node->MarkLinkReferenced();
                 if (!node->IsTerminal()) deps.push_back(node);
             }
-            task->in.shaders.push_back({shader->GetShaderStage(), shader->GetShaderSourcePtr(), node});
+            task->in.shaders.push_back({shader->GetShaderStage(), sourcePtr, node});
+            // What "as last linked" will mean for this program from now on - the pipeline
+            // composite cache rebuilds from exactly this set (GetProgramForDraw).
+            m_linkedShaderSnapshot.push_back({shader, sourcePtr, node});
         }
 
         // Phase B of the same link: SPIR-V generation, spirv-opt and the global-UBO routing
@@ -582,15 +615,22 @@ namespace MobileGL::MG_State::GLState {
 
 
     Int ProgramObject::GetFragmentDataLocation(const char* name) {
-        if (!Artifacts().program || !name) return -1;
+        // Answered from the OWNED pipe-output snapshot, not from Artifacts().program. The live
+        // TProgram is null on a translation-cache L1 hit - that is the entire point of the memo
+        // - and it is also null for any program that never linked. The old `if
+        // (!Artifacts().program) return -1` guard silently produced the never-linked answer for
+        // a perfectly good cached program, so glGetFragDataLocation returned -1 for every
+        // fragment output of it. The empty snapshot gives the never-linked case the same -1
+        // without needing the guard at all.
+        if (!name) return -1;
 
         const auto explicitLocation = Artifacts().linkedFragDataLocation.find(name);
-        const Int outputCount = Artifacts().program->getNumPipeOutputs();
-        for (Int index = 0; index < outputCount; ++index) {
-            const auto& output = Artifacts().program->getPipeOutput(index);
+        for (const PipeOutputReflection& output : Artifacts().pipeOutputReflection) {
             if (output.name != name) continue;
-            if (explicitLocation != Artifacts().linkedFragDataLocation.end()) return static_cast<Int>(explicitLocation->second);
-            return static_cast<Int>(output.layoutLocation());
+            if (explicitLocation != Artifacts().linkedFragDataLocation.end()) {
+                return static_cast<Int>(explicitLocation->second);
+            }
+            return output.location;
         }
         return -1;
     }

@@ -69,6 +69,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             // slot's ownership unambiguous.
             Uint64 programLifetimeId = 0;
             Uint32 backendStateVersion = 0;
+            // glShaderStorageBlockBinding deliberately does NOT bump the backend state
+            // version, and the pipeline composite is unnamed so the in-place patch in
+            // DirectVulkan::ShaderStorageBlockBinding can never reach its slot - the
+            // mirror replay bumps only the program's block-binding version. Without this
+            // key the composite's slot kept serving the pre-rebind block.binding.
+            Uint32 blockBindingVersion = 0;
             Vector<StorageBlockResource> storageBlocks;
             Vector<BufferVariableResource> bufferVariables;
             GLint computeWorkGroupSize[3] = {1, 1, 1};
@@ -156,18 +162,33 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             auto& cache = g_programResourceCaches[program.GetExternalIndex()];
             const Uint64 programLifetimeId = program.GetLifetimeId();
             const Uint32 backendStateVersion = program.GetBackendStateVersion();
+            const Uint32 blockBindingVersion = program.GetBlockBindingVersion();
             // The lifetime id must match too: a new program that reuses a deleted
             // program's name and happens to land on the same backendStateVersion (both
             // count from zero) would otherwise be served the dead program's reflection.
             if (cache.programLifetimeId == programLifetimeId &&
                 cache.backendStateVersion == backendStateVersion &&
                 (!cache.storageBlocks.empty() || !cache.bufferVariables.empty())) {
+                if (cache.blockBindingVersion != blockBindingVersion) {
+                    // Only the block bindings moved (glShaderStorageBlockBinding, or the
+                    // pipeline composite's mirror replay - neither touches the backend
+                    // state version): the reflection itself is unchanged, so re-apply the
+                    // overrides by name instead of re-running spirv-reflect. Overrides
+                    // only ever accumulate, so a block without one still holds its
+                    // declared binding.
+                    for (auto& block : cache.storageBlocks) {
+                        const Int rebound = program.GetShaderStorageBlockBindingOverride(block.name);
+                        if (rebound >= 0) block.binding = static_cast<Uint32>(rebound);
+                    }
+                    cache.blockBindingVersion = blockBindingVersion;
+                }
                 return cache;
             }
 
             cache = {};
             cache.programLifetimeId = programLifetimeId;
             cache.backendStateVersion = backendStateVersion;
+            cache.blockBindingVersion = blockBindingVersion;
 
             Vector<SpvReflectShaderModule> modules;
             Vector<Bool> validModules;
@@ -269,14 +290,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 drawBuffer->SyncPersistentMappedRange();
                 const SizeT commandOffset = reinterpret_cast<SizeT>(indirect);
                 if (drawBuffer->MappedData() == nullptr || commandOffset + requiredBytes > drawBuffer->GetSize()) {
-                    MGLOG_E("%s skipped: invalid GL_DRAW_INDIRECT_BUFFER binding or range", label);
+                    MGLOG_E_ONCE("%s skipped: invalid GL_DRAW_INDIRECT_BUFFER binding or range", label);
                     return nullptr;
                 }
                 return drawBuffer->MappedData() + commandOffset;
             }
 
             if (!indirect) {
-                MGLOG_E("%s skipped: indirect pointer is null", label);
+                MGLOG_E_ONCE("%s skipped: indirect pointer is null", label);
                 return nullptr;
             }
 
@@ -398,7 +419,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             stride = sizeof(DrawArraysIndirectCommand);
         }
         if (stride < static_cast<GLsizei>(sizeof(DrawArraysIndirectCommand))) {
-            MGLOG_E("MultiDrawArraysIndirect skipped: stride %d is smaller than command size %zu",
+            MGLOG_E_ONCE("MultiDrawArraysIndirect skipped: stride %d is smaller than command size %zu",
                     stride, sizeof(DrawArraysIndirectCommand));
             return;
         }
@@ -446,20 +467,20 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             stride = sizeof(DrawArraysIndirectCommand);
         }
         if (stride < static_cast<GLsizei>(sizeof(DrawArraysIndirectCommand))) {
-            MGLOG_E("MultiDrawArraysIndirectCount skipped: stride %d is smaller than command size %zu",
+            MGLOG_E_ONCE("MultiDrawArraysIndirectCount skipped: stride %d is smaller than command size %zu",
                     stride, sizeof(DrawArraysIndirectCommand));
             return;
         }
 
         auto parameterBuffer = MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::Parameter).GetBoundObject();
         if (!parameterBuffer || drawcount < 0 || static_cast<SizeT>(drawcount) + sizeof(Uint32) > parameterBuffer->GetSize()) {
-            MGLOG_E("MultiDrawArraysIndirectCount skipped: invalid GL_PARAMETER_BUFFER binding or range");
+            MGLOG_E_ONCE("MultiDrawArraysIndirectCount skipped: invalid GL_PARAMETER_BUFFER binding or range");
             return;
         }
 
         parameterBuffer->SyncPersistentMappedRange();
         if (parameterBuffer->MappedData() == nullptr) {
-            MGLOG_E("MultiDrawArraysIndirectCount skipped: CPU fallback cannot read parameter buffer");
+            MGLOG_E_ONCE("MultiDrawArraysIndirectCount skipped: CPU fallback cannot read parameter buffer");
             return;
         }
 
@@ -513,7 +534,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         const SizeT indexSize = MG_Util::GetGLTypeSize(type);
         if (indexSize == 0) {
-            MGLOG_E("DrawElementsIndirect skipped: unsupported index type 0x%x", type);
+            MGLOG_E_ONCE("DrawElementsIndirect skipped: unsupported index type 0x%x", type);
             return;
         }
 
@@ -611,15 +632,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         MOBILEGL_ASSERT(MG_State::pGLContext, "DirectVulkan::CopyTexSubImage2D called with null GL context");
         pVulkanRenderer->CopyTexSubImage2D(target, level, xoffset, yoffset, x, y, width, height);
     }
-    void CopyImageSubData(const SharedPtr<MG_State::GLState::ITextureObject>& srcTexture,
+    void CopyImageSubData(const CopyImageEndpoint& src,
                           GLenum srcTarget, GLint srcLevel, GLint srcX, GLint srcY, GLint srcZ,
-                          const SharedPtr<MG_State::GLState::ITextureObject>& dstTexture,
+                          const CopyImageEndpoint& dst,
                           GLenum dstTarget, GLint dstLevel, GLint dstX, GLint dstY, GLint dstZ,
                           GLsizei srcWidth, GLsizei srcHeight, GLsizei srcDepth) {
         MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::CopyImageSubData called with null VulkanRenderer");
         MOBILEGL_ASSERT(MG_State::pGLContext, "DirectVulkan::CopyImageSubData called with null GL context");
-        pVulkanRenderer->CopyImageSubData(srcTexture, srcTarget, srcLevel, srcX, srcY, srcZ,
-                                          dstTexture, dstTarget, dstLevel, dstX, dstY, dstZ,
+        pVulkanRenderer->CopyImageSubData(src, srcTarget, srcLevel, srcX, srcY, srcZ,
+                                          dst, dstTarget, dstLevel, dstX, dstY, dstZ,
                                           srcWidth, srcHeight, srcDepth);
     }
     void GenerateMipmap(GLenum target) {
@@ -1009,7 +1030,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         // shift - the hardware divide was the hottest instruction of this loop.
         const SizeT indexSize = MG_Util::GetGLTypeSize(type);
         if (indexSize == 0) {
-            MGLOG_E("MultiDrawElements skipped: unsupported index type 0x%x", type);
+            MGLOG_E_ONCE("MultiDrawElements skipped: unsupported index type 0x%x", type);
             return;
         }
         const Uint32 indexSizeShift = static_cast<Uint32>(std::countr_zero(indexSize));

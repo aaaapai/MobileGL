@@ -171,6 +171,12 @@ namespace MobileGL::MG_Backend::DirectGLES {
             if (!capabilities.SupportsRenderSnorm || !capabilities.SupportsNorm16Texture) {
                 options |= PixelFormatNormalizeOptionBit::NoSnorm16RenderTarget;
             }
+            // 8-bit signed-normalized storage is core ES, so only the rendering half is in
+            // question here; the 16-bit bit above additionally needs EXT_texture_norm16 for the
+            // encoding to exist at all.
+            if (!capabilities.SupportsRenderSnorm) {
+                options |= PixelFormatNormalizeOptionBit::NoSnorm8RenderTarget;
+            }
             return options;
         }
 
@@ -417,10 +423,27 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 result = std::regex_replace(result, pattern, "$1flat $2");
             };
 
+            // Every stage that has an integer interface at all, on BOTH sides. Interpolation is
+            // only ever consumed at a fragment input, so the qualifier is semantically inert on
+            // a tessellation or geometry interface - but an ES linker still compares the two
+            // sides of every interface and rejects a program whose producer says `flat` and
+            // whose consumer does not. Covering only the stages that "need" it left exactly two
+            // holes, and a program that used tessellation fell into both:
+            //   vertex `flat out uint` -> tess-control `in uint`   (producer flat, consumer not)
+            //   tess-eval `out uint`   -> geometry `flat in uint`  (consumer flat, producer not)
+            // Adreno answers "output ... interpolation mismatch with other stage" and the whole
+            // program fails to link, which is a draw that silently paints nothing.
+            //
+            // Adding rather than stripping, because a fragment input's `flat` is load-bearing
+            // (ESSL forbids an interpolated integer) and would have to be put back for the last
+            // stage before the fragment shader anyway - so "everything integer is flat" is the
+            // one rule that is consistent no matter which stages a program happens to have.
             switch (shaderType) {
             case GL_VERTEX_SHADER:
                 addFlatQualifier("out");
                 break;
+            case GL_TESS_CONTROL_SHADER:
+            case GL_TESS_EVALUATION_SHADER:
             case GL_GEOMETRY_SHADER:
                 addFlatQualifier("in");
                 addFlatQualifier("out");
@@ -516,6 +539,129 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 glslCode.replace(hit, kExtNameLength, kOesName);
             }
             return glslCode;
+        }
+
+        String RequestExtendedImageFormats(String glslCode, Bool needed) {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
+            // GLSL ES core has thirteen image formats; GL has forty. SPIRV-Cross prints whatever
+            // format the OpTypeImage carries and asks for no extension for it, so an r8ui or
+            // rg16f image - declared as such, or baked from the bound one - reaches the driver as
+            // a format its core language does not know. GL_NV_image_formats is the only thing
+            // that adds them, and it has to be requested by name.
+            //
+            // The caller decides `needed`: it knows which formats are in play (from the uniform
+            // reflection and the image-unit bindings) and whether the driver advertises the
+            // extension at all - `#extension` on an unadvertised name is itself a hard error, so
+            // this must never be emitted speculatively.
+            static constexpr const char* kDirective = "#extension GL_NV_image_formats : require\n";
+            static constexpr const char* kExtName = "GL_NV_image_formats";
+            if (!needed || glslCode.find(kExtName) != String::npos) {
+                return glslCode;
+            }
+            // After the #version line, which must stay first. Everything else about the header is
+            // order-insensitive, and ForceSupporterOutput's scan for the LAST #extension
+            // directive still finds whichever one that is.
+            const SizeT versionPos = glslCode.find("#version");
+            if (versionPos == String::npos) {
+                return kDirective + glslCode;
+            }
+            const SizeT lineEnd = glslCode.find('\n', versionPos);
+            if (lineEnd == String::npos) {
+                return glslCode + "\n" + kDirective;
+            }
+            glslCode.insert(lineEnd + 1, kDirective);
+            return glslCode;
+        }
+
+        String RequestViewportArrayExtension(String glslCode, Bool needed) {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
+            // gl_ViewportIndex is desktop GL 4.1 core and is in ESSL only under
+            // GL_OES_viewport_array. SPIRV-Cross prints the identifier as-is and requests no
+            // extension for it - three lines away from the BuiltInLayer case, which DOES ask for
+            // one on ES - so an untouched decompile reaches the driver naming a builtin its core
+            // language has never heard of. The stage then fails to compile, the program is marked
+            // unusable and every draw made with it renders nothing while raising no GL error.
+            //
+            // Same `needed` contract as RequestExtendedImageFormats, and the same hard rule:
+            // `#extension` on a name the driver does not advertise is itself a compile error
+            // (ARM's compiler is strict about it), so this must never be emitted speculatively.
+            // A driver without the extension does not come through here at all - its module took
+            // the LowerViewportIndexPass fallback and the emitted source no longer names the
+            // builtin.
+            static constexpr const char* kDirective = "#extension GL_OES_viewport_array : require\n";
+            static constexpr const char* kExtName = "GL_OES_viewport_array";
+            if (!needed || glslCode.find(kExtName) != String::npos) {
+                return glslCode;
+            }
+            // Right after the #version line, for the reason spelled out above: it is the only
+            // position that must stay first, and ForceSupporterOutput's scan for the LAST
+            // #extension directive still finds whichever one that ends up being.
+            const SizeT versionPos = glslCode.find("#version");
+            if (versionPos == String::npos) {
+                return kDirective + glslCode;
+            }
+            const SizeT lineEnd = glslCode.find('\n', versionPos);
+            if (lineEnd == String::npos) {
+                return glslCode + "\n" + kDirective;
+            }
+            glslCode.insert(lineEnd + 1, kDirective);
+            return glslCode;
+        }
+
+        String BakeImageFormatQualifiers(String glslCode,
+                                         const UnorderedMap<String, String>& esslFormatByUniformName) {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
+            if (esslFormatByUniformName.empty() || glslCode.find("image") == String::npos) {
+                return glslCode;
+            }
+            // Same declaration shape RebindImageUniformsToFrontendUnits matches, and for the same
+            // reason: one line, one image uniform, the name in group 3.
+            static const std::regex imageDeclRegex(
+                R"((layout\s*\(([^)]*)\)\s*)?uniform\s+(?:(?:readonly|writeonly|coherent|volatile|restrict|highp|mediump|lowp)\s+)*[iu]?image[A-Za-z0-9]+\s+([A-Za-z_][A-Za-z0-9_]*)\s*(\[[^\]]*\])?\s*;)");
+            // Every image format spelling GLSL has, so a declaration that already carries one is
+            // recognised whatever it says - the caller's map is consulted only for declarations
+            // with NO format, never to override a written one.
+            static const std::regex existingFormatRegex(
+                R"(\b(rgba32f|rgba16f|rg32f|rg16f|r11f_g11f_b10f|r32f|r16f|rgba16|rgb10_a2|rg16|rg8|r16|r8|rgba16_snorm|rgba8_snorm|rg16_snorm|rg8_snorm|r16_snorm|r8_snorm|rgba32i|rgba16i|rgba8i|rg32i|rg16i|rg8i|r32i|r16i|r8i|rgba32ui|rgba16ui|rgba8ui|rgb10_a2ui|rg32ui|rg16ui|rg8ui|r32ui|r16ui|r8ui)\b)");
+
+            String result;
+            result.reserve(glslCode.size());
+            SizeT lineStart = 0;
+            while (lineStart <= glslCode.size()) {
+                const SizeT lineEnd = glslCode.find('\n', lineStart);
+                const Bool lastLine = lineEnd == String::npos;
+                String line = glslCode.substr(lineStart, lastLine ? String::npos : lineEnd - lineStart);
+
+                std::smatch match;
+                if (std::regex_search(line, match, imageDeclRegex)) {
+                    const String name = match[3].str();
+                    const auto formatIt = esslFormatByUniformName.find(name);
+                    const String layoutContents = match[2].matched ? match[2].str() : String();
+                    if (formatIt != esslFormatByUniformName.end() && !formatIt->second.empty() &&
+                        !std::regex_search(layoutContents, existingFormatRegex)) {
+                        if (match[1].matched) {
+                            const SizeT layoutOpen = line.find('(', match.position(1));
+                            line.insert(layoutOpen + 1, formatIt->second + ", ");
+                        } else {
+                            line.insert(match.position(0), "layout(" + formatIt->second + ") ");
+                        }
+                    }
+                }
+
+                result += line;
+                if (lastLine) {
+                    break;
+                }
+                result += '\n';
+                lineStart = lineEnd + 1;
+            }
+            return result;
         }
 
         String RemoveLayoutBinding(const String& glslCode) {
@@ -682,9 +828,19 @@ namespace MobileGL::MG_Backend::DirectGLES {
             // A rebuilt declaration. Keeps SPIRV-Cross's own word order (`uniform readonly
             // highp image2D`) so the image-rebinding regex in Managers.cpp still matches what
             // comes out of here, whichever order the two passes end up running in.
+            //
+            // `forceCoherent` is for the SPLIT pair only. GLSL guarantees that a write through
+            // one image variable is visible to a read through a DIFFERENT one only when both are
+            // declared coherent, and the split turns a same-variable read-after-write - which
+            // desktop GLSL orders by construction, so the source almost never says `coherent` -
+            // into exactly that cross-variable shape. Without it the driver may serve the load
+            // from a cache that never saw the store through the writeonly half.
             String BuildImageDeclaration(const ImageUniformDecl& decl, const char* memoryQualifier,
-                                         const String& variableName) {
+                                         const String& variableName, Bool forceCoherent = false) {
                 String out = "layout(" + decl.layout + ") uniform ";
+                if (forceCoherent && !ContainsIdentifier(decl.qualifiers, "coherent")) {
+                    out += "coherent ";
+                }
                 out += memoryQualifier;
                 out += ' ';
                 if (!decl.qualifiers.empty()) {
@@ -868,9 +1024,15 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     decl.writeName = MakeImageWriteAliasName(decl.name, glslCode, takenAliases);
                     takenAliases.push_back(decl.writeName);
                     decl.split = true;
+                    // Both halves carry `coherent`; see BuildImageDeclaration. The
+                    // single-declaration cases below stay as they were - nothing aliases them, so
+                    // there is no visibility to restore and no reason to pay for the cache
+                    // behaviour.
                     edits.push_back({decl.declStart, decl.declLength,
-                                     BuildImageDeclaration(decl, "readonly", decl.name) + "\n" +
-                                         BuildImageDeclaration(decl, "writeonly", decl.writeName)});
+                                     BuildImageDeclaration(decl, "readonly", decl.name, /*forceCoherent=*/true) +
+                                         "\n" +
+                                         BuildImageDeclaration(decl, "writeonly", decl.writeName,
+                                                               /*forceCoherent=*/true)});
                 } else if (decl.stored) {
                     edits.push_back({decl.declStart, decl.declLength,
                                      BuildImageDeclaration(decl, "writeonly", decl.name)});
@@ -957,7 +1119,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             }
         } // namespace
 
-        String EmulateTextureLodBias(const String& glslCode) {
+        String EmulateTextureLodBias(const String& glslCode, Bool avoidExplicitLodBias) {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
@@ -1018,6 +1180,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 if (samplerIt == samplerNames.end()) continue;
 
                 const String& biasName = samplerIt->second;
+                if (form->explicitLodArg >= 0 && avoidExplicitLodBias) {
+                    // The lookup already names its level; leaving it alone keeps a constant
+                    // LOD constant. Costs the bias on explicit-LOD lookups only.
+                    continue;
+                }
                 if (form->explicitLodArg >= 0) {
                     // Explicit LOD: the bias adds to it, as Vulkan does for
                     // OpImageSampleExplicitLod and as the CTS reference expects.
@@ -1068,7 +1235,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
             for (GLenum err = g_GLESFuncs.glGetError(); err != GL_NO_ERROR; err = g_GLESFuncs.glGetError()) {
-                MGLOG_E("-> GLES Error: %s", MG_Util::ConvertGLEnumToString(err).c_str());
+                MGLOG_D("-> GLES Error: %s", MG_Util::ConvertGLEnumToString(err).c_str());
             }
         }
 
@@ -1488,94 +1655,124 @@ namespace MobileGL::MG_Backend::DirectGLES {
             return (rowBytes + align - 1) / align * align;
         }
 
-    // Repacks wide RGBA(_INTEGER) rows into the client's (format, type) layout, honoring the
-        // client-side PACK parameters and the bound pixel-pack buffer. `wide` holds
-        // `sliceHeight * sliceCount` rows of `width` texels (slice-major, tightly stacked),
-        // 4 components x GetReadbackComponentSize(wideType) bytes each.
+        // Walks the client-side destination the PACK parameters describe and hands each row to
+        // `fillRow(slice, row, dstRow)`, which writes width * dstPixelBytes bytes of finished client
+        // texels. Shared by the converting and the raw-word stores so both address the destination -
+        // and feed the bound pixel-pack buffer - identically.
         // applyPackImageParams: GL_PACK_IMAGE_HEIGHT / GL_PACK_SKIP_IMAGES apply only to GetTexImage
         // of 3D/array images; ReadPixels and 2D GetTexImage ignore them (GL 3.3 sections 4.3.1, 6.1.4).
         // Per the GL addressing rules, slice k row j lands at
         // SKIP_IMAGES*imageStride + SKIP_ROWS*rowStride + SKIP_PIXELS*pixelBytes
         //   + k*imageStride + j*rowStride, with imageStride = max(IMAGE_HEIGHT, sliceHeight)*rowStride.
-        Bool StoreWideRowsToClient(const Uint8* wide, GLenum wideType, GLsizei width, GLsizei sliceHeight,
-                                   GLsizei sliceCount, const ReadbackChannelMapping& mapping, GLenum type,
-                                   void* pixels, Bool applyPackImageParams) {
-        const SizeT dstPixelBytes = GetReadbackDstPixelSize(mapping, type);
-        if (dstPixelBytes == 0) {
-            return false;
-        }
-        PackedReadbackLayout packedLayout{};
-        const Bool isPackedType = GetPackedReadbackLayout(type, packedLayout);
-        const SizeT dstComponentSize = GetReadbackComponentSize(type);
+        template <typename FillRow>
+        static Bool StoreClientRows(SizeT dstPixelBytes, SizeT swapGroupSize, GLsizei width, GLsizei sliceHeight,
+                                    GLsizei sliceCount, void* pixels, Bool applyPackImageParams, FillRow&& fillRow) {
+            const auto& pixelPackBufferObject =
+                MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::PixelPack).GetBoundObject();
 
-        const auto& pixelPackBufferObject =
-            MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::PixelPack).GetBoundObject();
+            // Destination layout is computed from the client-side PACK parameters; only the actual pixel
+            // rows are written so skip regions of the destination stay untouched.
+            const auto packParams = MG_State::pGLContext->GetPixelStoreParameters(false);
+            const SizeT rowPixels = static_cast<SizeT>(packParams.RowLength > 0 ? packParams.RowLength : width);
+            const SizeT dstRowStride = AlignReadbackRow(rowPixels * dstPixelBytes, packParams.Alignment);
+            const SizeT imageRows =
+                applyPackImageParams && packParams.ImageHeight > 0
+                    ? static_cast<SizeT>(packParams.ImageHeight)
+                    : static_cast<SizeT>(sliceHeight);
+            const SizeT dstImageStride = imageRows * dstRowStride;
+            const SizeT skipImages =
+                applyPackImageParams ? static_cast<SizeT>(std::max(packParams.SkipImages, 0)) : SizeT{0};
+            const SizeT dstSkipOffset = skipImages * dstImageStride +
+                                        static_cast<SizeT>(std::max(packParams.SkipRows, 0)) * dstRowStride +
+                                        static_cast<SizeT>(std::max(packParams.SkipPixels, 0)) * dstPixelBytes;
+            const SizeT dstRowBytes = static_cast<SizeT>(width) * dstPixelBytes;
 
-        // Destination layout is computed from the client-side PACK parameters; only the actual pixel
-        // rows are written so skip regions of the destination stay untouched.
-        const auto packParams = MG_State::pGLContext->GetPixelStoreParameters(false);
-        const SizeT rowPixels = static_cast<SizeT>(packParams.RowLength > 0 ? packParams.RowLength : width);
-        const SizeT dstRowStride = AlignReadbackRow(rowPixels * dstPixelBytes, packParams.Alignment);
-        const SizeT imageRows =
-            applyPackImageParams && packParams.ImageHeight > 0
-                ? static_cast<SizeT>(packParams.ImageHeight)
-                : static_cast<SizeT>(sliceHeight);
-        const SizeT dstImageStride = imageRows * dstRowStride;
-        const SizeT skipImages =
-            applyPackImageParams ? static_cast<SizeT>(std::max(packParams.SkipImages, 0)) : SizeT{0};
-        const SizeT dstSkipOffset = skipImages * dstImageStride +
-                                    static_cast<SizeT>(std::max(packParams.SkipRows, 0)) * dstRowStride +
-                                    static_cast<SizeT>(std::max(packParams.SkipPixels, 0)) * dstPixelBytes;
-        const SizeT dstRowBytes = static_cast<SizeT>(width) * dstPixelBytes;
-
-        const SizeT pboBaseOffset = reinterpret_cast<SizeT>(pixels); // with a PBO, `pixels` is an offset
-        if (pixelPackBufferObject) {
-            const SizeT requiredSize = pboBaseOffset + dstSkipOffset +
-                                    static_cast<SizeT>(sliceCount - 1) * dstImageStride +
-                                    static_cast<SizeT>(sliceHeight - 1) * dstRowStride + dstRowBytes;
-            if (requiredSize > pixelPackBufferObject->GetSize()) {
-                MGLOG_E("Readback conversion: pixel pack buffer is too small");
-                return true;
+            const SizeT pboBaseOffset = reinterpret_cast<SizeT>(pixels); // with a PBO, `pixels` is an offset
+            if (pixelPackBufferObject) {
+                const SizeT requiredSize = pboBaseOffset + dstSkipOffset +
+                                        static_cast<SizeT>(sliceCount - 1) * dstImageStride +
+                                        static_cast<SizeT>(sliceHeight - 1) * dstRowStride + dstRowBytes;
+                if (requiredSize > pixelPackBufferObject->GetSize()) {
+                    MGLOG_E_ONCE("Readback conversion: pixel pack buffer is too small");
+                    return true;
+                }
             }
-        }
 
-        const SizeT srcComponentSize = GetReadbackComponentSize(wideType);
-        const SizeT srcPixelBytes = 4 * srcComponentSize;
-        Vector<Uint8> convertedRow(dstRowBytes);
+            Vector<Uint8> convertedRow(dstRowBytes);
 
-        for (GLsizei slice = 0; slice < sliceCount; ++slice) {
-            for (GLsizei row = 0; row < sliceHeight; ++row) {
-                const SizeT flatRow = static_cast<SizeT>(slice) * static_cast<SizeT>(sliceHeight) +
-                                   static_cast<SizeT>(row);
-                const Uint8* srcRow = wide + flatRow * static_cast<SizeT>(width) * srcPixelBytes;
-                ConvertWideReadbackRow(srcRow, convertedRow.data(), static_cast<SizeT>(width), wideType,
-                                                  mapping, type);
+            for (GLsizei slice = 0; slice < sliceCount; ++slice) {
+                for (GLsizei row = 0; row < sliceHeight; ++row) {
+                    fillRow(slice, row, convertedRow.data());
 
-                if (packParams.SwapBytes) {
-                    const SizeT groupSize = isPackedType ? packedLayout.byteSize : dstComponentSize;
-                    if (groupSize > 1) {
-                        for (SizeT offset = 0; offset + groupSize <= dstRowBytes; offset += groupSize) {
-                            std::reverse(convertedRow.data() + offset, convertedRow.data() + offset + groupSize);
+                    if (packParams.SwapBytes && swapGroupSize > 1) {
+                        for (SizeT offset = 0; offset + swapGroupSize <= dstRowBytes; offset += swapGroupSize) {
+                            std::reverse(convertedRow.data() + offset, convertedRow.data() + offset + swapGroupSize);
                         }
                     }
-                }
 
-                const SizeT dstOffset = dstSkipOffset + static_cast<SizeT>(slice) * dstImageStride +
-                                     static_cast<SizeT>(row) * dstRowStride;
-                if (pixelPackBufferObject) {
-                    pixelPackBufferObject->WritebackFromBackend({convertedRow.data(), dstRowBytes},
-                                                             pboBaseOffset + dstOffset);
-                } else {
-                    Memcpy(static_cast<Uint8*>(pixels) + dstOffset, convertedRow.data(), dstRowBytes);
+                    const SizeT dstOffset = dstSkipOffset + static_cast<SizeT>(slice) * dstImageStride +
+                                         static_cast<SizeT>(row) * dstRowStride;
+                    if (pixelPackBufferObject) {
+                        pixelPackBufferObject->WritebackFromBackend({convertedRow.data(), dstRowBytes},
+                                                                 pboBaseOffset + dstOffset);
+                    } else {
+                        Memcpy(static_cast<Uint8*>(pixels) + dstOffset, convertedRow.data(), dstRowBytes);
+                    }
                 }
             }
-        }
             if (pixelPackBufferObject) {
                 // WritebackFromBackend bumps change serials with no backend op; re-open
                 // the buffer draw-clean memos (once for the whole row loop).
                 BufferImpl::BumpBufferMutationEpoch();
             }
             return true;
+        }
+
+        // Repacks wide RGBA(_INTEGER) rows into the client's (format, type) layout, honoring the
+        // client-side PACK parameters and the bound pixel-pack buffer. `wide` holds
+        // `sliceHeight * sliceCount` rows of `width` texels (slice-major, tightly stacked),
+        // 4 components x GetReadbackComponentSize(wideType) bytes each.
+        Bool StoreWideRowsToClient(const Uint8* wide, GLenum wideType, GLsizei width, GLsizei sliceHeight,
+                                   GLsizei sliceCount, const ReadbackChannelMapping& mapping, GLenum type,
+                                   void* pixels, Bool applyPackImageParams) {
+            const SizeT dstPixelBytes = GetReadbackDstPixelSize(mapping, type);
+            if (dstPixelBytes == 0) {
+                return false;
+            }
+            PackedReadbackLayout packedLayout{};
+            const Bool isPackedType = GetPackedReadbackLayout(type, packedLayout);
+            const SizeT swapGroupSize = isPackedType ? packedLayout.byteSize : GetReadbackComponentSize(type);
+            const SizeT srcPixelBytes = 4 * GetReadbackComponentSize(wideType);
+
+            return StoreClientRows(dstPixelBytes, swapGroupSize, width, sliceHeight, sliceCount, pixels,
+                                   applyPackImageParams,
+                                   [&](GLsizei slice, GLsizei row, Uint8* dstRow) {
+                                       const SizeT flatRow = static_cast<SizeT>(slice) *
+                                                                 static_cast<SizeT>(sliceHeight) +
+                                                             static_cast<SizeT>(row);
+                                       const Uint8* srcRow =
+                                           wide + flatRow * static_cast<SizeT>(width) * srcPixelBytes;
+                                       ConvertWideReadbackRow(srcRow, dstRow, static_cast<SizeT>(width), wideType,
+                                                              mapping, type);
+                                   });
+        }
+
+        Bool StorePackedWordsToClient(const Uint8* srcWords, GLsizei width, GLsizei sliceHeight, GLsizei sliceCount,
+                                      GLenum type, void* pixels, Bool applyPackImageParams) {
+            PackedReadbackLayout packedLayout{};
+            if (!GetPackedReadbackLayout(type, packedLayout) || packedLayout.byteSize != 4) {
+                return false;
+            }
+            const SizeT srcRowBytes = static_cast<SizeT>(width) * 4;
+
+            return StoreClientRows(4, packedLayout.byteSize, width, sliceHeight, sliceCount, pixels,
+                                   applyPackImageParams,
+                                   [&](GLsizei slice, GLsizei row, Uint8* dstRow) {
+                                       const SizeT flatRow = static_cast<SizeT>(slice) *
+                                                                 static_cast<SizeT>(sliceHeight) +
+                                                             static_cast<SizeT>(row);
+                                       Memcpy(dstRow, srcWords + flatRow * srcRowBytes, srcRowBytes);
+                                   });
         }
     } // namespace ReadbackImpl
 } // namespace MobileGL::MG_Backend::DirectGLES

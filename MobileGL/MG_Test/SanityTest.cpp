@@ -17,6 +17,7 @@
 #include <MG_Backend/DirectGLES/Managers.h>
 #include <MG_Backend/DirectVulkan/BackendObject_DirectVulkan.h>
 #include <MG_Backend/BackendObjects.h>
+#include <MG_Impl/GLImpl/Buffer/GL_Buffer.h>
 #include <MG_Impl/GLImpl/Getter/GL_Getter.h>
 #include <MG_Impl/GLImpl/RenderState/GL_RenderState.h>
 #include <MG_Impl/GLImpl/Texture/GL_Texture.h>
@@ -31,6 +32,7 @@
 #include <MG_Backend/DirectVulkan/Renderer/VulkanRenderer.h>
 #include <MG_Util/Math/HalfFloat.h>
 #include <MG_Util/ShaderTranspiler/ShaderCompiler.h>
+#include <MG_Util/ShaderTranspiler/CompileEnv.h>
 #include <MG_Util/ShaderTranspiler/ShaderSourceProcessor.h>
 #include <MG_Util/Debug/Log.h>
 #include <MG_Util/Types.h>
@@ -198,6 +200,38 @@ TEST(DirectGLESSanity, AdvertisesDepthTextureForGlmarkShadowScenes) {
     EXPECT_NE(std::find(extensions.begin(), extensions.end(), MobileGL::E_GL_ARB_depth_texture), extensions.end());
 }
 
+// Two strings that name capabilities MobileGL has always had, and that were missing from the
+// advertised list for as long as it existed.
+//
+// GL_ARB_uniform_buffer_object is the one with teeth: applications gate the ENTRY POINTS on the
+// string rather than on the context version. KHR-GL4x.transform_feedback.draw_xfb_instanced_test
+// resolves glGetUniformBlockIndex / glUniformBlockBinding only inside `if (is_arb_ubo)`, then
+// calls them unconditionally because the context claims >= 4.2 - so a missing string turned into
+// a call through a null pointer and took the whole process down with SIGSEGV. Withdrawing it
+// again would restore that crash on both backends.
+//
+// GL_ARB_stencil_texturing is what makes DEPTH_STENCIL_TEXTURE_MODE = GL_STENCIL_INDEX reachable
+// at all before GL 4.3, which is the whole of KHR-GL3x.packed_depth_stencil.stencil_texturing.
+TEST(DirectGLESSanity, AdvertisesUniformBufferObjectAndStencilTexturing) {
+    MobileGL::MG_Backend::DirectGLES::BackendObject_DirectGLES backend;
+    const auto& extensions = backend.GetRendererInfo().RendererGLInfo.Extensions;
+
+    EXPECT_NE(std::find(extensions.begin(), extensions.end(), MobileGL::E_GL_ARB_uniform_buffer_object),
+              extensions.end());
+    EXPECT_NE(std::find(extensions.begin(), extensions.end(), MobileGL::E_GL_ARB_stencil_texturing),
+              extensions.end());
+}
+
+TEST(DirectVulkanSanity, AdvertisesUniformBufferObjectAndStencilTexturing) {
+    MobileGL::MG_Backend::DirectVulkan::BackendObject_DirectVulkan backend;
+    const auto& extensions = backend.GetRendererInfo().RendererGLInfo.Extensions;
+
+    EXPECT_NE(std::find(extensions.begin(), extensions.end(), MobileGL::E_GL_ARB_uniform_buffer_object),
+              extensions.end());
+    EXPECT_NE(std::find(extensions.begin(), extensions.end(), MobileGL::E_GL_ARB_stencil_texturing),
+              extensions.end());
+}
+
 // Voxy only ever needed the extensions, which stay advertised whatever the version is; the version
 // assertion just pins what the backend really reports, now that V_OpenGL40 is in the list.
 TEST(DirectGLESSanity, AdvertisesVoxyRequiredRenderingExtensions) {
@@ -332,6 +366,13 @@ TEST(DirectGLESSanity, RebasesInstanceIdWhenIndirectDrawsLeakBaseInstance) {
     // MaxShaderStorageBufferBindings - 1 = 12, so a regression that stops reading the
     // probed cap and falls back to the struct default would surface as "binding = 7".
     caps.MaxShaderStorageBufferBindings = 13;
+    // The indirect lowering reads its baseInstance through a storage block declared in the
+    // VERTEX stage, which is optional in both APIs and which the GLESCapabilities default
+    // (0, the spec minimum) therefore denies. This suite is pinning the shape of that
+    // lowering, so it has to describe a driver that can actually have it - see
+    // VertexStageStorageBlockUsable and the BaseInstanceInjectionGate suite for the
+    // zero case.
+    caps.MaxVertexShaderStorageBlocks = 1;
 
     const MobileGL::String source = R"(#version 310 es
 highp int mg_BaseInstanceLowered;
@@ -346,8 +387,10 @@ void main() {
 
     EXPECT_NE(rewritten.find("int instance = mg_ZeroBasedInstanceID + mg_BaseInstanceLowered;"),
               MobileGL::String::npos);
-    EXPECT_NE(rewritten.find("#define mg_ZeroBasedInstanceID (gl_InstanceID - ((mg_BaseInstanceWordIndex >= 0) ? "
-                             "int(mg_indirectWords[uint(mg_BaseInstanceWordIndex)]) : 0))"),
+    // One-based word index: zero is the "not an indirect draw" sentinel because that is
+    // the value a GLSL uniform starts at and no draw path writes it before the first draw.
+    EXPECT_NE(rewritten.find("#define mg_ZeroBasedInstanceID (gl_InstanceID - ((mg_BaseInstanceWordIndex > 0) ? "
+                             "int(mg_indirectWords[uint(mg_BaseInstanceWordIndex - 1)]) : 0))"),
               MobileGL::String::npos);
     EXPECT_NE(rewritten.find(
                   "layout(std430, binding = 12) readonly buffer mg_IndirectParams { highp uint mg_indirectWords[]; };"),
@@ -356,11 +399,50 @@ void main() {
     EXPECT_EQ(CountOccurrences(rewritten, "gl_InstanceID"), 1u);
 }
 
+// The sentinel itself, on the builtin it exists for. A zero-based index with a
+// negative "off" value made every NON-indirect draw of such a program read
+// mg_indirectWords[0] out of a storage buffer nothing had bound - the uniform starts
+// at zero and no non-indirect draw path writes it - which is where the CTS
+// shader_draw_parameters cases lost their geometry on Adreno. Pinned as text because
+// this contract lives in two places at once: the generated ESSL below and the +1 that
+// BackendProgramObjectImpl::SetBaseInstanceWordIndex applies.
+TEST(DirectGLESSanity, TheIndirectWordIndexIsOneBasedSoItsUnwrittenValueMeansNotIndirect) {
+    const ScopedGLESCapabilitiesOverride capsGuard;
+    auto& caps = MobileGL::MG_Backend::DirectGLES::g_GLESCapabilities;
+    caps.IndirectDrawInstanceIdIncludesBaseInstance = false;
+    caps.MaxShaderStorageBufferBindings = 13;
+    // See RebasesInstanceIdWhenIndirectDrawsLeakBaseInstance: without a vertex-stage
+    // storage block there is no word index to be one-based about.
+    caps.MaxVertexShaderStorageBlocks = 1;
+
+    const MobileGL::String source = R"(#version 310 es
+highp int mg_BaseInstanceLowered;
+void main() {
+    gl_Position = vec4(float(mg_BaseInstanceLowered));
+}
+)";
+
+    const auto rewritten = MobileGL::MG_Backend::DirectGLES::PromoteDrawParameterGlobalsToUniforms(
+        source, GL_VERTEX_SHADER);
+
+    EXPECT_NE(rewritten.find("#define mg_BaseInstanceLowered ((mg_BaseInstanceWordIndex > 0) ? "
+                             "int(mg_indirectWords[uint(mg_BaseInstanceWordIndex - 1)]) : mg_BaseInstance)"),
+              MobileGL::String::npos)
+        << rewritten;
+    // A zero-based form would spell either of these; neither may survive.
+    EXPECT_EQ(rewritten.find("mg_BaseInstanceWordIndex >= 0"), MobileGL::String::npos);
+    EXPECT_EQ(rewritten.find("uint(mg_BaseInstanceWordIndex)"), MobileGL::String::npos);
+}
+
 TEST(DirectGLESSanity, KeepsInstanceIdWhenIndirectDrawsAreConforming) {
     const ScopedGLESCapabilitiesOverride capsGuard;
     auto& caps = MobileGL::MG_Backend::DirectGLES::g_GLESCapabilities;
     caps.IndirectDrawInstanceIdIncludesBaseInstance = false;
     caps.MaxShaderStorageBufferBindings = 13;
+    // Set explicitly even though the assertions below would also hold on the degraded path:
+    // this case is about a CONFORMING driver leaving gl_InstanceID alone, and it would be a
+    // silent weakening for it to be exercising the no-storage-block fallback instead.
+    caps.MaxVertexShaderStorageBlocks = 1;
 
     const MobileGL::String source = R"(#version 310 es
 highp int mg_BaseInstanceLowered;
@@ -375,6 +457,8 @@ void main() {
 
     EXPECT_EQ(rewritten.find("mg_ZeroBasedInstanceID"), MobileGL::String::npos);
     EXPECT_NE(rewritten.find("int instance = gl_InstanceID + mg_BaseInstanceLowered;"), MobileGL::String::npos);
+    // The indirect view is present on this driver, so the fallback must NOT have fired.
+    EXPECT_NE(rewritten.find("buffer mg_IndirectParams"), MobileGL::String::npos);
 }
 
 TEST(DirectGLESSanity, LeavesDrawParameterGlobalsAloneOutsideVertexShaders) {
@@ -399,6 +483,31 @@ TEST(DirectVulkanSanity, AdvertisesTextureStorageForDirectStateAccess) {
     EXPECT_NE(std::find(extensions.begin(), extensions.end(), MobileGL::E_GL_ARB_direct_state_access),
               extensions.end());
     EXPECT_NE(std::find(extensions.begin(), extensions.end(), MobileGL::E_GL_ARB_texture_storage), extensions.end());
+}
+
+// A sampled view of a combined depth/stencil image may name exactly one aspect, and
+// GL_DEPTH_STENCIL_TEXTURE_MODE picks which - the whole of GL_ARB_stencil_texturing on this
+// backend. Depth remains the answer for everything that does not ask for stencil, including
+// depth-only images asked for the stencil aspect they do not have.
+TEST(DirectVulkanSanity, SampledViewAspectFollowsDepthStencilTextureMode) {
+    using MobileGL::MG_Backend::DirectVulkan::VkTextureManager;
+    constexpr VkImageAspectFlags kPacked = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+
+    EXPECT_EQ(VkTextureManager::ResolveSampledImageViewAspectMask(kPacked, GL_DEPTH_COMPONENT),
+              static_cast<VkImageAspectFlags>(VK_IMAGE_ASPECT_DEPTH_BIT));
+    EXPECT_EQ(VkTextureManager::ResolveSampledImageViewAspectMask(kPacked, GL_STENCIL_INDEX),
+              static_cast<VkImageAspectFlags>(VK_IMAGE_ASPECT_STENCIL_BIT));
+    // The default argument is the pre-existing behaviour, for the call sites with no texture.
+    EXPECT_EQ(VkTextureManager::ResolveSampledImageViewAspectMask(kPacked),
+              static_cast<VkImageAspectFlags>(VK_IMAGE_ASPECT_DEPTH_BIT));
+
+    // Single-aspect images ignore the mode: there is only one aspect to name.
+    EXPECT_EQ(VkTextureManager::ResolveSampledImageViewAspectMask(VK_IMAGE_ASPECT_DEPTH_BIT, GL_STENCIL_INDEX),
+              static_cast<VkImageAspectFlags>(VK_IMAGE_ASPECT_DEPTH_BIT));
+    EXPECT_EQ(VkTextureManager::ResolveSampledImageViewAspectMask(VK_IMAGE_ASPECT_STENCIL_BIT, GL_DEPTH_COMPONENT),
+              static_cast<VkImageAspectFlags>(VK_IMAGE_ASPECT_STENCIL_BIT));
+    EXPECT_EQ(VkTextureManager::ResolveSampledImageViewAspectMask(VK_IMAGE_ASPECT_COLOR_BIT, GL_STENCIL_INDEX),
+              static_cast<VkImageAspectFlags>(VK_IMAGE_ASPECT_COLOR_BIT));
 }
 
 TEST(DirectVulkanSanity, RenderPassExtentUsesSwapchainSizeOnlyForDefaultFramebuffer) {
@@ -534,6 +643,55 @@ TEST(DirectGLESSanity, PreservesHostPerStageImageUniformLimits) {
     EXPECT_EQ(params.MaxComputeImageUniforms, 5);
 }
 
+// maxClipDistances is a LIMIT every Vulkan device reports; declaring ClipDistance in a module
+// needs the shaderClipDistance FEATURE, which is separate and which VulkanRenderer enables only
+// where the physical device has it. Forwarding the limit without the feature advertises eight
+// clip planes no shader may use - the same shape as the image-uniform limits above, and the same
+// shape as the GL_EXT_clip_cull_distance lie on DirectGLES. Not a blanket zero: a device WITH the
+// feature keeps its real number.
+TEST(DirectVulkanSanity, GatesClipDistancesOnTheShaderClipDistanceFeature) {
+    using namespace MobileGL;
+
+    MG_Backend::DirectVulkan::BackendObject_DirectVulkan backend;
+    MG_External::VulkanCapabilities caps;
+    caps.MaxClipDistances = 8;
+
+    caps.SupportsShaderClipDistance = false;
+    backend.ApplyVulkanCapabilitiesForTesting(caps);
+    EXPECT_EQ(backend.GetDynamicParameters().MaxClipDistances, 0);
+
+    caps.SupportsShaderClipDistance = true;
+    backend.ApplyVulkanCapabilitiesForTesting(caps);
+    EXPECT_EQ(backend.GetDynamicParameters().MaxClipDistances, 8);
+}
+
+// GL_LAYER_PROVOKING_VERTEX / GL_VIEWPORT_INDEX_PROVOKING_VERTEX were a hard-coded
+// GL_LAST_VERTEX_CONVENTION for both backends, derived from nothing, and wrong on both test
+// devices in opposite directions. DirectGLES now forwards what its loader resolved; DirectVulkan
+// reports GL_UNDEFINED_VERTEX, which GL 4.6 table 23.65 permits and which is what the backend
+// honestly implements - the provoking mode is chosen per pipeline out of VK_EXT_provoking_vertex,
+// provokingVertexModePerPipeline and the topology.
+TEST(ProvokingVertexConventions, EachBackendReportsWhatItActuallyPins) {
+    using namespace MobileGL;
+
+    MG_Backend::DirectGLES::BackendObject_DirectGLES glesBackend;
+    MG_External::GLESCapabilities glesCaps;
+    glesCaps.LayerProvokingVertex = GL_FIRST_VERTEX_CONVENTION;
+    glesCaps.ViewportIndexProvokingVertex = GL_UNDEFINED_VERTEX;
+    glesBackend.ApplyGLESCapabilitiesForTesting(glesCaps);
+    EXPECT_EQ(glesBackend.GetDynamicParameters().LayerProvokingVertex,
+              static_cast<GLenum>(GL_FIRST_VERTEX_CONVENTION));
+    EXPECT_EQ(glesBackend.GetDynamicParameters().ViewportIndexProvokingVertex,
+              static_cast<GLenum>(GL_UNDEFINED_VERTEX));
+
+    MG_Backend::DirectVulkan::BackendObject_DirectVulkan vkBackend;
+    MG_External::VulkanCapabilities vkCaps;
+    vkBackend.ApplyVulkanCapabilitiesForTesting(vkCaps);
+    EXPECT_EQ(vkBackend.GetDynamicParameters().LayerProvokingVertex, static_cast<GLenum>(GL_UNDEFINED_VERTEX));
+    EXPECT_EQ(vkBackend.GetDynamicParameters().ViewportIndexProvokingVertex,
+              static_cast<GLenum>(GL_UNDEFINED_VERTEX));
+}
+
 TEST(FragmentInterpolationCapabilities, PlumbsGLESAndBothVulkanPropertyPaths) {
     using namespace MobileGL;
 
@@ -617,6 +775,37 @@ TEST(DirectVulkanSanity, AdvertisesSubgroupOnlyWhenVulkanReportsUsableSupport) {
                                   GL_SUBGROUP_FEATURE_ARITHMETIC_BIT_KHR |
                                   GL_SUBGROUP_FEATURE_QUAD_BIT_KHR));
     EXPECT_TRUE(backend.GetDynamicParameters().SubgroupQuadOperationsInAllStages);
+}
+
+TEST(DirectVulkanSanity, CapabilityRefreshInvalidatesTheCachedCompileEnvironment) {
+    using namespace MobileGL;
+
+    auto previousContext = Move(MG_State::pGLContext);
+    auto previousBackend = Move(MG_Backend::pActiveBackendObject);
+    MG_State::pGLContext = MakeUnique<MG_State::GLState::GLContext>();
+
+    auto backend = MakeUnique<MG_Backend::DirectVulkan::BackendObject_DirectVulkan>();
+    auto* backendPtr = backend.get();
+    MG_Backend::pActiveBackendObject = Move(backend);
+
+    const auto before = MG_State::pGLContext->GetCompileEnv();
+    EXPECT_EQ(before->params.SubgroupSize, 0u);
+
+    MG_External::VulkanCapabilities caps;
+    caps.SupportsShaderSubgroup = true;
+    caps.SubgroupSize = 8;
+    caps.SubgroupSupportedStages = VK_SHADER_STAGE_COMPUTE_BIT;
+    caps.SubgroupSupportedOperations = VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_ARITHMETIC_BIT;
+    backendPtr->ApplyVulkanCapabilitiesForTesting(caps);
+
+    const auto after = MG_State::pGLContext->GetCompileEnv();
+    EXPECT_NE(after.get(), before.get());
+    EXPECT_NE(after->fingerprint, before->fingerprint);
+    EXPECT_EQ(after->backend, BackendType::DirectVulkan);
+    EXPECT_EQ(after->params.SubgroupSize, 8u);
+
+    MG_Backend::pActiveBackendObject = Move(previousBackend);
+    MG_State::pGLContext = Move(previousContext);
 }
 
 TEST(DirectVulkanSanity, KeepsOptionalGpuShaderInt64BranchForVoxyQuadDecode) {
@@ -790,6 +979,161 @@ void main() {
     MG_Backend::pActiveBackendObject.reset();
 }
 
+// KHR-GL43.shader_atomic_counters.basic-glsl-built-in, .basic-buffer-bind and .basic-api-get.
+// The atomic-counter limits used to live in two unreconciled tables - glslang compiled every
+// shader against ONE binding while glGetIntegerv advertised thirty-six - and three of the enums
+// had no case in the getter at all, so the query raised INVALID_ENUM and left the caller reading
+// whatever was in its own stack slot.
+TEST(GetterSanity, AtomicCounterQueriesMatchShaderCompilerLimits) {
+    using namespace MobileGL;
+    namespace Transpiler = MG_Util::ShaderTranspiler;
+
+    auto previousContext = Move(MG_State::pGLContext);
+    auto previousBackend = Move(MG_Backend::pActiveBackendObject);
+    MG_State::pGLContext = MakeUnique<MG_State::GLState::GLContext>();
+    MG_Backend::pActiveBackendObject = MakeUnique<DynamicParameterBackend>(MG_Backend::DynamicBackendParameters{});
+
+    GLint reported = -1;
+    MG_Impl::GLImpl::GetIntegerv(GL_MAX_ATOMIC_COUNTER_BUFFER_BINDINGS, &reported);
+    EXPECT_EQ(reported, static_cast<GLint>(Transpiler::MAX_ATOMIC_COUNTER_BUFFER_BINDINGS));
+    MG_Impl::GLImpl::GetIntegerv(GL_MAX_ATOMIC_COUNTER_BUFFER_SIZE, &reported);
+    EXPECT_EQ(reported, static_cast<GLint>(Transpiler::MAX_ATOMIC_COUNTER_BUFFER_SIZE));
+    for (const GLenum pname : {GL_MAX_COMBINED_ATOMIC_COUNTER_BUFFERS, GL_MAX_FRAGMENT_ATOMIC_COUNTER_BUFFERS,
+                               GL_MAX_COMPUTE_ATOMIC_COUNTER_BUFFERS}) {
+        reported = -1;
+        MG_Impl::GLImpl::GetIntegerv(pname, &reported);
+        EXPECT_EQ(reported, static_cast<GLint>(Transpiler::MAX_ATOMIC_COUNTER_BUFFERS_PER_STAGE))
+            << "pname " << pname;
+    }
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    // glBindBufferBase sets the GENERIC binding point too (GL 4.6 6.1.1), and this is the one
+    // indexed-buffer family whose non-indexed query had no case.
+    reported = -1;
+    MG_Impl::GLImpl::GetIntegerv(GL_ATOMIC_COUNTER_BUFFER_BINDING, &reported);
+    EXPECT_EQ(reported, 0);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    GLuint buffer = 0;
+    MG_Impl::GLImpl::GenBuffers(1, &buffer);
+    MG_Impl::GLImpl::BindBuffer(GL_ATOMIC_COUNTER_BUFFER, buffer);
+    MG_Impl::GLImpl::BufferData(GL_ATOMIC_COUNTER_BUFFER, 64, nullptr, GL_STATIC_DRAW);
+    MG_Impl::GLImpl::BindBufferBase(GL_ATOMIC_COUNTER_BUFFER, 2, buffer);
+    MG_Impl::GLImpl::GetIntegerv(GL_ATOMIC_COUNTER_BUFFER_BINDING, &reported);
+    EXPECT_EQ(static_cast<GLuint>(reported), buffer);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    // The advertised ceiling is also the one glBindBufferBase and the indexed getter enforce.
+    // A limit nothing validates against is how these tables drifted apart in the first place:
+    // the binding-point ARRAY is 36 deep, and it used to be that number an application saw.
+    constexpr GLuint pastLastBinding = static_cast<GLuint>(Transpiler::MAX_ATOMIC_COUNTER_BUFFER_BINDINGS);
+    MG_Impl::GLImpl::BindBufferBase(GL_ATOMIC_COUNTER_BUFFER, pastLastBinding, buffer);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), static_cast<GLenum>(GL_INVALID_VALUE));
+    MG_Impl::GLImpl::GetIntegeri_v(GL_ATOMIC_COUNTER_BUFFER_BINDING, pastLastBinding, &reported);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), static_cast<GLenum>(GL_INVALID_VALUE));
+
+    // ...and the shading language has to expand the same numbers. Each array is sized by a
+    // built-in constant and indexed at its last element with a literal, so the stage only
+    // compiles when that constant is at least what glGetIntegerv just reported - which it was
+    // not while the resource table said one.
+    const String lastBinding = std::to_string(Transpiler::MAX_ATOMIC_COUNTER_BUFFER_BINDINGS - 1);
+    const String lastBuffer = std::to_string(Transpiler::MAX_ATOMIC_COUNTER_BUFFERS_PER_STAGE - 1);
+    const String source = R"(#version 430 core
+out vec4 color;
+int mgBindings[gl_MaxAtomicCounterBindings];
+int mgCombinedBuffers[gl_MaxCombinedAtomicCounterBuffers];
+int mgFragmentBuffers[gl_MaxFragmentAtomicCounterBuffers];
+layout(binding = )" + lastBinding + R"(, offset = 0) uniform atomic_uint mgCounter;
+void main() {
+    color = vec4(float(mgBindings[)" + lastBinding + R"(] + mgCombinedBuffers[)" + lastBuffer +
+                         R"(] + mgFragmentBuffers[)" + lastBuffer + R"(] + int(atomicCounterIncrement(mgCounter))));
+}
+)";
+    auto compiled = MG_Util::ShaderTranspiler::ShaderCompiler::CompileShader({
+        .shaderType = GL_FRAGMENT_SHADER,
+        .sourceStr = source,
+    });
+    EXPECT_TRUE(compiled) << (compiled ? "" : compiled.error().log);
+
+    MG_Backend::pActiveBackendObject = Move(previousBackend);
+    MG_State::pGLContext = Move(previousContext);
+}
+
+// KHR-GL43.compute_shader.max: the test queries every GL_MAX_COMPUTE_* value through the API and
+// then makes a compute shader compare the matching gl_MaxCompute* constant against it. The two
+// used to be independent tables and gl_MaxComputeWorkGroupSize.z disagreed - glslang compiled
+// against a permissive 1024 while the context advertises the 64 the GL 4.6 minimum (and every ES
+// driver) reports.
+TEST(GetterSanity, ComputeWorkGroupQueriesMatchShaderCompilerLimits) {
+    using namespace MobileGL;
+
+    auto previousContext = Move(MG_State::pGLContext);
+    auto previousBackend = Move(MG_Backend::pActiveBackendObject);
+    MG_State::pGLContext = MakeUnique<MG_State::GLState::GLContext>();
+    MG_Backend::pActiveBackendObject = MakeUnique<DynamicParameterBackend>(MG_Backend::DynamicBackendParameters{});
+
+    GLint size[3] = {0, 0, 0};
+    GLint count[3] = {0, 0, 0};
+    for (GLuint index = 0; index < 3; ++index) {
+        MG_Impl::GLImpl::GetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, index, &size[index]);
+        MG_Impl::GLImpl::GetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_COUNT, index, &count[index]);
+    }
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    // The compile runs against a captured env, exactly as the pipeline's does. That is the whole
+    // invariant: the env holds the same floored driver answer GetIntegeri_v just returned, so the
+    // resource table and the query agree BY CONSTRUCTION rather than by two tables happening to
+    // carry the same literals.
+    const auto env = MG_Util::ShaderTranspiler::CaptureCompileEnv();
+    for (GLuint index = 0; index < 3; ++index) {
+        EXPECT_EQ(static_cast<GLint>(env->maxComputeWorkGroupSize[index]), size[index]) << "index " << index;
+        EXPECT_EQ(static_cast<GLint>(env->maxComputeWorkGroupCount[index]), count[index]) << "index " << index;
+    }
+
+    // A negative array size is a compile error, so the stage only compiles when EVERY component
+    // of both built-in constants equals what the query above reported. Two-sided by construction:
+    // a resource table that is too permissive fails it exactly like one that is too tight.
+    const String source = R"(#version 430 core
+layout(local_size_x = 1) in;
+const int mgAgree = (gl_MaxComputeWorkGroupSize == ivec3()" +
+                         std::to_string(size[0]) + ", " + std::to_string(size[1]) + ", " +
+                         std::to_string(size[2]) + R"() &&
+                     gl_MaxComputeWorkGroupCount == ivec3()" +
+                         std::to_string(count[0]) + ", " + std::to_string(count[1]) + ", " +
+                         std::to_string(count[2]) + R"()) ? 1 : -1;
+int mgProbe[mgAgree];
+void main() {
+    mgProbe[0] = 0;
+}
+)";
+    auto compiled = MG_Util::ShaderTranspiler::ShaderCompiler::CompileShader({
+        .shaderType = GL_COMPUTE_SHADER,
+        .sourceStr = source,
+        .env = env.get(),
+    });
+    EXPECT_TRUE(compiled) << (compiled ? "" : compiled.error().log);
+
+    // The z ceiling is also what glslang checks a declared local_size_z against, so it has to
+    // reject one invocation past the advertised limit and accept the limit itself.
+    const String atLimit = "#version 430 core\nlayout(local_size_z = " + std::to_string(size[2]) +
+                           ") in;\nvoid main() {}\n";
+    const String pastLimit = "#version 430 core\nlayout(local_size_z = " + std::to_string(size[2] + 1) +
+                             ") in;\nvoid main() {}\n";
+    EXPECT_TRUE(MG_Util::ShaderTranspiler::ShaderCompiler::CompileShader({
+        .shaderType = GL_COMPUTE_SHADER,
+        .sourceStr = atLimit,
+        .env = env.get(),
+    }));
+    EXPECT_FALSE(MG_Util::ShaderTranspiler::ShaderCompiler::CompileShader({
+        .shaderType = GL_COMPUTE_SHADER,
+        .sourceStr = pastLimit,
+        .env = env.get(),
+    }));
+
+    MG_Backend::pActiveBackendObject = Move(previousBackend);
+    MG_State::pGLContext = Move(previousContext);
+}
+
 TEST(GetterSanity, ReportsKhrSubgroupDynamicParameters) {
     using namespace MobileGL;
 
@@ -843,6 +1187,45 @@ TEST(DirectVulkanSanity, ReadbackUsesTheSourceFormatTexelSize) {
     EXPECT_EQ(VulkanRenderer::GetReadbackTexelSize(VK_FORMAT_R8G8B8A8_UNORM), 4u);
     EXPECT_EQ(VulkanRenderer::GetReadbackTexelSize(VK_FORMAT_R16G16B16A16_SFLOAT), 8u);
     EXPECT_EQ(VulkanRenderer::GetReadbackTexelSize(VK_FORMAT_R32G32B32A32_SFLOAT), 16u);
+}
+
+TEST(DirectVulkanSanity, DefaultFramebufferQuarterTurnReadbackMapsRectAndPixels) {
+    using MobileGL::MG_Backend::DirectVulkan::VulkanRenderer;
+    using MobileGL::Uint8;
+
+    VkOffset2D offset{};
+    VkExtent2D copyExtent{};
+    ASSERT_TRUE(VulkanRenderer::MapDefaultFramebufferReadbackRect(
+        1, 0, 2, 1, VkExtent2D{2, 3}, VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR,
+        &offset, &copyExtent));
+    EXPECT_EQ(offset.x, 0);
+    EXPECT_EQ(offset.y, 1);
+    EXPECT_EQ(copyExtent.width, 1u);
+    EXPECT_EQ(copyExtent.height, 2u);
+
+    ASSERT_TRUE(VulkanRenderer::MapDefaultFramebufferReadbackRect(
+        1, 0, 2, 1, VkExtent2D{2, 3}, VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR,
+        &offset, &copyExtent));
+    EXPECT_EQ(offset.x, 1);
+    EXPECT_EQ(offset.y, 0);
+    EXPECT_EQ(copyExtent.width, 1u);
+    EXPECT_EQ(copyExtent.height, 2u);
+
+    // Logical GL rows, bottom to top, are abc / def. The display-oriented swapchain blocks are
+    // transposed in opposite directions for 90 and 270 degrees.
+    const Uint8 raw90[] = {'a', 'd', 'b', 'e', 'c', 'f'};
+    const Uint8 raw270[] = {'f', 'c', 'e', 'b', 'd', 'a'};
+    const Uint8 expected[] = {'a', 'b', 'c', 'd', 'e', 'f'};
+    Uint8 result[sizeof(expected)]{};
+
+    ASSERT_TRUE(VulkanRenderer::RemapDefaultFramebufferReadback(
+        raw90, 3, 2, VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR, 1, result));
+    EXPECT_TRUE(std::equal(std::begin(expected), std::end(expected), std::begin(result)));
+
+    std::fill(std::begin(result), std::end(result), 0);
+    ASSERT_TRUE(VulkanRenderer::RemapDefaultFramebufferReadback(
+        raw270, 3, 2, VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR, 1, result));
+    EXPECT_TRUE(std::equal(std::begin(expected), std::end(expected), std::begin(result)));
 }
 
 TEST(DirectVulkanSanity, ReadbackConvertsRgba8AndRgba16fPixels) {
@@ -2224,4 +2607,14 @@ TEST(DirectGLESTextureSync, UnitMemoRefusesToDriveATwinFromAnotherTexture) {
     }
 
     MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, 0);
+}
+
+TEST(DirectVulkanSanity, GraphicsSamplerFeedbackOnlyAliasesWritableOverlappingMip) {
+    using MobileGL::MG_Backend::DirectVulkan::UniformManager;
+
+    EXPECT_TRUE(UniformManager::SamplerOverlapsWritableImageSubresource(1, 3, 2, GL_WRITE_ONLY));
+    EXPECT_TRUE(UniformManager::SamplerOverlapsWritableImageSubresource(1, 3, 3, GL_READ_WRITE));
+    EXPECT_FALSE(UniformManager::SamplerOverlapsWritableImageSubresource(1, 3, 2, GL_READ_ONLY));
+    EXPECT_FALSE(UniformManager::SamplerOverlapsWritableImageSubresource(1, 3, 0, GL_WRITE_ONLY));
+    EXPECT_FALSE(UniformManager::SamplerOverlapsWritableImageSubresource(1, 3, 4, GL_WRITE_ONLY));
 }

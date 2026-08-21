@@ -27,6 +27,9 @@ struct Request {
     // Framebuffer-attachment dump points, each `CALL:DIR[:FBO,FBO,...]`. Debug-only; the
     // replay behaves exactly as before when this is empty.
     std::vector<std::string> fboAttachmentDumps;
+    // Named GL_TEXTURE_2D dump points, each `CALL,TEXTURE,LEVEL,DIR`. Debug-only; the replay
+    // behaves exactly as before when this is empty.
+    std::vector<std::string> texture2dDumps;
     int targetFrame = -1;
     long long targetCall = -1;
     int width = 0;
@@ -39,7 +42,11 @@ struct Request {
     bool useAngle = false;
     bool usePbuffer = true;
     bool avoidAngleLlvmpipeSamplerMipmapMinFilter = false;
+    bool avoidAngleLlvmpipeExplicitLodBias = false;
     bool coherentAsFlush = false;
+    bool fixIterationRPSubgroupScratch = false;
+    bool deriveNumSubgroups = false;
+    bool iterationRPFixBarrier = false;
     int holdMs = 0;
 };
 

@@ -151,6 +151,7 @@ set(ENABLE_SPVREMAPPER         OFF CACHE BOOL "Enable SPVRemapper" FORCE)
 set(ENABLE_OPT                 ON  CACHE BOOL "Enable SPIRV-Tools opt usage in glslang" FORCE)
 set(BUILD_EXTERNAL             ON  CACHE BOOL "Build external deps in External/" FORCE)
 set(ENABLE_GLSLANG_INSTALL     OFF CACHE BOOL "Install glslang targets" FORCE)
+set(SPIRV_SKIP_EXECUTABLES     ON  CACHE BOOL "Skip building SPIRV-Tools executables" FORCE)
 
 set(SPIRV_CROSS_C_API          ON  CACHE BOOL "Enable C API" FORCE)
 set(SPIRV_CROSS_ENABLE_GLSL    ON  CACHE BOOL "Enable GLSL backend" FORCE)
@@ -238,6 +239,7 @@ set(SOURCE_FILES
     MobileGL/MG_Util/ShaderTranspiler/ShaderCompiler.cpp
     MobileGL/MG_Util/ShaderTranspiler/SpvcSession.cpp
     MobileGL/MG_Util/ShaderTranspiler/ShaderSourceProcessor.cpp
+    MobileGL/MG_Util/ShaderTranspiler/TranslationCache.cpp
     MobileGL/MG_Util/ShaderTranspiler/glslang/TMglGlslIoResolver.cpp
     MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/FlattenInterfaceStructPass.cpp
     MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/EliminateFloatEqualsZeroPass.cpp
@@ -245,10 +247,23 @@ set(SOURCE_FILES
     MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/RenameBuiltinShadowingFunctionsPass.cpp
     MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/DecomposeWorkgroupVec3Pass.cpp
     MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/DecoratePositionInvariantPass.cpp
+    MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/DemoteFloat64Pass.cpp
     MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/LowerDrawParametersPass.cpp
+    MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/LowerViewportIndexPass.cpp
     MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/PackDoubleVertexInputsPass.cpp
+    MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/FlattenXfbInterfaceBlocksPass.cpp
+    MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/UniquifyIoBlockNamesPass.cpp
+    MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/SplitArrayVertexInputsPass.cpp
     MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/RebaseInstanceIndexPass.cpp
+    MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/ZeroBaseVertexPass.cpp
+    MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/DeriveNumSubgroupsPass.cpp
+    MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/FixIterationRPBarrierPass.cpp
+    MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/FixIterationRPSubgroupScratchPass.cpp
+    MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/EmulateSubgroupsPass.cpp
     MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/NormalizeRectCoordinatesPass.cpp
+    MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/Lower1DArrayImagesPass.cpp
+    MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/BakeImageFormatsPass.cpp
+    MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/ClampMultisampleFetchPass.cpp
     MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/PrivateToEntryLocalPass.cpp
     MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/StripUniformLocationsPass.cpp
     MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/StripUboMemberRelaxedPrecisionPass.cpp
@@ -260,6 +275,7 @@ set(SOURCE_FILES
     MobileGL/MG_Util/BackendLoaders/Vulkan/Loader.cpp
 
     MobileGL/MG_Util/SelfTest/DriverPost.cpp
+    MobileGL/MG_Util/SelfTest/DriverPostIterationRPWitness.cpp
 
     MobileGL/MG_Util/Texture/PixelStoreProcessor.cpp
     MobileGL/MG_Util/Texture/TextureFormatProcessor.cpp
@@ -343,6 +359,7 @@ set(SOURCE_FILES
     MobileGL/MG_State/GLState/TextureState/TextureState.cpp
     MobileGL/MG_State/GLState/ProgramState/ProgramObject.cpp
     MobileGL/MG_State/GLState/ProgramState/ProgramLinkTask.cpp
+    MobileGL/MG_State/GLState/ProgramState/ProgramTranslationCache.cpp
     MobileGL/MG_State/GLState/ProgramState/ProgramSpirvTask.cpp
     MobileGL/MG_State/GLState/ProgramState/ShaderCompileTask.cpp
     MobileGL/MG_State/GLState/ProgramState/ShaderObject.cpp
@@ -420,7 +437,7 @@ set(MOBILEGL_INCLUDE_DIR
         # Header-only submodule: no add_subdirectory, no link target. Only
         # MG_Util/Async/ShaderCompilePool.cpp includes it, and it stays behind that file's
         # pimpl so no consumer target needs this path.
-        ${CMAKE_SOURCE_DIR}/3rdparty/asio/asio/include
+        ${CMAKE_SOURCE_DIR}/3rdparty/asio/include
 )
 
 add_library(${CMAKE_PROJECT_NAME} SHARED
@@ -635,4 +652,11 @@ if (NOT ANDROID)
     if (MOBILEGL_BUILD_TRACE_REPLAY)
         add_subdirectory(tools/trace_replay)
     endif()
+endif()
+
+# The integration binary is also useful as a standalone adb-shell executable.
+# Android cannot use the desktop-only MobileGL_s target, so its CMake module
+# links libMobileGL.so and creates an AImageReader-backed window instead.
+if (ANDROID AND MOBILEGL_BUILD_INTEGRATION_TEST)
+    add_subdirectory(MobileGL/MG_IntegrationTest)
 endif()

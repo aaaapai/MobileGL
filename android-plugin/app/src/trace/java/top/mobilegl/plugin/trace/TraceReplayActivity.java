@@ -114,7 +114,12 @@ public final class TraceReplayActivity extends Activity {
                 request.useAngle,
                 request.usePbuffer,
                 request.avoidAngleLlvmpipeSamplerMipmapMinFilter,
-                request.coherentAsFlush
+                request.avoidAngleLlvmpipeExplicitLodBias,
+                request.coherentAsFlush,
+                request.fixIterationRPSubgroupScratch,
+                request.deriveNumSubgroups,
+                request.iterationRPFixBarrier,
+                request.texture2dDumps
         );
         Log.i(TAG, result.toString());
         TraceReplayResult finalResult = result;
@@ -145,7 +150,12 @@ public final class TraceReplayActivity extends Activity {
             boolean useAngle,
             boolean usePbuffer,
             boolean avoidAngleLlvmpipeSamplerMipmapMinFilter,
-            boolean coherentAsFlush
+            boolean avoidAngleLlvmpipeExplicitLodBias,
+            boolean coherentAsFlush,
+            boolean fixIterationRPSubgroupScratch,
+            boolean deriveNumSubgroups,
+            boolean iterationRPFixBarrier,
+            String texture2dDumps
     );
 
     private static final class TraceReplayRequest {
@@ -168,7 +178,12 @@ public final class TraceReplayActivity extends Activity {
         final boolean useAngle;
         final boolean usePbuffer;
         final boolean avoidAngleLlvmpipeSamplerMipmapMinFilter;
+        final boolean avoidAngleLlvmpipeExplicitLodBias;
         final boolean coherentAsFlush;
+        final boolean fixIterationRPSubgroupScratch;
+        final boolean deriveNumSubgroups;
+        final boolean iterationRPFixBarrier;
+        final String texture2dDumps;
 
         private TraceReplayRequest(
                 String tracePath,
@@ -190,7 +205,12 @@ public final class TraceReplayActivity extends Activity {
                 boolean useAngle,
                 boolean usePbuffer,
                 boolean avoidAngleLlvmpipeSamplerMipmapMinFilter,
-                boolean coherentAsFlush
+                boolean avoidAngleLlvmpipeExplicitLodBias,
+                boolean coherentAsFlush,
+                boolean fixIterationRPSubgroupScratch,
+                boolean deriveNumSubgroups,
+                boolean iterationRPFixBarrier,
+                    String texture2dDumps
         ) {
             this.tracePath = tracePath;
             this.goldenPath = goldenPath;
@@ -211,7 +231,12 @@ public final class TraceReplayActivity extends Activity {
             this.useAngle = useAngle;
             this.usePbuffer = usePbuffer;
             this.avoidAngleLlvmpipeSamplerMipmapMinFilter = avoidAngleLlvmpipeSamplerMipmapMinFilter;
+            this.avoidAngleLlvmpipeExplicitLodBias = avoidAngleLlvmpipeExplicitLodBias;
             this.coherentAsFlush = coherentAsFlush;
+            this.fixIterationRPSubgroupScratch = fixIterationRPSubgroupScratch;
+            this.deriveNumSubgroups = deriveNumSubgroups;
+            this.iterationRPFixBarrier = iterationRPFixBarrier;
+            this.texture2dDumps = texture2dDumps;
         }
 
         static TraceReplayRequest from(Intent intent, File filesDir, String defaultBackend) {
@@ -237,7 +262,12 @@ public final class TraceReplayActivity extends Activity {
                     intent.getBooleanExtra("use_angle", false),
                     intent.getBooleanExtra("use_pbuffer", false),
                     intent.getBooleanExtra("avoid_angle_llvmpipe_sampler_mipmap_min_filter", false),
-                    intent.getBooleanExtra("coherent_as_flush", false)
+                    intent.getBooleanExtra("avoid_angle_llvmpipe_explicit_lod_bias", false),
+                    intent.getBooleanExtra("coherent_as_flush", false),
+                    intent.getBooleanExtra("fix_iterationrp_subgroup_scratch", false),
+                    intent.getBooleanExtra("derive_num_subgroups", false),
+                    intent.getBooleanExtra("iterationrp_fix_barrier", false),
+                    readString(intent, "texture_2d_dumps", "")
             );
         }
 

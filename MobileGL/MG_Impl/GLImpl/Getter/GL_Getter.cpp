@@ -16,6 +16,7 @@
 #include <MG_State/GLState/ErrorState/ErrorInfo.h>
 #include <MG_Util/Converters/GLToStr/GLEnumConverter.h>
 #include <MG_Util/Converters/GLToMG/BufferEnumConverter.h>
+#include <MG_Util/Converters/GLToMG/RenderStateEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/FramebufferEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/ErrorCodeConverter.h>
 #include <MG_Util/Converters/MGToGL/TextureEnumConverter.h>
@@ -24,9 +25,15 @@
 #include <MG_State/GLState/FramebufferState/FramebufferObject.h>
 #include <MG_Util/Texture/TextureFormatProcessor.h>
 #include <MG_Util/Async/ShaderCompilePool.h>
+#include <MG_Util/ShaderTranspiler/Types.h>
 #include <MG_Backend/BackendObjects.h>
 
 namespace MobileGL::MG_Impl::GLImpl {
+    // Declared rather than #included from GL_RenderState.h on purpose: that header also declares
+    // a free function named BlendEquation, which would hide the ::MobileGL::BlendEquation enum
+    // this file's blend-state queries name unqualified.
+    GLboolean IsEnabledi(GLenum target, GLuint index);
+
     namespace {
         enum class IndexedBufferQueryKind {
             Binding,
@@ -40,21 +47,47 @@ namespace MobileGL::MG_Impl::GLImpl {
             }
         }
 
-        constexpr GLint kFrontendMaxComputeUniformComponents = 1024;
-        constexpr GLint kFrontendMaxComputeAtomicCounters = 8;
-        constexpr GLint kFrontendMaxComputeAtomicCounterBuffers = 8;
+        // Shared with the glslang resource table for the same reason as the atomic-counter
+        // limits below: gl_MaxComputeUniformComponents expands from BuildTBuiltInResource.
+        constexpr GLint kFrontendMaxComputeUniformComponents =
+            static_cast<GLint>(MG_Util::ShaderTranspiler::MAX_COMPUTE_UNIFORM_COMPONENTS);
+        // Every atomic-counter limit is shared with the glslang resource table
+        // (BuildTBuiltInResource) through MG_Util/ShaderTranspiler/Types.h: GL 4.6 requires
+        // glGetIntegerv and the gl_MaxAtomicCounter* built-in constants to agree, and the two
+        // used to be independent tables that disagreed on both the binding count and the buffer
+        // size. Never move one of these without the other.
+        constexpr GLint kFrontendMaxComputeAtomicCounters =
+            static_cast<GLint>(MG_Util::ShaderTranspiler::MAX_ATOMIC_COUNTERS_PER_STAGE);
+        constexpr GLint kFrontendMaxComputeAtomicCounterBuffers =
+            static_cast<GLint>(MG_Util::ShaderTranspiler::MAX_ATOMIC_COUNTER_BUFFERS_PER_STAGE);
         constexpr GLint kFrontendMaxComputeSharedMemorySize = 32768;
         constexpr GLint kFrontendMaxComputeWorkGroupInvocations = 1024;
-        constexpr GLint kFrontendMaxCombinedAtomicCounters = 8;
-        constexpr GLint kFrontendMaxFragmentAtomicCounters = 8;
+        constexpr GLint kFrontendMaxCombinedAtomicCounters =
+            static_cast<GLint>(MG_Util::ShaderTranspiler::MAX_ATOMIC_COUNTERS_PER_STAGE);
+        constexpr GLint kFrontendMaxCombinedAtomicCounterBuffers =
+            static_cast<GLint>(MG_Util::ShaderTranspiler::MAX_ATOMIC_COUNTER_BUFFERS_PER_STAGE);
+        constexpr GLint kFrontendMaxFragmentAtomicCounters =
+            static_cast<GLint>(MG_Util::ShaderTranspiler::MAX_ATOMIC_COUNTERS_PER_STAGE);
+        constexpr GLint kFrontendMaxFragmentAtomicCounterBuffers =
+            static_cast<GLint>(MG_Util::ShaderTranspiler::MAX_ATOMIC_COUNTER_BUFFERS_PER_STAGE);
         constexpr GLint kFrontendMaxGeometryAtomicCounters = 0;
         constexpr GLint kFrontendMaxTessControlAtomicCounters = 0;
         constexpr GLint kFrontendMaxTessEvaluationAtomicCounters = 0;
         constexpr GLint kFrontendMaxVertexAtomicCounters = 0;
-        // One atomic counter is a uint, and a buffer never has to hold more counters than the
-        // combined limit the frontend advertises. GL 4.6 table 23.63 floors this at 32 bytes.
+        // Zero counters means zero buffers to hold them. These have to be ANSWERED rather than
+        // left to the default INVALID_ENUM: a well-behaved application queries the limit exactly
+        // to find out that the stage cannot do this, and an error instead both leaves its output
+        // untouched (so it reads uninitialised memory and may conclude the opposite) and leaves a
+        // GL error pending that surfaces at whatever unrelated call checks next.
+        constexpr GLint kFrontendMaxGeometryAtomicCounterBuffers = 0;
+        constexpr GLint kFrontendMaxTessControlAtomicCounterBuffers = 0;
+        constexpr GLint kFrontendMaxTessEvaluationAtomicCounterBuffers = 0;
+        constexpr GLint kFrontendMaxVertexAtomicCounterBuffers = 0;
+        // GL_MAX_ATOMIC_COUNTER_BUFFER_SIZE: the byte offset ceiling a counter may be declared
+        // at. The matching binding count is applied in GetIndexedBufferQueryPointCount, so that
+        // the getter, the indexed queries and glBindBufferBase all share one ceiling.
         constexpr GLint kFrontendMaxAtomicCounterBufferSize =
-            kFrontendMaxCombinedAtomicCounters * static_cast<GLint>(sizeof(GLuint));
+            static_cast<GLint>(MG_Util::ShaderTranspiler::MAX_ATOMIC_COUNTER_BUFFER_SIZE);
         // KHR_debug minima (GL 4.6 table 23.66); the debug entry points are stubs, but the
         // limits they advertise still have to be legal.
         constexpr GLint kFrontendMaxDebugGroupStackDepth = 64;
@@ -88,12 +121,16 @@ namespace MobileGL::MG_Impl::GLImpl {
         constexpr GLint kFrontendSubpixelBits = 4;
         constexpr GLint kFrontendMaxSamples = 4;
 
+        // The floors under GL_MAX_COMPUTE_WORK_GROUP_COUNT / _SIZE. Shared with the compile
+        // pipeline (CaptureCompileEnv floors the same driver answers at them, and
+        // BuildTBuiltInResource expands gl_MaxComputeWorkGroup* from the result), because a
+        // shader is allowed to compare the built-in constant against this query.
         constexpr GLint GetMinComputeWorkGroupCount(GLuint index) {
-            return index < 3 ? 65535 : 0;
+            return index < 3 ? static_cast<GLint>(MG_Util::ShaderTranspiler::MIN_COMPUTE_WORK_GROUP_COUNT[index]) : 0;
         }
 
         constexpr GLint GetMinComputeWorkGroupSize(GLuint index) {
-            return index < 2 ? 1024 : (index == 2 ? 64 : 0);
+            return index < 3 ? static_cast<GLint>(MG_Util::ShaderTranspiler::MIN_COMPUTE_WORK_GROUP_SIZE[index]) : 0;
         }
 
         GLint GetMaxCombinedUniformComponents(GLint maxDefaultUniformComponents, GLint maxUniformBlocks,
@@ -171,7 +208,58 @@ namespace MobileGL::MG_Impl::GLImpl {
                     MG_Backend::pActiveBackendObject->GetDynamicParameters().MaxShaderStorageBufferBindings;
                 return std::min(frontendCount, static_cast<SizeT>(std::max(backendCount, 0)));
             }
+            if (bufferTarget == BufferTarget::AtomicCounter) {
+                // The counter family's binding count is NOT the state layer's array size: a
+                // counter buffer only reaches a shader as a lowered storage block, so what an
+                // implementation can serve is the reserved range, and that number is also what
+                // glslang compiles a layout(binding = N) atomic_uint against. Clamped here so
+                // GL_MAX_ATOMIC_COUNTER_BUFFER_BINDINGS, the indexed getters' index check and
+                // glBindBufferBase's all report the same ceiling.
+                return std::min(frontendCount,
+                                static_cast<SizeT>(MG_Util::ShaderTranspiler::MAX_ATOMIC_COUNTER_BUFFER_BINDINGS));
+            }
             return frontendCount;
+        }
+
+        // A per-stage or combined BLOCK count is an amount of indexed binding points an
+        // application will occupy, and GL 4.6 table 23.64 orders the two accordingly:
+        // MAX_UNIFORM_BUFFER_BINDINGS >= MAX_COMBINED_UNIFORM_BLOCKS >= every per-stage count,
+        // and the same for the shader-storage family. The two families are answered from
+        // unrelated places here - frontend constants, backend dynamic parameters, and a few
+        // hard-coded TODOs - so nothing kept them ordered, and a backend that reports Vulkan
+        // descriptor-indexing counts advertised 256 compute uniform blocks over 36 binding
+        // points. KHR-GL44.multi_bind.dispatch_bind_buffers_base reads the block count and binds
+        // that many buffers in ONE glBindBuffersBase, which is then INVALID_OPERATION before it
+        // binds anything. Clamping is the only direction available: the binding count is the
+        // capacity of the state layer's indexed-binding array, not a number we may inflate.
+        GLint ClampBlockCountToBindingPoints(GLint blockCount, BufferTarget bufferTarget) {
+            const GLint bindingPoints = static_cast<GLint>(GetIndexedBufferQueryPointCount(bufferTarget));
+            return std::min(std::max(blockCount, 0), bindingPoints);
+        }
+
+        GLint ClampUniformBlockCount(GLint blockCount) {
+            return ClampBlockCountToBindingPoints(blockCount, BufferTarget::Uniform);
+        }
+
+        GLint ClampStorageBlockCount(GLint blockCount) {
+            return ClampBlockCountToBindingPoints(blockCount, BufferTarget::ShaderStorage);
+        }
+
+        // The per-stage GL_MAX_*_SHADER_STORAGE_BLOCKS answers. Backend-derived, and NOT a
+        // constant to be "restored" - these used to return a flat 16 for vertex, geometry and
+        // both tessellation stages, which is wrong on any host that does not serve storage
+        // blocks in those stages. Zero is a legal answer: GL 4.6 table 23.64 and ES 3.2 table
+        // 21.44 both set the minimum at 0 for every graphics stage except fragment, which is
+        // why the conformance suite gates each such test on the query instead of assuming it.
+        // ARM's GLES driver reports 0 for all four (a Mali-G925 does), and advertising 16 there
+        // bought nothing: the program still failed to link inside the backend, the frontend
+        // still reported LINK_STATUS as true, and every draw with it silently rendered nothing.
+        GLint StageStorageBlockCount(Int MG_Backend::DynamicBackendParameters::*stageLimit) {
+            static const MG_Backend::DynamicBackendParameters kBackendlessDefaults{};
+            const MG_Backend::DynamicBackendParameters& parameters =
+                MG_Backend::pActiveBackendObject ? MG_Backend::pActiveBackendObject->GetDynamicParameters()
+                                                 : kBackendlessDefaults;
+            return ClampStorageBlockCount(static_cast<GLint>(parameters.*stageLimit));
         }
 
         bool TryDecodeDrawBufferQuery(GLenum pname, SizeT& drawBufferIndex) {
@@ -306,24 +394,68 @@ namespace MobileGL::MG_Impl::GLImpl {
             return sampler ? static_cast<GLint>(sampler->GetExternalIndex()) : 0;
         }
 
-        // The ARB_viewport_array indexed rectangles. MobileGL keeps exactly one viewport, one
-        // scissor box and one depth range, so every in-range index answers with that single
-        // value - but it has to come from the frontend state the non-indexed getters read.
-        // The generic path at the bottom of GetIntegeri_v is a raw backend passthrough that
-        // has no case for these, so routing them through it returned zeros.
+        // The ARB_viewport_array indexed rectangles. Each of these is genuinely per-viewport
+        // frontend state (RenderStateParameters::Viewports / ScissorBoxes / DepthRanges), so the
+        // indexed getters must read the indexed storage - the generic path at the bottom of
+        // GetIntegeri_v is a raw backend passthrough that has no case for them and returned
+        // zeros, and routing them to the NON-indexed getter (what this used to do) answered every
+        // index with viewport 0's value, which is what
+        // KHR-GL43.viewport_array.{viewport,scissor,depth_range}_api caught.
         Bool IsIndexedViewportQuery(GLenum target) {
             return target == GL_VIEWPORT || target == GL_SCISSOR_BOX || target == GL_DEPTH_RANGE;
         }
 
-        // ARB_viewport_array: `index` selects a viewport and MAX_VIEWPORTS bounds it.
+        // Component count of an indexed viewport-array query, so every width of getter writes the
+        // caller's whole buffer instead of just element 0 (GL 4.6 core 22.1).
+        GLsizei IndexedViewportQueryComponents(GLenum target) {
+            return target == GL_DEPTH_RANGE ? 2 : 4;
+        }
+
+        // ARB_viewport_array: `index` selects a viewport and MAX_VIEWPORTS bounds it. The bound is
+        // the frontend's own state width, which is also exactly what GL_MAX_VIEWPORTS reports -
+        // taking it from the backend caps instead would let a device limit of 1 (a Vulkan device
+        // without the multiViewport feature) make index 1 illegal even though the state exists.
         Bool ValidateViewportQueryIndex(GLuint index, const char* caller) {
-            GLint maxViewports = 0;
-            GetIntegerv(GL_MAX_VIEWPORTS, &maxViewports);
-            if (index < static_cast<GLuint>(std::max(maxViewports, 1))) return true;
+            if (index < RenderStateParameters::MAX_VIEWPORTS) return true;
             MG_State::pGLContext->RecordError(
                 ErrorCode::InvalidValue,
                 MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", caller, "Viewport index is out of range."));
             return false;
+        }
+
+        // The indexed viewport/scissor/depth-range state as floats, which is the widest lossless
+        // shape MobileGL stores (the viewport really is float state; the scissor box is integral
+        // and well inside float's exact range, and every depth range is in [0, 1]). Every indexed
+        // getter width funnels through this so they can never disagree with each other.
+        void ReadIndexedViewportStateFloat(GLenum target, GLuint index, GLfloat* out) {
+            switch (target) {
+            case GL_VIEWPORT: {
+                const FloatVec4& viewport = MG_State::pGLContext->GetViewportIndexed(index);
+                out[0] = viewport.x();
+                out[1] = viewport.y();
+                out[2] = viewport.z();
+                out[3] = viewport.w();
+                return;
+            }
+            case GL_SCISSOR_BOX: {
+                const IntVec4& box = MG_State::pGLContext->GetScissorBoxIndexed(index);
+                out[0] = static_cast<GLfloat>(box.x());
+                out[1] = static_cast<GLfloat>(box.y());
+                out[2] = static_cast<GLfloat>(box.z());
+                out[3] = static_cast<GLfloat>(box.w());
+                return;
+            }
+            case GL_DEPTH_RANGE: {
+                const FloatVec2& range = MG_State::pGLContext->GetDepthRangeIndexed(index);
+                out[0] = range.x();
+                out[1] = range.y();
+                return;
+            }
+            default:
+                MOBILEGL_ASSERT(false, "ReadIndexedViewportStateFloat: unexpected target 0x%x",
+                                static_cast<Uint32>(target));
+                return;
+            }
         }
 
         void CopyIntsToBooleans(const GLint* src, SizeT count, GLboolean* dst) {
@@ -339,6 +471,18 @@ namespace MobileGL::MG_Impl::GLImpl {
         }
     } // namespace
 
+    // GL 4.6 core table 23.53 requires GL_MAX_SAMPLES >= 4, so the driver's value is floored
+    // before it is advertised. Every other multisample ceiling MobileGL advertises has to be
+    // floored the same way: promising 4 samples globally while answering GL_MAX_INTEGER_SAMPLES
+    // 1 - which is exactly what Adreno reports - makes the frontend reject the very count it
+    // just told the application to use. The backends clamp the realised count instead.
+    GLint GetAdvertisedMaxSamples() {
+        if (MG_Backend::pActiveBackendObject == nullptr) {
+            return kFrontendMaxSamples;
+        }
+        return std::max(MG_Backend::pActiveBackendObject->GetDynamicParameters().MaxSamples, kFrontendMaxSamples);
+    }
+
     /* @INSERTION_POINT:FUNCTION_IMPLEMENTATION@ */
     const GLubyte* GetString(GLenum name) {
         static String vendorString;
@@ -350,7 +494,7 @@ namespace MobileGL::MG_Impl::GLImpl {
 
         MGLOG_D("glGetString, name: %s", MG_Util::ConvertGLEnumToString(name).c_str());
         if (!activeBackendObject) {
-            MGLOG_E("activeBackendObject is not initialized!");
+            MGLOG_E_ONCE("activeBackendObject is not initialized!");
             return (GLubyte*)"Unknown";
         }
 
@@ -409,7 +553,7 @@ namespace MobileGL::MG_Impl::GLImpl {
 
         const auto& activeBackendObject = MG_Backend::pActiveBackendObject;
         if (!activeBackendObject) {
-            MGLOG_E("activeBackendObject is not initialized!");
+            MGLOG_E_ONCE("activeBackendObject is not initialized!");
             return (GLubyte*)"Unknown";
         }
         const auto& rendererInfo = activeBackendObject->GetRendererInfo();
@@ -596,6 +740,17 @@ namespace MobileGL::MG_Impl::GLImpl {
             params[1] = dynamicParameters.ViewportBoundsRangeMax;
             return;
         }
+        // Viewport 0's rectangle, verbatim. Falling through to the integer width below would
+        // round the fractional rectangle a glViewportIndexedf(0, ...) is allowed to set, and
+        // glGetFloatv(GL_VIEWPORT) is a lossless query of float state.
+        case GL_VIEWPORT: {
+            const FloatVec4& viewport = MG_State::pGLContext->GetViewportIndexed(0);
+            params[0] = viewport.x();
+            params[1] = viewport.y();
+            params[2] = viewport.z();
+            params[3] = viewport.w();
+            return;
+        }
         case GL_MIN_FRAGMENT_INTERPOLATION_OFFSET:
         case GL_MAX_FRAGMENT_INTERPOLATION_OFFSET:
         case GL_FRAGMENT_INTERPOLATION_OFFSET_BITS: {
@@ -759,15 +914,32 @@ namespace MobileGL::MG_Impl::GLImpl {
             return;
         }
 
+        // GL 4.6 core 22.1: an indexed query answers EVERY indexed state, and GL_SCISSOR_TEST is
+        // indexed by viewport just like GL_BLEND is by draw buffer. Without this the integer
+        // width fell through to the backend passthrough and answered GL_INVALID_ENUM, which is
+        // the sticky error KHR-GL43.viewport_array.queries trips over at its next error check.
+        if (MG_Util::ConvertGLEnumToCapabilityInput(target) != CapabilityInput::Unknown) {
+            *data = IsEnabledi(target, index);
+            return;
+        }
+
         switch (target) {
         // ARB_viewport_array queries the indexed rectangles through glGetIntegeri_v as well
-        // (gl4cMultiBindTests and the viewport_array group both do). The frontend keeps one
-        // viewport and one scissor box, so every in-range index reports that one.
+        // (gl4cMultiBindTests and the viewport_array group both do).
         case GL_VIEWPORT:
         case GL_SCISSOR_BOX:
+        case GL_DEPTH_RANGE: {
             if (!ValidateViewportQueryIndex(index, __func__)) return;
-            GetIntegerv(target, data);
+            GLfloat values[4] = {};
+            ReadIndexedViewportStateFloat(target, index, values);
+            const GLsizei components = IndexedViewportQueryComponents(target);
+            for (GLsizei i = 0; i < components; ++i) {
+                // Round, not truncate: glGetIntegerv on floating-point state rounds to nearest
+                // (GL 4.6 core 22.2), so a 255.875-wide viewport reads back as 256 and not 255.
+                data[i] = static_cast<GLint>(std::lround(values[i]));
+            }
             return;
+        }
         // The vertex buffer binding points of the vertex array object that is bound. Indexed by
         // binding point, not by attribute (GL 4.6 core 10.3.1).
         case GL_VERTEX_BINDING_BUFFER:
@@ -894,7 +1066,10 @@ namespace MobileGL::MG_Impl::GLImpl {
         }
         if (IsIndexedViewportQuery(target)) {
             if (!ValidateViewportQueryIndex(index, __func__)) return;
-            GetFloatv(target, data);
+            // Verbatim, NOT via the integer width: the viewport is float state and
+            // KHR-GL43.viewport_array.viewport_api compares the read-back with ==, so a
+            // glViewportIndexedf(i, 0.125f, ...) has to come back as 0.125f exactly.
+            ReadIndexedViewportStateFloat(target, index, data);
             return;
         }
         GLint ints[4] = {};
@@ -911,7 +1086,12 @@ namespace MobileGL::MG_Impl::GLImpl {
         }
         if (IsIndexedViewportQuery(target)) {
             if (!ValidateViewportQueryIndex(index, __func__)) return;
-            GetDoublev(target, data);
+            GLfloat values[4] = {};
+            ReadIndexedViewportStateFloat(target, index, values);
+            const GLsizei components = IndexedViewportQueryComponents(target);
+            for (GLsizei i = 0; i < components; ++i) {
+                data[i] = static_cast<GLdouble>(values[i]);
+            }
             return;
         }
         GLint ints[4] = {};
@@ -987,7 +1167,12 @@ namespace MobileGL::MG_Impl::GLImpl {
         // frontend-only value simply is not in the driver's table.
         GLint values[4] = {};
         GetIntegeri_v(target, index, values);
-        *data = static_cast<GLint64>(values[0]);
+        // The viewport-array rectangles are the only multi-component indexed state here; every
+        // other pname is scalar, so widening element 0 alone would silently truncate them.
+        const GLsizei components = IsIndexedViewportQuery(target) ? IndexedViewportQueryComponents(target) : 1;
+        for (GLsizei i = 0; i < components; ++i) {
+            data[i] = static_cast<GLint64>(values[i]);
+        }
     }
 
     void GetInteger64v(GLenum pname, GLint64* params) {
@@ -1387,17 +1572,17 @@ namespace MobileGL::MG_Impl::GLImpl {
         case GL_LINE_WIDTH:
             *params = static_cast<GLint>(MG_State::pGLContext->GetLineWidth());
             return;
-        case GL_LAYER_PROVOKING_VERTEX:
-            *params = GL_LAST_VERTEX_CONVENTION;
-            return;
         case GL_LOGIC_OP_MODE:
             *params = static_cast<GLint>(MG_Util::ConvertLogicOperationToGLEnum(MG_State::pGLContext->GetLogicOp()));
             return;
         case GL_MAX_COMBINED_ATOMIC_COUNTERS:
             *params = kFrontendMaxCombinedAtomicCounters;
             return;
+        case GL_MAX_COMBINED_ATOMIC_COUNTER_BUFFERS:
+            *params = kFrontendMaxCombinedAtomicCounterBuffers;
+            return;
         case GL_MAX_COMBINED_UNIFORM_BLOCKS:
-            *params = kFrontendMaxCombinedUniformBlocks;
+            *params = ClampUniformBlockCount(kFrontendMaxCombinedUniformBlocks);
             return;
         case GL_MAX_DUAL_SOURCE_DRAW_BUFFERS:
             *params = 1; // TODO
@@ -1411,8 +1596,11 @@ namespace MobileGL::MG_Impl::GLImpl {
         case GL_MAX_FRAGMENT_ATOMIC_COUNTERS:
             *params = kFrontendMaxFragmentAtomicCounters;
             return;
+        case GL_MAX_FRAGMENT_ATOMIC_COUNTER_BUFFERS:
+            *params = kFrontendMaxFragmentAtomicCounterBuffers;
+            return;
         case GL_MAX_FRAGMENT_SHADER_STORAGE_BLOCKS:
-            *params = 16; // TODO
+            *params = StageStorageBlockCount(&MG_Backend::DynamicBackendParameters::MaxFragmentShaderStorageBlocks);
             return;
         case GL_MAX_FRAGMENT_INPUT_COMPONENTS:
             *params = kFrontendMaxFragmentInputComponents;
@@ -1429,13 +1617,16 @@ namespace MobileGL::MG_Impl::GLImpl {
             *params = kFrontendMaxFragmentUniformVectors;
             return;
         case GL_MAX_FRAGMENT_UNIFORM_BLOCKS:
-            *params = kFrontendMaxFragmentUniformBlocks;
+            *params = ClampUniformBlockCount(kFrontendMaxFragmentUniformBlocks);
             return;
         case GL_MAX_GEOMETRY_ATOMIC_COUNTERS:
             *params = kFrontendMaxGeometryAtomicCounters;
             return;
+        case GL_MAX_GEOMETRY_ATOMIC_COUNTER_BUFFERS:
+            *params = kFrontendMaxGeometryAtomicCounterBuffers;
+            return;
         case GL_MAX_GEOMETRY_SHADER_STORAGE_BLOCKS:
-            *params = 16; // TODO
+            *params = StageStorageBlockCount(&MG_Backend::DynamicBackendParameters::MaxGeometryShaderStorageBlocks);
             return;
         case GL_MAX_GEOMETRY_INPUT_COMPONENTS:
             *params = kFrontendMaxGeometryInputComponents;
@@ -1458,7 +1649,7 @@ namespace MobileGL::MG_Impl::GLImpl {
             *params = kFrontendMaxGeometryTotalOutputComponents;
             return;
         case GL_MAX_GEOMETRY_UNIFORM_BLOCKS:
-            *params = kFrontendMaxGeometryUniformBlocks;
+            *params = ClampUniformBlockCount(kFrontendMaxGeometryUniformBlocks);
             return;
         case GL_MAX_GEOMETRY_UNIFORM_COMPONENTS:
             *params = kFrontendMaxGeometryUniformComponents;
@@ -1470,7 +1661,11 @@ namespace MobileGL::MG_Impl::GLImpl {
             *params = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::Multisample) ? GL_TRUE : GL_FALSE;
             return;
         case GL_MIN_MAP_BUFFER_ALIGNMENT:
-            *params = 64; // TODO
+            // The same constant the map paths align to (MG_State/GLState/BufferState/
+            // PipeResource.h), never a literal: this number is a PROMISE about the pointers
+            // glMapBuffer and glMapBufferRange return, and the two used to be unrelated - the
+            // query said 64 while the pointers came out of a std::vector aligned to 16.
+            *params = static_cast<GLint>(MG_State::GLState::MIN_MAP_BUFFER_ALIGNMENT);
             return;
         case GL_MAX_LABEL_LENGTH:
             *params = 256; // TODO
@@ -1490,8 +1685,14 @@ namespace MobileGL::MG_Impl::GLImpl {
         case GL_MAX_TESS_CONTROL_ATOMIC_COUNTERS:
             *params = kFrontendMaxTessControlAtomicCounters;
             return;
+        case GL_MAX_TESS_CONTROL_ATOMIC_COUNTER_BUFFERS:
+            *params = kFrontendMaxTessControlAtomicCounterBuffers;
+            return;
         case GL_MAX_TESS_EVALUATION_ATOMIC_COUNTERS:
             *params = kFrontendMaxTessEvaluationAtomicCounters;
+            return;
+        case GL_MAX_TESS_EVALUATION_ATOMIC_COUNTER_BUFFERS:
+            *params = kFrontendMaxTessEvaluationAtomicCounterBuffers;
             return;
         case GL_MAX_TESS_CONTROL_IMAGE_UNIFORMS:
             *params = 0;
@@ -1500,16 +1701,18 @@ namespace MobileGL::MG_Impl::GLImpl {
             *params = 0;
             return;
         case GL_MAX_TESS_CONTROL_SHADER_STORAGE_BLOCKS:
-            *params = 16; // TODO
+            *params = StageStorageBlockCount(&MG_Backend::DynamicBackendParameters::MaxTessControlShaderStorageBlocks);
             return;
         case GL_MAX_TESS_EVALUATION_SHADER_STORAGE_BLOCKS:
-            *params = 16; // TODO
+            *params =
+                StageStorageBlockCount(&MG_Backend::DynamicBackendParameters::MaxTessEvaluationShaderStorageBlocks);
             return;
         case GL_MAX_TEXTURE_LOD_BIAS:
             *params = 15; // TODO
             return;
         case GL_MAX_UNIFORM_LOCATIONS:
-            *params = 1024 * 4; // TODO
+            // The same constant the link's location allocator enforces - see ProgramObject.
+            *params = MG_State::GLState::ProgramObject::MAX_UNIFORM_LOCATIONS;
             return;
         case GL_MAX_VARYING_COMPONENTS:
             *params = kFrontendMaxVaryingComponents;
@@ -1520,13 +1723,16 @@ namespace MobileGL::MG_Impl::GLImpl {
         case GL_MAX_VERTEX_ATOMIC_COUNTERS:
             *params = kFrontendMaxVertexAtomicCounters;
             return;
+        case GL_MAX_VERTEX_ATOMIC_COUNTER_BUFFERS:
+            *params = kFrontendMaxVertexAtomicCounterBuffers;
+            return;
         case GL_MAX_VERTEX_IMAGE_UNIFORMS:
             *params = MG_Backend::pActiveBackendObject
                           ? MG_Backend::pActiveBackendObject->GetDynamicParameters().MaxVertexImageUniforms
                           : MG_Backend::DynamicBackendParameters{}.MaxVertexImageUniforms;
             return;
         case GL_MAX_VERTEX_SHADER_STORAGE_BLOCKS:
-            *params = 16; // TODO
+            *params = StageStorageBlockCount(&MG_Backend::DynamicBackendParameters::MaxVertexShaderStorageBlocks);
             return;
         case GL_MAX_VERTEX_UNIFORM_COMPONENTS:
             *params = kFrontendMaxVertexUniformComponents;
@@ -1538,7 +1744,7 @@ namespace MobileGL::MG_Impl::GLImpl {
             *params = kFrontendMaxVertexOutputComponents;
             return;
         case GL_MAX_VERTEX_UNIFORM_BLOCKS:
-            *params = kFrontendMaxVertexUniformBlocks;
+            *params = ClampUniformBlockCount(kFrontendMaxVertexUniformBlocks);
             return;
         case GL_NUM_COMPRESSED_TEXTURE_FORMATS:
             *params = 0; // compressed texture upload entrypoints are still unimplemented
@@ -1836,6 +2042,24 @@ namespace MobileGL::MG_Impl::GLImpl {
         case GL_UNIFORM_BUFFER_START:
             RecordIndexedOnlyGetterError(__func__, pname);
             return;
+        // glBindBufferBase/Range set the GENERIC binding point too (GL 4.6 core 6.1.1), and this
+        // is the one indexed-buffer family whose non-indexed query was never answered - so it
+        // fell through to INVALID_ENUM and left the caller's variable holding whatever was in its
+        // stack slot. _START/_SIZE stay indexed-only, exactly like their uniform-buffer siblings.
+        case GL_ATOMIC_COUNTER_BUFFER_BINDING:
+            if (const auto& obj =
+                    MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::AtomicCounter).GetBoundObject()) {
+                *params = static_cast<GLint>(obj->GetExternalIndex());
+            } else {
+                *params = 0;
+            }
+            return;
+        case GL_ATOMIC_COUNTER_BUFFER_START:
+            RecordIndexedOnlyGetterError(__func__, pname);
+            return;
+        case GL_ATOMIC_COUNTER_BUFFER_SIZE:
+            RecordIndexedOnlyGetterError(__func__, pname);
+            return;
         case GL_UNPACK_ALIGNMENT:
             *params = MG_State::pGLContext->GetPixelStoreParam(PixelStoreParam::UnpackAlignment);
             return;
@@ -1890,9 +2114,6 @@ namespace MobileGL::MG_Impl::GLImpl {
             params[3] = vp.w();
             return;
         }
-        case GL_VIEWPORT_INDEX_PROVOKING_VERTEX:
-            *params = GL_LAST_VERTEX_CONVENTION;
-            return;
         case GL_MAX_ELEMENT_INDEX:
             *params = 1024 * 1024; // TODO
             return;
@@ -1909,7 +2130,7 @@ namespace MobileGL::MG_Impl::GLImpl {
 
         const auto& activeBackendObject = MG_Backend::pActiveBackendObject;
         if (!activeBackendObject) {
-            MGLOG_E("activeBackendObject is not initialized!");
+            MGLOG_E_ONCE("activeBackendObject is not initialized!");
             return;
         }
         const auto& rendererInfo = activeBackendObject->GetRendererInfo();
@@ -1938,13 +2159,13 @@ namespace MobileGL::MG_Impl::GLImpl {
             *params = dynamicParameters.SubgroupQuadOperationsInAllStages ? GL_TRUE : GL_FALSE;
             break;
         case GL_MAX_COMPUTE_SHADER_STORAGE_BLOCKS:
-            *params = dynamicParameters.MaxComputeShaderStorageBlocks;
+            *params = ClampStorageBlockCount(dynamicParameters.MaxComputeShaderStorageBlocks);
             break;
         case GL_MAX_COMBINED_SHADER_STORAGE_BLOCKS:
-            *params = dynamicParameters.MaxCombinedShaderStorageBlocks;
+            *params = ClampStorageBlockCount(dynamicParameters.MaxCombinedShaderStorageBlocks);
             break;
         case GL_MAX_COMPUTE_UNIFORM_BLOCKS:
-            *params = dynamicParameters.MaxComputeUniformBlocks;
+            *params = ClampUniformBlockCount(dynamicParameters.MaxComputeUniformBlocks);
             break;
         case GL_MAX_COMPUTE_TEXTURE_IMAGE_UNITS:
             *params = dynamicParameters.MaxComputeTextureImageUnits;
@@ -1980,8 +2201,22 @@ namespace MobileGL::MG_Impl::GLImpl {
         case GL_MAX_CLIP_DISTANCES:
             *params = dynamicParameters.MaxClipDistances;
             break;
+        // Both were a hard-coded GL_LAST_VERTEX_CONVENTION, derived from nothing. GL 4.6 table
+        // 23.65 permits GL_UNDEFINED_VERTEX for either, and that is what the backends report
+        // wherever they do not actually pin a convention - claiming one is a statement about
+        // which vertex of a primitive supplies gl_Layer / gl_ViewportIndex, and DirectGLES
+        // rasterizes only viewport 0 on a driver without GL_OES_viewport_array while
+        // DirectVulkan picks its provoking mode per pipeline. KHR-GLxx.viewport_array.query
+        // accepts all four values, and .provoking_vertex - which failed on both devices, in
+        // OPPOSITE directions - stops verifying as soon as either answer is undefined.
+        case GL_LAYER_PROVOKING_VERTEX:
+            *params = static_cast<GLint>(dynamicParameters.LayerProvokingVertex);
+            break;
+        case GL_VIEWPORT_INDEX_PROVOKING_VERTEX:
+            *params = static_cast<GLint>(dynamicParameters.ViewportIndexProvokingVertex);
+            break;
         case GL_MAX_COLOR_TEXTURE_SAMPLES:
-            *params = dynamicParameters.MaxColorTextureSamples;
+            *params = std::max(dynamicParameters.MaxColorTextureSamples, GetAdvertisedMaxSamples());
             break;
         case GL_MAX_COMBINED_FRAGMENT_UNIFORM_COMPONENTS:
             *params = GetMaxCombinedUniformComponents(kFrontendMaxFragmentUniformComponents,
@@ -2011,7 +2246,7 @@ namespace MobileGL::MG_Impl::GLImpl {
             *params = dynamicParameters.MaxCubeMapTextureSize;
             break;
         case GL_MAX_DEPTH_TEXTURE_SAMPLES:
-            *params = dynamicParameters.MaxDepthTextureSamples;
+            *params = std::max(dynamicParameters.MaxDepthTextureSamples, GetAdvertisedMaxSamples());
             break;
         case GL_MAX_FRAMEBUFFER_WIDTH:
             *params = dynamicParameters.MaxFramebufferWidth;
@@ -2038,7 +2273,7 @@ namespace MobileGL::MG_Impl::GLImpl {
             *params = dynamicParameters.MaxComputeImageUniforms;
             break;
         case GL_MAX_INTEGER_SAMPLES:
-            *params = dynamicParameters.MaxIntegerSamples;
+            *params = std::max(dynamicParameters.MaxIntegerSamples, GetAdvertisedMaxSamples());
             break;
         case GL_MAX_RENDERBUFFER_SIZE:
             *params = dynamicParameters.MaxRenderbufferSize;
@@ -2071,9 +2306,18 @@ namespace MobileGL::MG_Impl::GLImpl {
                                                           static_cast<Uint64>(INT32_MAX)));
             break;
         case GL_MAX_ATOMIC_COUNTER_BUFFER_BINDINGS:
+            // NOT the frontend's binding-point array size: GetIndexedBufferQueryPointCount
+            // clamps this family to the range a lowered counter block can actually be served
+            // from, which is the same number glslang compiles a layout(binding = N) atomic_uint
+            // against and the same one glBindBufferBase validates an index against.
             *params = static_cast<GLint>(GetIndexedBufferQueryPointCount(BufferTarget::AtomicCounter));
             break;
         case GL_MAX_ATOMIC_COUNTER_BUFFER_SIZE:
+            // The conformance suite splits this evenly across every advertised binding point and
+            // binds all of them in one glBindBuffersRange
+            // (KHR-GL44.multi_bind.functional_bind_buffers_range), so the pair has to divide -
+            // a zero-sized range is INVALID_VALUE before BindBufferRange binds anything. The
+            // shared constant is 16384 over 8 binding points, which divides.
             *params = kFrontendMaxAtomicCounterBufferSize;
             break;
         case GL_MAX_TEXTURE_BUFFER_SIZE:
@@ -2139,7 +2383,15 @@ namespace MobileGL::MG_Impl::GLImpl {
             params[1] = dynamicParameters.MaxViewportHeight;
             break;
         case GL_MAX_VIEWPORTS:
-            *params = dynamicParameters.MaxViewports;
+            // The frontend's own state width, not the backend's device limit. GL 4.3 core
+            // requires MAX_VIEWPORTS >= 16 and every indexed viewport entry point validates
+            // against RenderStateParameters::MAX_VIEWPORTS, so reporting anything else would
+            // either advertise viewports the state cannot hold or reject indices it can. A
+            // Vulkan device without the multiViewport feature reports maxViewports == 1, which
+            // limits what can be RASTERIZED to more than one rectangle (see the multiViewport
+            // gate in VulkanRenderer), not what the GL state can hold; caps.MaxViewports keeps
+            // carrying that device number for exactly that decision.
+            *params = static_cast<GLint>(RenderStateParameters::MAX_VIEWPORTS);
             break;
         case GL_MINOR_VERSION:
             *params = rendererInfo.RendererGLInfo.TargetGLVersion.Minor;
@@ -2188,14 +2440,14 @@ namespace MobileGL::MG_Impl::GLImpl {
                                                         : dynamicParameters.MaxDrawBuffers;
             break;
         case GL_MAX_SAMPLES:
-            *params = std::max(dynamicParameters.MaxSamples, kFrontendMaxSamples);
+            *params = GetAdvertisedMaxSamples();
             break;
         case GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT:
             // Float state (see GetFloatv); rounded to nearest for the integer query per GL 3.3 6.1.2.
             *params = static_cast<GLint>(std::lround(dynamicParameters.MaxTextureMaxAnisotropy));
             break;
         default:
-            MGLOG_E("glGetIntegerv: Invalid enum %s (0x%X)", MG_Util::ConvertGLEnumToString(pname).c_str(), pname);
+            MGLOG_D("glGetIntegerv: Invalid enum %s (0x%X)", MG_Util::ConvertGLEnumToString(pname).c_str(), pname);
             MG_State::pGLContext->RecordError(ErrorCode::InvalidEnum,
                                               MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "GetIntegerv",
                                                                            std::format("Invalid enum: 0x{:X}", pname)));

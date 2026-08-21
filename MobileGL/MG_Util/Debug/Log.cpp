@@ -33,13 +33,13 @@ namespace MobileGL {
 
         std::string GetThreadName() {
             char buffer[64] = {0};
-#if defined(_WIN32) && !defined(__MINGW32__)
+#if defined(_WIN32)
             PWSTR desc = nullptr;
             if (SUCCEEDED(GetThreadDescription(GetCurrentThread(), &desc))) {
                 WideCharToMultiByte(CP_UTF8, 0, desc, -1, buffer, sizeof(buffer), nullptr, nullptr);
                 LocalFree(desc);
             }
-#elif defined(__ANDROID__) || defined(__linux__) || defined(__APPLE__) || defined(__MINGW32__)
+#elif defined(__ANDROID__) || defined(__linux__) || defined(__APPLE__)
             pthread_getname_np(pthread_self(), buffer, sizeof(buffer));
 #endif
             return buffer[0] ? buffer : "UnknownThread";
@@ -115,7 +115,13 @@ namespace MobileGL {
 #endif
 
 #if MOBILEGL_LOG_ENABLE_ANDROID && defined(__ANDROID__)
-            __android_log_print(androidLogLevel, "MobileGL", "%s", out.c_str());
+            // Without the trailing newline that the file sink needs: logcat terminates
+            // records itself, so handing it an already-newline-terminated string made
+            // every MobileGL log occupy TWO logcat records, the second one empty. That
+            // halved the useful depth of every `adb logcat -t N` window the CI
+            // diagnostics read (android-plugin/trace-replay-ci.sh).
+            __android_log_print(androidLogLevel, "MobileGL", "%.*s", static_cast<int>(out.size() - 1),
+                                out.c_str());
 #endif
 
             WriteToFile(out.c_str());

@@ -12,6 +12,8 @@
 #include <MG_Util/Async/ShaderCompilePool.h>
 #include <MG_Util/ShaderTranspiler/ShaderCompiler.h>
 #include <MG_Util/ShaderTranspiler/SpvcSession.h>
+#include <MG_State/GLState/ProgramState/ProgramTranslationCache.h>
+#include <MG_Util/ShaderTranspiler/TranslationCache.h>
 #include <MG_Util/ShaderTranspiler/Types.h>
 
 #include <cstring>
@@ -95,14 +97,32 @@ namespace MobileGL::MG_State::GLState {
         // and `diagnostics`, and this node is the sole reader of the handoff.
         ProgramLinkTask::SpirvHandoff& handoff = m_phaseA->spirvHandoff;
         const Uint externalIndex = m_phaseA->in.externalIndex;
-        if (!handoff.ready || !handoff.reflection.program) {
+        if (!handoff.ready) {
             // Phase A did not reach its tail (it failed the link, or was cancelled mid-body).
             // Publish nothing; spirvStatus stays false.
             return;
         }
+        // A TProgram is required only to GENERATE. A link served from the L1 memo has none by
+        // construction - that is the entire point of the widened payload - and its SPIR-V and
+        // routing tables arrive ready-made in cachedSpirv.
+        if (!handoff.cachedSpirv && !handoff.reflection.program) return;
+
+        // An L1 hit already carries everything this phase would have produced. Publish it
+        // and stop: no GlslangToSpv, no spirv-opt, no routing pass.
+        if (handoff.cachedSpirv) {
+            artifacts = *handoff.cachedSpirv;
+            MGLOG_D("ProgramObject %u: L1 cache hit - %zu SPIR-V module(s) and the global-UBO "
+                    "routing reused",
+                    externalIndex, artifacts.generatedSpirv.size());
+            return;
+        }
 
         MGLOG_D("ProgramObject %u: Starting SPIR-V generation", externalIndex);
-        GenerateSpirv(handoff, externalIndex);
+        const Bool deferOutputValidationForDirectVulkan =
+            m_phaseA->in.env != nullptr && m_phaseA->in.env->backend == BackendType::DirectVulkan;
+        const Bool enableSpirvValidation = m_phaseA->in.enableSpirvValidation;
+        artifacts.enableSpirvValidation = enableSpirvValidation;
+        GenerateSpirv(handoff, externalIndex, deferOutputValidationForDirectVulkan, enableSpirvValidation);
         // GlslangToSpv was the only consumer of the parsed ASTs; everything after this point
         // works on the SPIR-V and on the TProgram's own self-contained reflection pool. Drop
         // them here rather than at the end of the body, which is ~87% of this node's runtime
@@ -113,13 +133,18 @@ namespace MobileGL::MG_State::GLState {
         //   * CAS-LOSER shaders (the re-parse in ShaderCompileTask::ClaimParsedShader, i.e.
         //     the 2nd..Nth link of a shared shader): freed here in full. The handoff is their
         //     ONLY owner.
-        //   * CAS-WINNER shaders (the common case - one shader object linked into one
-        //     program, which is every program of an Iris pack load): NOT freed here. The
-        //     winner branch returns a COPY of ShaderCompileTask::artifacts.shader
-        //     (ShaderCompileTask.cpp:320) and the node never releases its own reference, while
-        //     phase A holds that node through in.shaders[i].compiled for its whole life - and
-        //     phase A lives until PhaseAReleaser fires at the end of this body. So the
-        //     refcount goes 2 -> 1 here and the arena dies where it would have died anyway.
+        //   * L1c-HIT shaders (the compile published a verdict and never parsed, so the parse
+        //     was made on demand by ClaimParsedShader): freed here in full, exactly like a
+        //     CAS loser and for the same reason - the handoff is their only owner. This
+        //     category did not exist before the translation memo's compile half, and it makes
+        //     the clear below strictly more effective than the paragraph below describes.
+        //   * CAS-WINNER shaders (one shader object linked into one program, whose compile
+        //     MISSED L1c and therefore stored its parse): NOT freed here. The winner branch
+        //     returns a COPY of ShaderCompileTask::artifacts.shader and the node never
+        //     releases its own reference, while phase A holds that node through
+        //     in.shaders[i].compiled for its whole life - and phase A lives until
+        //     PhaseAReleaser fires at the end of this body. So the refcount goes 2 -> 1 here
+        //     and the arena dies where it would have died anyway.
         //
         // Making it free the winner's arena too means releasing whatever pins the TShader
         // inside the compile node, and neither obvious route is safe as a drive-by: moving out
@@ -133,11 +158,30 @@ namespace MobileGL::MG_State::GLState {
 
         MGLOG_D("ProgramObject %u: Building global-UBO routing tables", externalIndex);
         BuildGlobalUboRouting(handoff, externalIndex);
+
+        // The completed front end goes into the L1 memo HERE, where both halves exist: phase
+        // A's LinkArtifacts (carried in the handoff) and this phase's SpirvArtifacts.
+        //
+        // Only a clean run is memoized. A failed optimizer run leaves a module as whatever the
+        // chain got to before it gave up, and that is exactly the binary no other program
+        // should ever be handed.
+        if (artifacts.spirvStatus && handoff.spirvCacheKey.Valid() && handoff.linkArtifactsForCache) {
+            auto payload = MakeShared<ProgramTranslationResult>();
+            payload->link = *handoff.linkArtifactsForCache;
+            payload->link.program.reset(); // belt and braces: never memoize a glslang arena
+            payload->spirv = artifacts;
+            const SizeT payloadBytes = ProgramTranslationResultBytes(*payload);
+            GetProgramTranslationCache().Insert(handoff.spirvCacheKey,
+                                                ProgramTranslationResultPtr(Move(payload)),
+                                                payloadBytes);
+        }
         MGLOG_D("ProgramObject %u: Binary generation finished (generatedSpirv size=%zu)", externalIndex,
                 artifacts.generatedSpirv.size());
     }
 
-    void ProgramSpirvTask::GenerateSpirv(const ProgramLinkTask::SpirvHandoff& handoff, const Uint externalIndex) {
+    void ProgramSpirvTask::GenerateSpirv(const ProgramLinkTask::SpirvHandoff& handoff, const Uint externalIndex,
+                                         const Bool deferOutputValidationForDirectVulkan,
+                                         const Bool enableSpirvValidation) {
         /* As we passed first stage compilation/linking,
          * we'll assume all the operations here should
          * pass. We may be able to employ some optimizations
@@ -169,7 +213,8 @@ namespace MobileGL::MG_State::GLState {
         Bool allOptimized = true;
         {
             for (auto& spv : artifacts.generatedSpirv) {
-                auto success = ShaderCompiler::SanitizeAndOptimizeBinary(spv, spv);
+                auto success = ShaderCompiler::SanitizeAndOptimizeBinary(
+                    spv, spv, !deferOutputValidationForDirectVulkan, enableSpirvValidation);
                 if (!success) {
                     // The one genuine phase-B failure mode: one of the seven optimizer passes
                     // reported failure, so `spv` is whatever the run left behind. A fordebug
@@ -289,22 +334,25 @@ namespace MobileGL::MG_State::GLState {
         for (Uint location = 0; location <= reflection.maxUniformLocation; ++location) {
             if (artifacts.uniformOffsets[location] != ProgramObject::kInvalidUniformOffset) continue;
             if (!ProgramObject::IsValidUniformLocation(reflection, static_cast<Int>(location))) continue;
-            const auto& uniform = reflection.program->getUniform(reflection.uniformIndexInTProgram[location]);
-            const glslang::TType* type = uniform.getType();
-            if (type != nullptr && type->isOpaque()) continue;
-            if (uniform.index >= 0 && uniform.index < reflection.program->getNumUniformBlocks() &&
-                std::strstr(reflection.program->getUniformBlock(uniform.index).name.c_str(),
-                            MG_Util::ShaderTranspiler::GLOBAL_UBO_NAME) == nullptr) {
-                // Member of a named uniform block: not settable through glUniform*, so it
-                // needs no global-UBO shadow storage.
+            const auto& uniform =
+                ProgramObject::UniformAtIn(reflection, reflection.uniformIndexInTProgram[location]);
+            if (uniform.type.isOpaque) continue;
+            // Member of a named uniform block: not settable through glUniform*, so it needs
+            // no global-UBO shadow storage. tProgramBlockIndexToGl[i] >= 0 means block i is
+            // GL-visible, i.e. NOT the synthesized MGL_GLOBAL_UBO - which is exactly what the
+            // strstr(GLOBAL_UBO_NAME) test this replaced was asking, without needing the
+            // TProgram to spell the block name.
+            if (uniform.index >= 0 &&
+                uniform.index < static_cast<Int>(reflection.tProgramBlockIndexToGl.size()) &&
+                reflection.tProgramBlockIndexToGl[uniform.index] >= 0) {
                 continue;
             }
 
             // std140-style slot: the matrix upload paths write column vectors at
             // 16-byte strides, so a matrix slot must cover cols * 16 bytes.
             SizeT slotSize = MG_Util::GetGLTypeSize(uniform.glDefineType);
-            if (type != nullptr && type->isMatrix()) {
-                slotSize = static_cast<SizeT>(type->getMatrixCols()) * 16u;
+            if (uniform.type.isMatrix) {
+                slotSize = static_cast<SizeT>(uniform.type.matrixCols) * 16u;
             }
             slotSize = (slotSize + 15u) & ~static_cast<SizeT>(15u);
             const SizeT slotOffset = (artifacts.globalUboScratch.size() + 15u) & ~static_cast<SizeT>(15u);

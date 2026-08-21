@@ -124,6 +124,9 @@ namespace MobileGL {
             case TextureInternalFormat::DepthComponent32F:
             case TextureInternalFormat::Depth24Stencil8:
             case TextureInternalFormat::Depth32FStencil8:
+            // Already sized: both GL_STENCIL_INDEX8 and the unsized GL_STENCIL_INDEX resolve here,
+            // and there is only one stencil storage to infer.
+            case TextureInternalFormat::StencilIndex8:
                 return internalformat;
             // probably we should assume unorm here?
             case TextureInternalFormat::RGBA: {
@@ -135,7 +138,7 @@ namespace MobileGL {
                 case TexturePixelDataType::UnsignedShort:
                     return TextureInternalFormat::RGBA16;
                 default:
-                    MGLOG_W("%s: Can't infer sized internal format from internalformat=%s, format=%s, type=%s, "
+                    MGLOG_W_ONCE("%s: Can't infer sized internal format from internalformat=%s, format=%s, type=%s, "
                             "returning original.",
                             __func__, MG_Util::ConvertTextureInternalFormatToString(internalformat).c_str(),
                             MG_Util::ConvertTextureInputFormatToString(format).c_str(),
@@ -148,7 +151,7 @@ namespace MobileGL {
                 case TexturePixelDataType::UnsignedByte:
                     return TextureInternalFormat::RGB8;
                 default:
-                    MGLOG_W("%s: Can't infer sized internal format from internalformat=%s, format=%s, type=%s, "
+                    MGLOG_W_ONCE("%s: Can't infer sized internal format from internalformat=%s, format=%s, type=%s, "
                             "returning original.",
                             __func__, MG_Util::ConvertTextureInternalFormatToString(internalformat).c_str(),
                             MG_Util::ConvertTextureInputFormatToString(format).c_str(),
@@ -163,7 +166,7 @@ namespace MobileGL {
                 case TexturePixelDataType::UnsignedShort:
                     return TextureInternalFormat::RG16;
                 default:
-                    MGLOG_W("%s: Can't infer sized internal format from internalformat=%s, format=%s, type=%s, "
+                    MGLOG_W_ONCE("%s: Can't infer sized internal format from internalformat=%s, format=%s, type=%s, "
                             "returning original.",
                             __func__, MG_Util::ConvertTextureInternalFormatToString(internalformat).c_str(),
                             MG_Util::ConvertTextureInputFormatToString(format).c_str(),
@@ -178,7 +181,7 @@ namespace MobileGL {
                 case TexturePixelDataType::UnsignedShort:
                     return TextureInternalFormat::R16;
                 default:
-                    MGLOG_W("%s: Can't infer sized internal format from internalformat=%s, format=%s, type=%s, "
+                    MGLOG_W_ONCE("%s: Can't infer sized internal format from internalformat=%s, format=%s, type=%s, "
                             "returning original.",
                             __func__, MG_Util::ConvertTextureInternalFormatToString(internalformat).c_str(),
                             MG_Util::ConvertTextureInputFormatToString(format).c_str(),
@@ -195,7 +198,7 @@ namespace MobileGL {
                 case TexturePixelDataType::Float:
                     return TextureInternalFormat::DepthComponent32F;
                 default:
-                    MGLOG_W("%s: Can't infer sized internal format from internalformat=%s, format=%s, type=%s, "
+                    MGLOG_W_ONCE("%s: Can't infer sized internal format from internalformat=%s, format=%s, type=%s, "
                             "returning original.",
                             __func__, MG_Util::ConvertTextureInternalFormatToString(internalformat).c_str(),
                             MG_Util::ConvertTextureInputFormatToString(format).c_str(),
@@ -208,7 +211,7 @@ namespace MobileGL {
                 case TexturePixelDataType::UnsignedInt248:
                     return TextureInternalFormat::Depth24Stencil8;
                 default:
-                    MGLOG_W("%s: Can't infer sized internal format from internalformat=%s, format=%s, type=%s, "
+                    MGLOG_W_ONCE("%s: Can't infer sized internal format from internalformat=%s, format=%s, type=%s, "
                             "returning original.",
                             __func__, MG_Util::ConvertTextureInternalFormatToString(internalformat).c_str(),
                             MG_Util::ConvertTextureInputFormatToString(format).c_str(),
@@ -217,7 +220,7 @@ namespace MobileGL {
                 }
             }
             default: {
-                MGLOG_W("%s: Can't infer sized internal format from internalformat=%s, format=%s, type=%s, returning "
+                MGLOG_W_ONCE("%s: Can't infer sized internal format from internalformat=%s, format=%s, type=%s, returning "
                         "original.",
                         __func__, MG_Util::ConvertTextureInternalFormatToString(internalformat).c_str(),
                         MG_Util::ConvertTextureInputFormatToString(format).c_str(),
@@ -310,7 +313,7 @@ namespace MobileGL {
             case TextureInternalFormat::DepthStencil:
                 return TextureInternalFormat::DepthStencil;
             default:
-                MGLOG_W("%s: Unknown or unhandled internal format %s, returning original.", __func__,
+                MGLOG_W_ONCE("%s: Unknown or unhandled internal format %s, returning original.", __func__,
                         MG_Util::ConvertTextureInternalFormatToString(internalformat).c_str());
                 return internalformat;
             }

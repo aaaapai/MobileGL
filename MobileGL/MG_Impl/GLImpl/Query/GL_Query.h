@@ -29,4 +29,18 @@ namespace MobileGL::MG_Impl::GLImpl {
     void GetQueryBufferObjecti64v(GLuint id, GLuint buffer, GLenum pname, GLintptr offset);
     void GetQueryBufferObjectui64v(GLuint id, GLuint buffer, GLenum pname, GLintptr offset);
     void QueryCounter(GLuint id, GLenum target);
+    // Conditional rendering (GL 4.6 core 10.9). Implemented here rather than beside the drawing
+    // entry points because the predicate is a QUERY OBJECT's result, and the object registry -
+    // with the lock that guards it - lives in this file.
+    void BeginConditionalRender(GLuint id, GLenum mode);
+    void EndConditionalRender();
+    // Destroys every still-registered query object exactly as DeleteQueries would.
+    // GL requires queries to die with their context; called only from full library
+    // teardown (DestroyImpl), where no context survives on any thread, so the
+    // process-global registry can be drained wholesale. Must run while the backend
+    // function table is still populated: each backend handle has to be released by
+    // the backend that created it, never by a later re-initialized one (whose
+    // DeleteBackendQuery would cast the wrapper to the wrong backend's type).
+    // Same contract as DestroyAllSyncObjects.
+    void DestroyAllQueryObjects();
 } // namespace MobileGL::MG_Impl::GLImpl

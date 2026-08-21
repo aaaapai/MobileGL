@@ -31,8 +31,15 @@ namespace MobileGL::MG_Impl::GLImpl {
             Bool ended = false;
             Bool resultCached = false;
             Uint64 cachedResult = 0;
-            // Transform feedback primitive counter at BeginQuery time.
+            // The transform feedback primitive counter matching this query's target, at
+            // BeginQuery time.
             Uint64 counterSnapshot = 0;
+            // Capture-draw counters at BeginQuery time: how many capture draws the CPU
+            // accounting had reproduced exactly, and how many of those it could not (a
+            // geometry stage amplifies). Their deltas decide whether the CPU result may
+            // stand in for the backend's.
+            Uint64 accountedCaptureDrawSnapshot = 0;
+            Uint64 geometryCaptureDrawSnapshot = 0;
         };
 
         // Query calls may arrive from any thread (launchers migrate the context
@@ -120,6 +127,46 @@ namespace MobileGL::MG_Impl::GLImpl {
             queryObject->active = false;
             queryObject->ended = true;
             g_activeTimeElapsedQueryId = 0;
+        }
+
+        // The CPU accounting counter a transform feedback query target reads: what the capture
+        // buffers took for GL_TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN, and everything the capture
+        // stage assembled - a paused span included - for GL_PRIMITIVES_GENERATED. One counter
+        // for both targets would report the clamped written count as the generated one.
+        Uint64 TransformFeedbackCounterForTarget(GLenum target) {
+            return target == GL_PRIMITIVES_GENERATED
+                       ? MG_State::pGLContext->GetTransformFeedbackGeneratedCounter()
+                       : MG_State::pGLContext->GetTransformFeedbackPrimitiveCounter();
+        }
+
+        // The span's CPU accounting delta. Saturating: a snapshot left above its counter (a
+        // context switch between Begin and End, a counter that never moved) would otherwise
+        // wrap to 2^64-1, which GetQueryObjectuiv hands the app as 4294967295.
+        Uint64 TransformFeedbackCpuResult(const QueryObject* queryObject) {
+            const Uint64 counter = TransformFeedbackCounterForTarget(queryObject->target);
+            return counter > queryObject->counterSnapshot ? counter - queryObject->counterSnapshot : 0;
+        }
+
+        // Whether this ended span's result should come from the CPU accounting rather than from
+        // the backend query it also ran. Three conditions, all necessary:
+        //   * the backend asked for it (DirectGLES, whose ES driver counter is the unreliable
+        //     one; DirectVulkan never sets the bit and so is untouched by any of this);
+        //   * the target is PRIMITIVES_WRITTEN. GL_PRIMITIVES_GENERATED counts primitives
+        //     whether or not a capture is active, and the accounting only ever sees capture
+        //     draws, so the backend's counter is the more complete answer there;
+        //   * the span was fully accounted: at least one capture draw reached the accounting
+        //     (the instanced, indirect and multi-draw entry points do not call it at all, so a
+        //     span made of those is invisible to it) and none of them amplified through a
+        //     geometry stage, which the CPU cannot model.
+        Bool PrefersCpuTransformFeedbackResult(const QueryObject* queryObject) {
+            if (!MG_Backend::gBackendFunctionsTable.GL.PrefersCpuXfbPrimitiveAccounting) return false;
+            if (queryObject->target != GL_TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN) return false;
+            if (MG_State::pGLContext->GetTransformFeedbackGeometryCaptureDraws() !=
+                queryObject->geometryCaptureDrawSnapshot) {
+                return false;
+            }
+            return MG_State::pGLContext->GetTransformFeedbackAccountedCaptureDraws() !=
+                   queryObject->accountedCaptureDrawSnapshot;
         }
 
         // Shared GetQueryObject* implementation. Returns false when an error
@@ -407,7 +454,11 @@ namespace MobileGL::MG_Impl::GLImpl {
             const auto beginXfbPrimitivesQuery = MG_Backend::gBackendFunctionsTable.GL.BeginXfbPrimitivesQuery;
             queryObject->backendHandle =
                 beginXfbPrimitivesQuery ? beginXfbPrimitivesQuery(target == GL_PRIMITIVES_GENERATED) : nullptr;
-            queryObject->counterSnapshot = MG_State::pGLContext->GetTransformFeedbackPrimitiveCounter();
+            queryObject->counterSnapshot = TransformFeedbackCounterForTarget(target);
+            queryObject->accountedCaptureDrawSnapshot =
+                MG_State::pGLContext->GetTransformFeedbackAccountedCaptureDraws();
+            queryObject->geometryCaptureDrawSnapshot =
+                MG_State::pGLContext->GetTransformFeedbackGeometryCaptureDraws();
         } else if (isOcclusionQuery) {
             queryObject->backendHandle = MG_Backend::gBackendFunctionsTable.GL.BeginOcclusionQuery();
         } else {
@@ -448,12 +499,21 @@ namespace MobileGL::MG_Impl::GLImpl {
                 if (const auto endXfbPrimitivesQuery = MG_Backend::gBackendFunctionsTable.GL.EndXfbPrimitivesQuery) {
                     endXfbPrimitivesQuery(queryObject->backendHandle);
                 }
-                // Result comes from the GPU query at read time.
-            } else {
-                queryObject->cachedResult =
-                    MG_State::pGLContext->GetTransformFeedbackPrimitiveCounter() - queryObject->counterSnapshot;
+            }
+            // A backend query that is not going to be read is released here, not left to be
+            // collected later: the span is over, the driver object has nothing left to say.
+            // Ending it first is what makes that legal.
+            if (!queryObject->backendHandle || PrefersCpuTransformFeedbackResult(queryObject)) {
+                if (queryObject->backendHandle) {
+                    if (const auto deleteBackendQuery = MG_Backend::gBackendFunctionsTable.GL.DeleteBackendQuery) {
+                        deleteBackendQuery(queryObject->backendHandle);
+                    }
+                    queryObject->backendHandle = nullptr;
+                }
+                queryObject->cachedResult = TransformFeedbackCpuResult(queryObject);
                 queryObject->resultCached = true;
             }
+            // Otherwise the result comes from the GPU query at read time.
             queryObject->active = false;
             queryObject->ended = true;
             activeQueryId = 0;
@@ -503,6 +563,75 @@ namespace MobileGL::MG_Impl::GLImpl {
         queryObject->backendHandle =
             (!TimerQueryDisabled() && queryCounterTimestamp) ? queryCounterTimestamp() : nullptr;
         queryObject->ended = true;
+    }
+
+    void BeginConditionalRender(GLuint id, GLenum mode) {
+        // GL 4.6 core 10.9's eight modes. The _INVERTED half flips the sense of the predicate;
+        // the BY_REGION half only narrows WHERE an implementation is permitted to discard, so
+        // treating it as its whole-framebuffer sibling is what an implementation without region
+        // granularity does. The _NO_WAIT half is a permission to render rather than stall, not an
+        // obligation - see the resolve below.
+        Bool inverted = false;
+        switch (mode) {
+        case GL_QUERY_WAIT:
+        case GL_QUERY_NO_WAIT:
+        case GL_QUERY_BY_REGION_WAIT:
+        case GL_QUERY_BY_REGION_NO_WAIT:
+            inverted = false;
+            break;
+        case GL_QUERY_WAIT_INVERTED:
+        case GL_QUERY_NO_WAIT_INVERTED:
+        case GL_QUERY_BY_REGION_WAIT_INVERTED:
+        case GL_QUERY_BY_REGION_NO_WAIT_INVERTED:
+            inverted = true;
+            break;
+        default:
+            RecordQueryError(ErrorCode::InvalidEnum, __FUNCTION__, "mode is not a conditional render mode.");
+            return;
+        }
+
+        if (MG_State::pGLContext->IsConditionalRenderActive()) {
+            RecordQueryError(ErrorCode::InvalidOperation, __FUNCTION__, "Conditional rendering is already active.");
+            return;
+        }
+
+        {
+            const std::lock_guard<std::mutex> lock(g_queryObjectsMutex);
+            const auto* queryObject = FindQueryObjectLocked(id);
+            // A generated NAME is not yet a query object; it becomes one at its first use with a
+            // target (the same rule glIsQuery answers by).
+            if (!queryObject || (!queryObject->created && queryObject->target == 0)) {
+                RecordQueryError(ErrorCode::InvalidValue, __FUNCTION__, "id is not the name of a query object.");
+                return;
+            }
+            if (queryObject->active) {
+                RecordQueryError(ErrorCode::InvalidOperation, __FUNCTION__, "The query object is still active.");
+                return;
+            }
+            if (queryObject->target != GL_SAMPLES_PASSED && queryObject->target != GL_ANY_SAMPLES_PASSED &&
+                queryObject->target != GL_ANY_SAMPLES_PASSED_CONSERVATIVE) {
+                RecordQueryError(ErrorCode::InvalidOperation, __FUNCTION__,
+                                 "Conditional rendering requires an occlusion query object.");
+                return;
+            }
+        }
+
+        // Resolved ONCE, here, and by WAITING even for the _NO_WAIT modes: the spec lets those
+        // render instead of stalling, so always waiting is conforming and is the only choice that
+        // gives the whole block one deterministic verdict. Reading it per command instead would
+        // let a result that lands mid-block change the answer half way through.
+        Uint64 samplesPassed = 0;
+        if (!GetQueryObjectValue(id, GL_QUERY_RESULT, __FUNCTION__, samplesPassed)) return;
+        const Bool passed = samplesPassed != 0;
+        MG_State::pGLContext->BeginConditionalRender(id, mode, inverted ? passed : !passed);
+    }
+
+    void EndConditionalRender() {
+        if (!MG_State::pGLContext->IsConditionalRenderActive()) {
+            RecordQueryError(ErrorCode::InvalidOperation, __FUNCTION__, "Conditional rendering is not active.");
+            return;
+        }
+        MG_State::pGLContext->EndConditionalRender();
     }
 
     void GetQueryiv(GLenum target, GLenum pname, GLint* params) {
@@ -647,5 +776,40 @@ namespace MobileGL::MG_Impl::GLImpl {
     void GetQueryIndexediv(GLenum target, GLuint index, GLenum pname, GLint* params) {
         if (!ValidateQueryStreamIndex(__FUNCTION__, target, index)) return;
         GetQueryiv(target, pname, params);
+    }
+
+    void DestroyAllQueryObjects() {
+        // Detach the registry under the lock, release outside it - same discipline
+        // (and the same accepted teardown race) as DestroyAllSyncObjects. Without
+        // this drain, every query the app left undeleted survived full library
+        // teardown in the process-global registry: the objects and their backend
+        // wrappers leaked across Destroy/Initialize cycles, stale ids kept
+        // answering IsQuery == GL_TRUE in the re-initialized library, and a later
+        // glDeleteQueries could hand the OLD backend's handle to a DIFFERENT
+        // backend's DeleteBackendQuery, which casts it to the wrong wrapper type.
+        UnorderedMap<GLuint, QueryObject*> orphans;
+        {
+            const std::lock_guard<std::mutex> lock(g_queryObjectsMutex);
+            orphans.swap(g_liveQueryObjects);
+            g_activeTimeElapsedQueryId = 0;
+            g_activePrimitivesWrittenQueryId = 0;
+            g_activePrimitivesGeneratedQueryId = 0;
+            g_activeSamplesPassedQueryId = 0;
+        }
+        if (orphans.empty()) {
+            return;
+        }
+        // Backend handles must be released by the backend that created them, so
+        // this runs while the function table is still populated. Both backends'
+        // DeleteBackendQuery are generation-guarded, so a handle whose renderer
+        // or ES context is already gone frees only the wrapper.
+        const auto deleteBackendQuery = MG_Backend::gBackendFunctionsTable.GL.DeleteBackendQuery;
+        for (const auto& [_, queryObject] : orphans) {
+            if (deleteBackendQuery && queryObject->backendHandle) {
+                deleteBackendQuery(queryObject->backendHandle);
+            }
+            delete queryObject;
+        }
+        MGLOG_D("DestroyAllQueryObjects: reclaimed %zu query object(s) the app left undeleted", orphans.size());
     }
 } // namespace MobileGL::MG_Impl::GLImpl

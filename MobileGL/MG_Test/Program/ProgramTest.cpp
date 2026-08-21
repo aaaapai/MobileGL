@@ -2692,11 +2692,13 @@ out vec4 fragColor;
 float fma
     (float a, float b, float c) { return a * b + c; }
 float sinh(float x, float y) { return x * y; }
+float length_squared(vec3 value) { return dot(value, value); }
 float round(float x) { return floor(x + 0.5); }
 float min3(float a, float b, float c) { return min(min(a, b), c); }
 
 void main() {
-    fragColor = vec4(fma(0.1, 0.2, 0.3), sinh(0.4, 2.0), round(1.25), min3(0.1, 0.2, 0.3));
+    fragColor = vec4(fma(0.1, 0.2, 0.3), sinh(0.4, 2.0), round(1.25),
+                     min3(0.1, 0.2, 0.3) + length_squared(vec3(0.1, 0.2, 0.3)));
 }
 )";
     GLuint vs = CompileShaderChecked(GL_VERTEX_SHADER, vsSource);
@@ -2707,6 +2709,7 @@ void main() {
         if (essl.find("fragColor") == String::npos) continue; // fragment module only
         EXPECT_NE(essl.find("mg_fma("), String::npos) << essl;
         EXPECT_NE(essl.find("mg_sinh("), String::npos) << essl;
+        EXPECT_NE(essl.find("mg_length_squared("), String::npos) << essl;
         EXPECT_NE(essl.find("mg_round("), String::npos) << essl;
         EXPECT_NE(essl.find("mg_min3("), String::npos) << essl;
         EXPECT_EQ(essl.find("float fma("), String::npos) << essl;
@@ -3007,21 +3010,38 @@ TEST_F(ProgramTest, TwoShaderObjectsWithIdenticalSourceLinkIndependently) {
     ASSERT_NE(objectA, nullptr);
     ASSERT_NE(objectB, nullptr);
     EXPECT_EQ(objectA->GetShaderSource(), objectB->GetShaderSource());
-    // P0b's layer 2 shares the PREPROCESS and never the parse: glslang's TShader is
-    // consume-once, so a memo hit still has to parse for itself.
+    // WHAT THIS CASE IS ACTUALLY ABOUT: two GL shader names holding the same text must never
+    // end up feeding one TShader to two links, because mapIO mutates the aliased intermediate
+    // and the second link would get a corrupted one. There are now three mechanisms that keep
+    // that true, and which one is in play depends on the mode - so the assertion below is on
+    // the PARSES NOT BEING SHARED, never on where each object's parse came from:
     //
-    // P1 stage 6 shares something stronger when it is active - the whole compile JOB, and
-    // therefore the single parse that job produced - and that sharing is made safe by
-    // ShaderCompileTask::ClaimParsedShader's CAS instead, exactly as it already was for one
-    // shader object attached to two programs. ShaderCompileAdoptionTest is where that is
-    // pinned down (it links both objects and compares the generated SPIR-V). So the
-    // one-parse-per-object assertion belongs to the non-adopting path; the two independent
-    // LINKS below are what both modes have to agree on, and they are the point of this case.
+    //   * P0b layer 2 shares the PREPROCESS and never the parse, so each object parses for
+    //     itself. This was the only mechanism when the case was written.
+    //   * P1 stage 6, when async is active, shares the whole compile JOB and therefore its
+    //     single parse - made safe by ClaimParsedShader's CAS, exactly as it already was for
+    //     one shader object attached to two programs. ShaderCompileAdoptionTest pins that
+    //     down by linking both objects and comparing the generated SPIR-V.
+    //   * The translation memo's compile half (L1c) recognises the second object's source and
+    //     publishes its verdict WITHOUT parsing, so that object legitimately holds no TShader
+    //     at all until a link asks ClaimParsedShader for one. Asserting a non-null parse here
+    //     would be asserting that the parse had NOT been skipped - i.e. testing the absence
+    //     of the optimisation rather than the invariant.
+    //
+    // So the pointer assertion applies only where the two objects are genuinely INDEPENDENT,
+    // i.e. where job adoption is not in play. What every mode has to agree on is the two
+    // independent LINKS below, and they are the real point of this case.
     if (!MG_Util::Async::AsyncShaderCompileActive()) {
-        EXPECT_NE(objectA->GetCompiledShader(), objectB->GetCompiledShader());
+        const auto& shaderA = objectA->GetCompiledShader();
+        const auto& shaderB = objectB->GetCompiledShader();
+        // Either may legitimately hold NO parse: that is an L1c hit, where the AST is made on
+        // demand at link instead. So this asserts they are not the SAME non-null parse, and
+        // deliberately not that both have one - the latter would be asserting that the
+        // optimisation had not happened.
+        if (shaderA != nullptr && shaderB != nullptr) {
+            EXPECT_NE(shaderA, shaderB) << "two independent shader objects share one consume-once parse";
+        }
     }
-    EXPECT_NE(objectA->GetCompiledShader(), nullptr);
-    EXPECT_NE(objectB->GetCompiledShader(), nullptr);
 
     GLuint programA = LinkVsFs(vsA, fsA, GL_TRUE);
     GLuint programB = LinkVsFs(vsB, fsB, GL_TRUE);
@@ -3234,5 +3254,78 @@ TEST_F(ProgramTest, CreateShaderAndCreateShaderProgramvReportTheRightErrorClasse
     // A well-formed call still works.
     const GLuint program = CreateShaderProgramv(GL_VERTEX_SHADER, 1, &source);
     EXPECT_NE(program, 0u);
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+}
+
+// ARB_explicit_uniform_location / GL 4.6 core 7.6.1: a `layout(location = N)` uniform reserves N
+// EVEN WHEN IT IS INACTIVE. Dead default-block uniforms are correctly filtered off the GL surface
+// (glGetUniformLocation must answer -1 for them), but the implicit allocator used to walk straight
+// over the location they claimed and hand it to a uniform that never asked for it
+// (KHR-GL43.explicit_uniform_location.uniform-loc-mix-with-implicit3).
+TEST_F(ProgramTest, InactiveExplicitUniformLocationIsStillReserved) {
+    const char* vsSource = R"(#version 430 core
+layout(location = 2) uniform vec4 uDeadAtTwo;
+uniform vec4 uA;
+uniform vec4 uB;
+uniform vec4 uC;
+uniform vec4 uD;
+void main() { gl_Position = uA + uB + uC + uD; }
+)";
+    const char* fsSource = R"(#version 430 core
+out vec4 fragColor;
+void main() { fragColor = vec4(1.0); }
+)";
+    const GLuint vs = CompileShaderChecked(GL_VERTEX_SHADER, vsSource);
+    const GLuint fs = CompileShaderChecked(GL_FRAGMENT_SHADER, fsSource);
+    const GLuint program = LinkVsFs(vs, fs, GL_TRUE);
+
+    // Reserving a location must not resurrect the uniform: it is still inactive to GL.
+    EXPECT_EQ(GetUniformLocation(program, "uDeadAtTwo"), -1);
+
+    for (const char* name : {"uA", "uB", "uC", "uD"}) {
+        const GLint location = GetUniformLocation(program, name);
+        EXPECT_GE(location, 0) << name << " lost its implicit location";
+        EXPECT_NE(location, 2) << name << " was handed the location uDeadAtTwo reserved";
+    }
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+}
+
+// The GL_MAX_UNIFORM_LOCATIONS boundary, from both sides. MAX_UNIFORM_LOCATIONS - 1 is the LAST
+// LEGAL location: it has to link and read back verbatim
+// (KHR-GL43.explicit_uniform_location.uniform-loc-max), which is only true while the advertised
+// value and what the link accepts are the SAME number - the getter used to advertise one more
+// location than any shader could name.
+//
+// The over-the-ceiling half is asserted through an ARRAY, because that is the only spelling the
+// link gets to judge: a bare `layout(location = MAX)` is already a compile error inside glslang
+// ("location is too large"), while an array's base compiles fine and only its last element passes
+// the ceiling (...uniform-loc-negative-link-max-num-of-locations).
+TEST_F(ProgramTest, ExplicitUniformLocationsHonourMaxUniformLocations) {
+    GLint maxLocations = 0;
+    GetIntegerv(GL_MAX_UNIFORM_LOCATIONS, &maxLocations);
+    ASSERT_GE(maxLocations, 1024) << "GL 4.3 requires at least 1024 uniform locations";
+
+    const char* fsSource = R"(#version 430 core
+out vec4 fragColor;
+void main() { fragColor = vec4(1.0); }
+)";
+    const GLuint fs = CompileShaderChecked(GL_FRAGMENT_SHADER, fsSource);
+
+    {
+        const String source = String("#version 430 core\nlayout(location = ") +
+                              std::to_string(maxLocations - 1) +
+                              ") uniform vec4 uAtLimit;\nvoid main() { gl_Position = uAtLimit; }\n";
+        const GLuint vs = CompileShaderChecked(GL_VERTEX_SHADER, source.c_str());
+        const GLuint program = LinkVsFs(vs, fs, GL_TRUE);
+        EXPECT_EQ(GetUniformLocation(program, "uAtLimit"), maxLocations - 1)
+            << "the last location in the pool is legal and must come back verbatim";
+    }
+    {
+        const String source = String("#version 430 core\nlayout(location = ") +
+                              std::to_string(maxLocations - 4) +
+                              ") uniform vec4 uSpill[8];\nvoid main() { gl_Position = uSpill[0]; }\n";
+        const GLuint vs = CompileShaderChecked(GL_VERTEX_SHADER, source.c_str());
+        (void)LinkVsFs(vs, fs, GL_FALSE);
+    }
     EXPECT_EQ(GetError(), GL_NO_ERROR);
 }

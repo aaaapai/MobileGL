@@ -8,13 +8,16 @@
 
 #include "ShaderCompileTask.h"
 
+#include <MG_State/GLState/BufferState/BufferState.h>
 #include <MG_Util/Converters/MGToGL/ProgramEnumConverter.h>
 #include <MG_Util/ShaderTranspiler/ShaderCompiler.h>
 #include <MG_Util/ShaderTranspiler/ShaderSourceProcessor.h>
+#include <MG_Util/ShaderTranspiler/TranslationCache.h>
 #include <MG_Util/ShaderTranspiler/Types.h>
 
 #include <glslang/Include/PoolAlloc.h>
 
+#include <algorithm>
 #include <charconv>
 
 namespace {
@@ -137,8 +140,21 @@ namespace {
         return std::nullopt;
     }
 
+    // What glGetIntegerv(GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS) answers, recomputed rather than
+    // queried: the compile runs on a worker with no context, and the pname is not a plain backend
+    // parameter - the getter caps the backend's count by the state layer's fixed binding-point
+    // array (GL_Getter's GetIndexedBufferQueryPointCount). A shader must be judged against the
+    // number the application was told, not against either half of it.
+    static MobileGL::Int MaxShaderStorageBufferBindings(
+        const MobileGL::MG_Util::ShaderTranspiler::CompileEnv& env) {
+        const MobileGL::Int frontendPoints =
+            static_cast<MobileGL::Int>(MobileGL::MG_State::GLState::BufferBindingPointCount);
+        if (!env.HasBackend()) return frontendPoints;
+        return std::min<MobileGL::Int>(frontendPoints, std::max<MobileGL::Int>(env.params.MaxShaderStorageBufferBindings, 0));
+    }
+
     // The half of a compile that depends on nothing but the source text, the stage and the
-    // environment snapshot: preprocessing, the two lexical rejections, and the two lexical
+    // environment snapshot: preprocessing, the three lexical rejections, and the two lexical
     // side-channel extractions. Split out so P0b layer 2 can memoize exactly this and
     // nothing else - the glslang parse stays per-object because its TShader is consume-once.
     // Deliberately free of any per-object state so the memo is sound.
@@ -169,6 +185,13 @@ namespace {
         if (const std::optional<String> reservedError = FindReservedIdentifierViolation(result.preprocessedSource)) {
             result.outcome = ShaderPreprocessOutcome::ReservedIdentifierRejected;
             result.infoLog = *reservedError;
+            return result;
+        }
+
+        if (const std::optional<String> bindingError = FindShaderStorageBindingViolation(
+                result.preprocessedSource, MaxShaderStorageBufferBindings(env))) {
+            result.outcome = ShaderPreprocessOutcome::ResourceBindingRejected;
+            result.infoLog = *bindingError;
             return result;
         }
 
@@ -248,17 +271,80 @@ namespace MobileGL::MG_State::GLState {
             return;
         }
 
-        ShaderAttrib attrib{.shaderType = MG_Util::ConvertShaderStageToGLEnum(stage),
-                            .sourceStr = shared.preprocessedSource,
-                            .flags = 0,
-                            .env = &compileEnv};
+        const GLenum glShaderType = MG_Util::ConvertShaderStageToGLEnum(stage);
+        // Always 0 on both production parse paths; see the key inventory on
+        // ShaderParseVerdictKeyInputs for why it is in the key regardless.
+        constexpr Uint32 kShaderCompileFlags = 0;
 
-        auto result = ShaderCompiler::CompileShader(attrib);
-        if (result) {
+        // ---- L1c of the shader translation memo: the PARSE VERDICT ----------------------
+        // Everything below this probe - the glslang parse itself - is what a hit skips. What
+        // a hit does NOT produce is a TShader, and that is deliberate rather than a
+        // limitation: the TShader is consume-once, so it could never have been shared, and
+        // nothing on the COMPILE side of GL reads it. GL_COMPILE_STATUS, the info log,
+        // GL_SHADER_SOURCE, attach/detach and reuse across programs are all answered from
+        // what the verdict and the source-only half already carry.
+        //
+        // The parse is not skipped, it is DEFERRED: ClaimParsedShader re-parses on demand
+        // when a link finds no stored parse. A link that hits L1 never asks, so the parse
+        // never happens at all; a link that misses pays exactly one parse, where the CAS
+        // loser has always paid it. See TranslationCache.h's L1c section.
+        const TranslationCacheKey parseKey =
+            ShaderTranslationCacheEnabled()
+                ? BuildShaderParseVerdictKey(ShaderParseVerdictKeyInputs{
+                      .frontendFingerprint = compileEnv.frontendFingerprint,
+                      .shaderType = glShaderType,
+                      .preprocessedSource = StringView(shared.preprocessedSource),
+                      .shaderCompileFlags = kShaderCompileFlags})
+                : TranslationCacheKey{};
+        const ShaderParseVerdictPtr verdict =
+            parseKey.Valid() ? GetShaderParseVerdictCache().Find(parseKey) : nullptr;
+
+        // The two branches produce exactly one thing between them - a verdict, plus a TShader
+        // only when this task actually parsed - and converge on one publish below. Keeping the
+        // publish common is what stops a hit and a miss from ever drifting on WHAT a compile
+        // makes observable.
+        Bool parsedOk = false;
+        String parseLog;
+        SharedPtr<glslang::TShader> parsedShader;
+
+        if (verdict) {
+            parsedOk = verdict->parsed;
+            parseLog = verdict->infoLog;
+            MGLOG_D("ShaderCompileTask: shader %u (stage %d) L1c hit - the glslang parse was skipped; "
+                    "compileStatus = %d",
+                    externalIndex, static_cast<Int>(stage), static_cast<Int>(parsedOk));
+        } else {
+            const ShaderAttrib attrib{.shaderType = glShaderType,
+                                      .sourceStr = shared.preprocessedSource,
+                                      .flags = kShaderCompileFlags,
+                                      .env = &compileEnv};
+            auto result = ShaderCompiler::CompileShader(attrib);
+            parsedOk = result.has_value();
+            if (parsedOk) {
+                parsedShader = result.value();
+            } else {
+                parseLog = result.error().log;
+            }
+            if (parseKey.Valid()) {
+                auto freshVerdict = MakeShared<ShaderParseVerdict>();
+                freshVerdict->parsed = parsedOk;
+                // Empty on success by construction, matching what the publish below does with
+                // the artifacts' own log; the diagnostic the application reads on failure.
+                freshVerdict->infoLog = parseLog;
+                const SizeT verdictBytes = ShaderParseVerdictBytes(*freshVerdict);
+                GetShaderParseVerdictCache().Insert(parseKey, ShaderParseVerdictPtr(Move(freshVerdict)),
+                                                    verdictBytes);
+            }
+        }
+
+        if (parsedOk) {
             artifacts.compileStatus = true;
-            artifacts.shader = result.value();
+            // NULL ON AN L1c HIT, and that is a supported state rather than an oversight: see
+            // ShaderCompileArtifacts::shader and ClaimParsedShader.
+            artifacts.shader = Move(parsedShader);
             // Copy, not move: `shared` may alias a cache entry that has to outlive us, and
-            // `fresh` is about to be handed to the cache.
+            // `fresh` is about to be handed to the cache. Populated on the hit path too - it
+            // is what ClaimParsedShader's deferred parse consumes.
             artifacts.preprocessedSource = shared.preprocessedSource;
             artifacts.explicitUniformLocations = shared.explicitUniformLocations;
             artifacts.explicitOpaqueBindings = shared.explicitOpaqueBindings;
@@ -267,7 +353,7 @@ namespace MobileGL::MG_State::GLState {
                 cache->Insert(stage, sourceHash, *source, compileEnv.fingerprint, Move(fresh));
             }
         } else {
-            artifacts.infoLog = result.error().log;
+            artifacts.infoLog = Move(parseLog);
             // Deferred, not logged here, for two reasons. MGLOG from a pool thread interleaves
             // mid-line with the GL thread's own output and lands out of order relative to the
             // glCompileShader that caused it; diagnostics.logLines is replayed by the join, on
@@ -310,10 +396,11 @@ namespace MobileGL::MG_State::GLState {
             }
         }
 
-        // Either another link already consumed the stored parse (and mapIO mutated its
-        // intermediate), or there never was one. Re-parse the preprocessed source through the
-        // identical configuration; that costs one glslang parse, which is what GenerateBinary
-        // used to spend here on EVERY link rather than only on reuse.
+        // Three ways to be here: another link already consumed the stored parse (and mapIO
+        // mutated its intermediate); the compile hit L1c and never parsed at all; or there
+        // simply never was one. All three want the same thing - parse the preprocessed source
+        // through the identical configuration. That costs one glslang parse, which is what
+        // GenerateBinary used to spend here on EVERY link rather than only when needed.
         //
         // The guard is not optional on this path: from stage 4 this runs on a pool worker,
         // and TShader::parse would leave that worker's TLS allocator pointing at a pool the
@@ -329,7 +416,12 @@ namespace MobileGL::MG_State::GLState {
                             .env = artifacts.env.get()};
         auto result = ShaderCompiler::CompileShader(attrib);
         if (!result) {
-            // Should be unreachable: the same source parsed successfully at Compile().
+            // Should be unreachable. This exact (stage, preprocessed source, front-end env)
+            // parsed successfully once - either at this node's own Compile(), or at the
+            // Compile() whose verdict L1c handed this node - and every input the parse reads
+            // is covered by that tuple. ConsumeShaders turns a null into a failed link with a
+            // named internal error rather than a crash, which is the right shape for a
+            // "cannot happen" that would otherwise be a silent miscompile.
             outReparseLog = result.error().log;
             return nullptr;
         }

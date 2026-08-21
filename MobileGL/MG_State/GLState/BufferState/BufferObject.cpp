@@ -75,10 +75,42 @@ namespace MobileGL::MG_State::GLState {
         NotifySubData(offset, size);
     }
 
-    void BufferObject::Respecify(SizeT size, const void* data) {
-        ReleaseMemory();
+    // A (re)definition of the store is about to write `size` bytes through Bytes().
+    // Sizing the shadow is all that takes for a shadow-backed buffer. A buffer whose
+    // bytes were adopted into backend GPU memory has to give the adoption back first,
+    // because the mapping it holds describes exactly the OLD store: writing the new
+    // contents through it runs past its end the moment the store grows, and a backend
+    // that replaces the storage for the new store - which is what an orphaning
+    // respecification asks for - would leave that mapping, and therefore every later
+    // read of this buffer, addressing storage nothing writes to any more. That was the
+    // transform feedback capture that wrote one buffer while the readback read another.
+    //
+    // Given back rather than renewed here, deliberately. Renewing in place would mean
+    // memcpying the new contents into storage that submitted-but-unretired draws may
+    // still be reading, which is precisely what the orphaning idiom exists to avoid;
+    // avoiding THAT would mean either stalling on a fence in the middle of a frame or
+    // teaching the persistent-map op to orphan, and the op must never orphan for the
+    // other kind of caller (an application-held GL_MAP_PERSISTENT_BIT mapping, whose
+    // pointer has to stay valid for the buffer's whole life). Handing the store back to
+    // the CPU shadow needs none of that: the backend's ordinary respecification path
+    // then does the busy-tracking and the conditional orphan it has always done, and the
+    // next binding that wants GPU residency takes a fresh mapping of the new store.
+    void BufferObject::RedefineStorage(SizeT size) {
+        if (m_resource.IsGpuResident()) {
+            m_resource.ReleasePersistentMap();
+            // Whatever a shader or a capture wrote is in the store being replaced, so
+            // there is nothing left to reconcile - and leaving the flag set would make
+            // the next read of this buffer wait for GPU work on behalf of bytes the
+            // application has just thrown away.
+            m_gpuWritePending = false;
+        }
         m_size = size;
         m_resource.ResizeShadow(size);
+    }
+
+    void BufferObject::Respecify(SizeT size, const void* data) {
+        ReleaseMemory();
+        RedefineStorage(size);
         if (data && size > 0) {
             Memcpy(m_resource.Bytes(), data, size);
         }
@@ -96,8 +128,7 @@ namespace MobileGL::MG_State::GLState {
 
     void BufferObject::AllocateImmutableStorage(SizeT size, const void* data, GLbitfield storageFlags) {
         ReleaseMemory();
-        m_size = size;
-        m_resource.ResizeShadow(size);
+        RedefineStorage(size);
         if (data) {
             Memcpy(m_resource.Bytes(), data, size);
         } else if (size > 0) {
@@ -132,7 +163,7 @@ namespace MobileGL::MG_State::GLState {
             if (!m_resource.IsGpuResident() &&
                 !(m_mappingAccess & BufferMappingAccessBit::FlushExplicit)) { // if we didn't flush explicitly
                 if (!(m_mappingAccess & BufferMappingAccessBit::Persistent)) {
-                    Memcpy(m_resource.Bytes() + m_mappedRange.start, m_stagingData.data(),
+                    Memcpy(m_resource.Bytes() + m_mappedRange.start, m_stagingData.data() + m_stagingBias,
                            m_mappedRange.end - m_mappedRange.start);
                 }
                 NotifyFlushMappedRange(m_mappedRange, m_mappingAccess);
@@ -144,6 +175,7 @@ namespace MobileGL::MG_State::GLState {
         m_isMapped = false;
         m_mappingAccess = BufferMappingAccessBit::Null;
         m_mappedRange = {0, 0};
+        m_stagingBias = 0;
         m_ownsStagingData = false;
     }
 
@@ -162,7 +194,7 @@ namespace MobileGL::MG_State::GLState {
         // FLUSH_EXPLICIT maps are never GPU-resident (only coherent maps are adopted), so
         // the staged bytes must be copied into the shadow before the backend reads them.
         if (!(m_mappingAccess & BufferMappingAccessBit::Persistent)) {
-            Memcpy(m_resource.Bytes() + start, m_stagingData.data() + offset, length);
+            Memcpy(m_resource.Bytes() + start, m_stagingData.data() + m_stagingBias + offset, length);
         }
         NotifyFlushMappedRange({start, end}, m_mappingAccess);
     }
@@ -219,6 +251,34 @@ namespace MobileGL::MG_State::GLState {
         NotifyContentWrite(atOffset, data.size);
     }
 
+    void BufferObject::FillSubData(DataPtr pattern, SizeT atOffset, SizeT size) {
+        MOBILEGL_ASSERT(pattern.data != nullptr && pattern.size > 0,
+                        "FillSubData requires a non-empty pattern.");
+        MOBILEGL_ASSERT(size % pattern.size == 0,
+                        "FillSubData size (%zu) must be a multiple of pattern size (%zu).", size, pattern.size);
+        MOBILEGL_ASSERT(atOffset <= m_size && size <= m_size - atOffset,
+                        "FillSubData out of bounds: atOffset (%zu) + size (%zu) > m_size (%zu)", atOffset, size,
+                        m_size);
+        MOBILEGL_ASSERT(!m_isMapped || (m_mappingAccess & BufferMappingAccessBit::Persistent),
+                        "Cannot fill data while buffer is non-persistently mapped.");
+        if (size == 0) return;
+
+        // A clear is ordered after all earlier GPU writes. Partial clears additionally need the
+        // retained shadow bytes; whole-store clears need the same synchronization before writing
+        // an adopted persistent mapping that the GPU may still be accessing.
+        SyncGpuWrites();
+
+        Uint8* dst = m_resource.Bytes() + atOffset;
+        if (pattern.size == 1) {
+            Memset(dst, *static_cast<const Uint8*>(pattern.data), size);
+        } else {
+            for (SizeT at = 0; at < size; at += pattern.size) {
+                Memcpy(dst + at, pattern.data, pattern.size);
+            }
+        }
+        NotifyContentWrite(atOffset, size);
+    }
+
     void BufferObject::DownloadSubData(void* dst, SizeT atOffset, SizeT size) const {
         MOBILEGL_ASSERT(atOffset + size <= m_size,
                         "DownloadSubData out of bounds: atOffset (%zu) + size (%zu) > m_size (%zu)", atOffset, size,
@@ -252,6 +312,9 @@ namespace MobileGL::MG_State::GLState {
             m_mappedRange = {0, m_size};
 
             if (m_mappingAccess & BufferMappingAccessBit::Write) {
+                // glMapBuffer maps from offset 0, so no bias: the allocation's own
+                // GL_MIN_MAP_BUFFER_ALIGNMENT-aligned base is what the application must get.
+                m_stagingBias = 0;
                 m_stagingData.resize(m_size);
                 m_ownsStagingData = true;
 
@@ -313,14 +376,21 @@ namespace MobileGL::MG_State::GLState {
         }
 
         if (access & BufferMappingAccessBit::Write) {
-            m_stagingData.resize(range.end - range.start);
+            // ARB_map_buffer_alignment constrains (returned pointer - offset), not the pointer:
+            // a map at offset 63 must hand back a pointer 63 bytes past the alignment grid, which
+            // is exactly what the read path below gets for free from shadowBase + offset. The
+            // staging store has to be biased by the same phase to match, so it over-allocates by
+            // it and the mapped bytes start at data() + m_stagingBias.
+            m_stagingBias = range.start % MIN_MAP_BUFFER_ALIGNMENT;
+            const SizeT mappedLength = range.end - range.start;
+            m_stagingData.resize(m_stagingBias + mappedLength);
             m_ownsStagingData = true;
 
             if (!(access & (BufferMappingAccessBit::InvalidateRange | BufferMappingAccessBit::InvalidateBuffer))) {
-                Memcpy(m_stagingData.data(), m_resource.Bytes() + range.start, m_stagingData.size());
+                Memcpy(m_stagingData.data() + m_stagingBias, m_resource.Bytes() + range.start, mappedLength);
             }
 
-            return m_stagingData.data();
+            return m_stagingData.data() + m_stagingBias;
         } else {
             m_ownsStagingData = false;
             return m_resource.Bytes() + range.start;
@@ -379,7 +449,7 @@ namespace MobileGL::MG_State::GLState {
             return const_cast<Uint8*>(m_resource.Bytes()) + m_mappedRange.start;
         }
         if (m_ownsStagingData) {
-            return const_cast<Uint8*>(m_stagingData.data());
+            return const_cast<Uint8*>(m_stagingData.data()) + m_stagingBias;
         }
         return const_cast<Uint8*>(m_resource.Bytes()) + m_mappedRange.start;
     }

@@ -638,6 +638,17 @@ namespace MobileGL {
             GL_FUNC_TYPEDEF(void, glBruh)
             GL_FUNC_TYPEDEF(void, glMultiDrawElementsBaseVertexEXT, GLenum mode, const GLsizei* count, GLenum type,
                             const void* const* indices, GLsizei drawcount, const GLint* basevertex)
+
+            // GL_EXT_base_instance. Where a driver has these, the "+ baseInstance" of the
+            // instanced-array element index is the driver's job; where it does not, DirectGLES
+            // folds it into the attribute offsets instead (VertexArrayImpl::BaseInstanceByteShift).
+            GL_FUNC_TYPEDEF(void, glDrawArraysInstancedBaseInstanceEXT, GLenum mode, GLint first, GLsizei count,
+                            GLsizei instancecount, GLuint baseinstance)
+            GL_FUNC_TYPEDEF(void, glDrawElementsInstancedBaseInstanceEXT, GLenum mode, GLsizei count, GLenum type,
+                            const void* indices, GLsizei instancecount, GLuint baseinstance)
+            GL_FUNC_TYPEDEF(void, glDrawElementsInstancedBaseVertexBaseInstanceEXT, GLenum mode, GLsizei count,
+                            GLenum type, const void* indices, GLsizei instancecount, GLint basevertex,
+                            GLuint baseinstance)
             /*
                 namespace Caps {
                     struct GLESCaps {
@@ -1034,6 +1045,10 @@ namespace MobileGL {
             GL_FUNC_DECL(glMultiDrawElementsIndirectEXT)
             GL_FUNC_DECL(glMultiDrawElementsBaseVertexEXT)
 
+            GL_FUNC_DECL(glDrawArraysInstancedBaseInstanceEXT)
+            GL_FUNC_DECL(glDrawElementsInstancedBaseInstanceEXT)
+            GL_FUNC_DECL(glDrawElementsInstancedBaseVertexBaseInstanceEXT)
+
             GL_FUNC_DECL(glBruh)
         };
 
@@ -1123,9 +1138,21 @@ namespace MobileGL {
             // SPIRV-Cross's `#extension ... : require` would fail to compile and MobileGL falls back
             // to stripping the NoPerspective decoration (smooth interpolation) via StripNoPerspectivePass.
             Bool SupportsNoperspectiveInterpolation = false;
+            // GL_NV_image_formats is present: the driver accepts the image format qualifiers GL
+            // has and GLSL ES core does not (the one- and two-channel formats, the 16-bit and
+            // snorm ones - r8ui, rg16f, rgba16 and the rest of GL table 8.26). GLSL ES core has
+            // only thirteen, so without this an image whose bound format is outside that set has
+            // no legal spelling in the generated ESSL at all, and the directive must not be
+            // emitted either - `#extension` on a name the driver does not advertise is itself a
+            // compile error.
+            Bool SupportsExtendedImageFormats = false;
             // GLES 3.2 core or GL_OES_shader_multisample_interpolation exposes
             // interpolateAtOffset and the three fragment-offset limit queries.
             Bool SupportsShaderMultisampleInterpolation = false;
+            // ES 3.1+ exposes glDrawArraysIndirect / glDrawElementsIndirect in core. Keep the
+            // version and both entry-point checks together so extension advertisement and the
+            // DirectGLES dispatch path cannot disagree on whether native indirect draws exist.
+            Bool SupportsDrawIndirect = false;
             // GL_EXT_multi_draw_indirect is present AND glMultiDrawArraysIndirectEXT /
             // glMultiDrawElementsIndirectEXT both resolved. Multi-draw is not core in any ES
             // version, and eglGetProcAddress may return a live-looking stub on drivers without
@@ -1148,6 +1175,28 @@ namespace MobileGL {
             // Compute shaders are usable: ES 3.1 core (there is no pre-3.1 extension in ES), with
             // the dispatch and barrier entry points resolved.
             Bool SupportsComputeShader = false;
+            // GL_EXT_clip_cull_distance is present: the driver accepts gl_ClipDistance in ESSL
+            // (which is what SPIRV-Cross emits, together with a `#extension ... : require`) AND
+            // the GL_CLIP_DISTANCE0_EXT..7_EXT enable tokens, whose values are the desktop ones.
+            // ES core has neither at any version, so without this a gl_ClipDistance shader cannot
+            // compile and the per-distance enables have nowhere to go - clipping silently never
+            // happens, which is exactly what KHR-GLxx.clip_distance.functional catches.
+            Bool SupportsClipDistance = false;
+            // GL_OES_viewport_array is present: the driver knows gl_ViewportIndex in ESSL - and
+            // only then. ESSL has no core spelling for it at ANY version, while SPIRV-Cross prints
+            // the identifier bare and requests nothing for it (contrast gl_Layer, which it backs
+            // with GL_NV_viewport_array2 on ES), so the `#extension GL_OES_viewport_array :
+            // require` line has to be inserted into the emitted source - see
+            // RequestViewportArrayExtension. Without the extension the stage does not compile at
+            // all and the whole program becomes unusable, which on DirectGLES means every draw
+            // using it silently renders nothing; LowerViewportIndexPass is the fallback that
+            // demotes the builtin so the program still links and degrades to viewport 0.
+            //
+            // Extension string only, deliberately: DirectGLES does not call any of the indexed
+            // OES entry points yet, so there is no pointer to require. When that forwarding lands
+            // this must gain the pointer check as well - the rule everywhere else in this struct,
+            // because eglGetProcAddress can hand back a stub that silently drops every call.
+            Bool SupportsViewportArray = false;
             // GL_RENDERER contains "ANGLE".
             Bool IsAngleRenderer = false;
             // GL_RENDERER contains both "ANGLE" and "llvmpipe".
@@ -1156,6 +1205,9 @@ namespace MobileGL {
             // MOBILEGL_AVOID_SAMPLER_MIPMAP_MIN_FILTER feature toggle:
             // sampler min filters should drop their mipmap component.
             Bool AvoidSamplerMipmapMinFilter = false;
+            // IsAngleLlvmpipeRenderer combined with the MOBILEGL_AVOID_EXPLICIT_LOD_BIAS
+            // feature toggle: LOD-bias emulation should not touch explicit-LOD lookups.
+            Bool AvoidExplicitLodBias = false;
             // True when indirect draws leak the command's baseInstance word ("reserved,
             // must be zero" in unextended ES) into gl_InstanceID. Conforming ES drivers
             // keep gl_InstanceID zero-based; ANGLE's Vulkan backend hands the command
@@ -1196,6 +1248,17 @@ namespace MobileGL {
             Int MaxVertexAttribs = 16;
             Int MaxComputeShaderStorageBlocks = 8;
             Int MaxCombinedShaderStorageBlocks = 32;
+            // Per-stage GL_MAX_*_SHADER_STORAGE_BLOCKS as the host GLES driver reports them.
+            // The defaults are the ES 3.2 minimums (table 21.44): 0 for every graphics stage
+            // except fragment, which is 4. ES only gained the tessellation and geometry pnames
+            // in 3.2 (or with EXT_tessellation_shader / EXT_geometry_shader), so those two are
+            // queried behind a support check and left at the default otherwise - see
+            // FillInGLESCapabilities.
+            Int MaxVertexShaderStorageBlocks = 0;
+            Int MaxTessControlShaderStorageBlocks = 0;
+            Int MaxTessEvaluationShaderStorageBlocks = 0;
+            Int MaxGeometryShaderStorageBlocks = 0;
+            Int MaxFragmentShaderStorageBlocks = 4;
             Int MaxComputeUniformBlocks = 12;
             Int MaxComputeWorkGroupInvocations = 128;
             Int MaxShaderStorageBufferBindings = 8;
@@ -1212,8 +1275,16 @@ namespace MobileGL {
             Int MaxComputeImageUniforms = 8;
             Int MaxDrawBuffers = 8;
             Int MaxColorAttachments = 8;
-            Int MaxClipDistances = 8;
+            // Zero is a legal answer, not a placeholder: ES reaches clip distances only through
+            // GL_EXT_clip_cull_distance, so a driver without it has none. See the guarded probe
+            // in FillInGLESCapabilities.
+            Int MaxClipDistances = 0;
             Int MaxViewports = 16;
+            // GL_LAYER_PROVOKING_VERTEX (ES 3.2 core) and GL_VIEWPORT_INDEX_PROVOKING_VERTEX
+            // (GL_OES_viewport_array). GL_UNDEFINED_VERTEX is a legal answer for both and is what
+            // a driver that has neither is honestly saying.
+            GLenum LayerProvokingVertex = GL_UNDEFINED_VERTEX;
+            GLenum ViewportIndexProvokingVertex = GL_UNDEFINED_VERTEX;
             Int MaxViewportWidth = 16384;
             Int MaxViewportHeight = 16384;
             Float ViewportBoundsRangeMin = 0.0f;

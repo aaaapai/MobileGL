@@ -162,20 +162,29 @@ namespace MobileGL::MG_ConfigLoader {
     inline void InitFeatures() {
         auto& features = MG_Config::Features;
         features.DisableTimerQuery = QueryEnvFlag("MOBILEGL_DISABLE_TIMERQUERY");
+        features.EnableSpirvValidation = QueryEnvFlag("MOBILEGL_ENABLE_SPIRV_VALIDATION");
         features.UseAngle = QueryEnvFlag("MOBILEGL_USE_ANGLE");
 #if defined(MOBILEGL_TRACE_ANGLE_VARIANTS)
         QueryEnvVariable("MOBILEGL_TRACE_ANGLE_VARIANT", features.TraceAngleVariant, "");
 #endif
         features.DisableSubgroup = QueryEnvFlag("MOBILEGL_DISABLE_SUBGROUP");
+        features.MagmaEmulateSubgroup = QueryEnvFlag("MOBILEGL_MAGMA_EMULATE_SUBGROUP");
+        features.FixIterationRPSubgroupScratch =
+            QueryEnvQuirkOverride("MOBILEGL_FIX_ITERATIONRP_SUBGROUP_SCRATCH");
+        features.IterationRPFixBarrier = QueryEnvFlag("MOBILEGL_ITERATIONRP_FIX_BARRIER");
+        features.DeriveNumSubgroups = QueryEnvQuirkOverride("MOBILEGL_DERIVE_NUM_SUBGROUPS");
+        features.AdvertiseFp64 = QueryEnvFlag("MOBILEGL_ADVERTISE_FP64");
         features.MagmaR11G11B10FFallback = QueryEnvFlag("MOBILEGL_MAGMA_R11G11B10F_FALLBACK");
         features.MagmaFramesInFlight = QueryEnvUint32("MOBILEGL_MAGMA_FRAMESINFLIGHT", 3, 1, 64);
         features.AvoidSamplerMipmapMinFilter =
             QueryEnvFlag("MOBILEGL_AVOID_SAMPLER_MIPMAP_MIN_FILTER");
+        features.AvoidExplicitLodBias = QueryEnvFlag("MOBILEGL_AVOID_EXPLICIT_LOD_BIAS");
         features.CoherentAsFlush = QueryEnvFlag("MOBILEGL_COHERENT_AS_FLUSH");
         features.TraceSkipAutodestroy = QueryEnvFlag("MOBILEGL_TRACE_SKIP_AUTODESTROY");
         features.DisableUboRing = QueryEnvFlag("MOBILEGL_DISABLE_UBO_RING");
+        features.EsprytForceDepthStencilReadbackEmulation =
+            QueryEnvFlag("MOBILEGL_ESPRYT_FORCE_DS_READBACK_EMULATION");
         features.RelaxedSemantics = QueryEnvFlag("MOBILEGL_RELAXED_SEMANTICS");
-        features.SubgroupPrefixScanQuirk = QueryEnvQuirkOverride("MOBILEGL_QUIRK_SUBGROUP_PREFIX_SCAN");
         features.MagmaDisableBlendedDepthWriteQuirk =
             QueryEnvQuirkOverride("MOBILEGL_MAGMA_DISABLE_BLENDED_DEPTH_WRITE");
         features.DisableRobustBufferAccess = QueryEnvFlag("MOBILEGL_DISABLE_ROBUST_BUFFER_ACCESS");
@@ -185,6 +194,7 @@ namespace MobileGL::MG_ConfigLoader {
         features.AsyncShaderCompileThreads = QueryEnvUint32("MOBILEGL_ASYNC_SHADER_COMPILE_THREADS", 0, 0, 64);
         features.AsyncOptimisticShaderStatus =
             QueryEnvQuirkOverride("MOBILEGL_ASYNC_OPTIMISTIC_SHADER_STATUS");
+        features.ShaderTranslationCache = QueryEnvQuirkOverride("MOBILEGL_SHADER_CACHE");
     }
 
     inline void InitBackendType() {

@@ -8,6 +8,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cstdint>
 #include <limits>
 
 #include "Includes.h"
@@ -16,6 +17,7 @@
 #include <MG_State/GLState/Core.h>
 
 #include <MG_Impl/GLImpl/Buffer/GL_Buffer.h>
+#include <MG_Impl/GetProcAddress.h>
 #include <MG_Impl/GLImpl/Getter/GL_Getter.h>
 
 using namespace MobileGL;
@@ -264,6 +266,116 @@ TEST_F(BufferTest, AcquireMemoryRangeWithExplicit) {
     void* p = bufObj->AcquireMemory(false, true, false);
     memcpy(actual.data(), p, byteSize);
     ASSERT_EQ(actual, expected);
+}
+
+// GL_MIN_MAP_BUFFER_ALIGNMENT is a promise about POINTERS, and MobileGL used to keep only the
+// query half of it: glGetIntegerv answered 64 while every mapped pointer came out of a plain
+// std::vector, aligned to alignof(std::max_align_t) - 16 on aarch64. GL 4.2 /
+// ARB_map_buffer_alignment fix the minimum at 64, so under-reporting is not available and the
+// implementation has to be brought up to the number instead. Note the two different constraints:
+// glMapBuffer's pointer must be aligned outright, while glMapBufferRange's must be aligned AFTER
+// subtracting the offset the caller asked for - i.e. it sits at the offset's own alignment phase.
+// KHR-GLxx.map_buffer_alignment.functional asserts exactly these two, at offset 63, for 24
+// storage-flag combinations across 14 targets, and failed identically on both test devices.
+TEST_F(BufferTest, MappedPointersHonourTheAdvertisedMapBufferAlignment) {
+    GLint advertisedAlignment = 0;
+    MobileGL::MG_Impl::GLImpl::GetIntegerv(GL_MIN_MAP_BUFFER_ALIGNMENT, &advertisedAlignment);
+    ASSERT_EQ(advertisedAlignment, static_cast<GLint>(MobileGL::MG_State::GLState::MIN_MAP_BUFFER_ALIGNMENT))
+        << "the query and the allocator must read the same constant";
+    ASSERT_GE(advertisedAlignment, 64) << "GL 4.2 fixes the minimum at 64";
+    const SizeT alignment = static_cast<SizeT>(advertisedAlignment);
+
+    auto& slot = MobileGL::MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::Uniform);
+    Vector<Uint> bufferNames;
+    MobileGL::MG_State::pGLContext->GenBufferNames(1, bufferNames);
+    auto bufObj = MobileGL::MG_State::pGLContext->CreateBufferObject(bufferNames[0]);
+    slot.Bind(bufObj);
+
+    // The conformance test's own shape: a buffer two alignments long, mapped from the last byte
+    // inside the first alignment - the offset most likely to expose a base-aligned-only fix.
+    const SizeT bufferSize = 2 * alignment;
+    const SizeT offset = alignment - 1;
+    bufObj->Resize(bufferSize);
+    Vector<Uint8> initData(bufferSize);
+    for (SizeT i = 0; i < bufferSize; ++i) initData[i] = static_cast<Uint8>(i);
+    bufObj->UploadData(DataPtr{.data = initData.data(), .size = bufferSize}, 0);
+
+    const auto addressOf = [](const void* pointer) { return reinterpret_cast<std::uintptr_t>(pointer); };
+
+    // glMapBuffer, read-only: the shadow base itself is handed out.
+    void* readMapped = bufObj->AcquireMemory(true, true, false);
+    ASSERT_NE(readMapped, nullptr);
+    EXPECT_EQ(addressOf(readMapped) % alignment, 0u) << "glMapBuffer(GL_READ_ONLY) returned an unaligned pointer";
+    bufObj->ReleaseMemory();
+
+    // glMapBuffer, write: the staging store is handed out instead.
+    void* writeMapped = bufObj->AcquireMemory(true, false, true);
+    ASSERT_NE(writeMapped, nullptr);
+    EXPECT_EQ(addressOf(writeMapped) % alignment, 0u) << "glMapBuffer(GL_WRITE_ONLY) returned an unaligned pointer";
+    EXPECT_EQ(bufObj->GetMappedPointer(), writeMapped)
+        << "GL_BUFFER_MAP_POINTER must report the pointer the map returned";
+    bufObj->ReleaseMemory();
+
+    // glMapBufferRange, read-only: shadow base + offset, so the phase falls out for free.
+    const Range1D mapRange{.start = offset, .end = bufferSize};
+    void* rangeRead = bufObj->AcquireMemoryRange(mapRange, BufferMappingAccessBit::Read);
+    ASSERT_NE(rangeRead, nullptr);
+    EXPECT_EQ((addressOf(rangeRead) - offset) % alignment, 0u)
+        << "glMapBufferRange(READ) returned a pointer whose base is unaligned";
+    bufObj->ReleaseMemory();
+
+    // glMapBufferRange, write: the staging store has to be biased to the same phase, and the
+    // write-back has to follow the bias or the bytes land at the wrong place in the shadow.
+    Uint8* rangeWrite = static_cast<Uint8*>(bufObj->AcquireMemoryRange(mapRange, BufferMappingAccessBit::Write));
+    ASSERT_NE(rangeWrite, nullptr);
+    EXPECT_EQ((addressOf(rangeWrite) - offset) % alignment, 0u)
+        << "glMapBufferRange(WRITE) returned a pointer whose base is unaligned";
+    EXPECT_EQ(bufObj->GetMappedPointer(), rangeWrite)
+        << "GL_BUFFER_MAP_POINTER must report the pointer the map returned";
+    // Seeded from the shadow, so the mapped view starts at the offset's byte.
+    EXPECT_EQ(rangeWrite[0], static_cast<Uint8>(offset));
+    rangeWrite[0] = 0xAB;
+    rangeWrite[bufferSize - offset - 1] = 0xCD;
+    bufObj->ReleaseMemory();
+
+    Vector<Uint8> readBack(bufferSize);
+    bufObj->DownloadSubData(readBack.data(), 0, bufferSize);
+    EXPECT_EQ(readBack[offset], 0xAB) << "the biased staging write-back landed at the wrong offset";
+    EXPECT_EQ(readBack[bufferSize - 1], 0xCD) << "the biased staging write-back landed at the wrong offset";
+    EXPECT_EQ(readBack[offset - 1], static_cast<Uint8>(offset - 1)) << "the write-back overran the mapped range";
+}
+
+// The explicit-flush path reads through the same bias, one flush offset further in: a flush of
+// [offset + 4, offset + 8) must copy the bytes the application wrote at rangeWrite[4..8), not the
+// ones sitting four bytes into the raw allocation.
+TEST_F(BufferTest, ExplicitFlushOfARangeMapFollowsTheAlignmentBias) {
+    auto& slot = MobileGL::MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::Uniform);
+    Vector<Uint> bufferNames;
+    MobileGL::MG_State::pGLContext->GenBufferNames(1, bufferNames);
+    auto bufObj = MobileGL::MG_State::pGLContext->CreateBufferObject(bufferNames[0]);
+    slot.Bind(bufObj);
+
+    const SizeT alignment = MobileGL::MG_State::GLState::MIN_MAP_BUFFER_ALIGNMENT;
+    const SizeT bufferSize = 2 * alignment;
+    const SizeT offset = alignment - 1;
+    bufObj->Resize(bufferSize);
+    Vector<Uint8> initData(bufferSize, 0);
+    bufObj->UploadData(DataPtr{.data = initData.data(), .size = bufferSize}, 0);
+
+    const Range1D mapRange{.start = offset, .end = bufferSize};
+    Uint8* mapped = static_cast<Uint8*>(bufObj->AcquireMemoryRange(
+        mapRange, BufferMappingAccessBit::Write | BufferMappingAccessBit::FlushExplicit));
+    ASSERT_NE(mapped, nullptr);
+    mapped[4] = 0x5A;
+    mapped[5] = 0x5B;
+    bufObj->FlushMemoryRange(4, 2);
+    bufObj->ReleaseMemory();
+
+    Vector<Uint8> readBack(bufferSize);
+    bufObj->DownloadSubData(readBack.data(), 0, bufferSize);
+    EXPECT_EQ(readBack[offset + 4], 0x5A);
+    EXPECT_EQ(readBack[offset + 5], 0x5B);
+    EXPECT_EQ(readBack[offset + 3], 0x00) << "the explicit flush copied bytes outside the flushed range";
 }
 
 TEST_F(BufferTest, CopyBufferSubData) {
@@ -598,6 +710,117 @@ TEST_F(BufferTest, ClearNamedBufferSubDataRepeatsPattern) {
     Memcpy(actual.data(), bufferObject->AcquireMemory(false, true, false), actual.size() * sizeof(Uint32));
     EXPECT_EQ(actual, (Vector<Uint32>{0, pattern, pattern, pattern, 0}));
     EXPECT_EQ(MobileGL::MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+TEST_F(BufferTest, ClearBufferSubDataInitializesIrisStaticSsboRange) {
+    GLuint buffer = 0;
+    MobileGL::MG_Impl::GLImpl::GenBuffers(1, &buffer);
+    MobileGL::MG_Impl::GLImpl::BindBuffer(GL_SHADER_STORAGE_BUFFER, buffer);
+
+    Vector<Uint8> initial(32, 0x7F);
+    MobileGL::MG_Impl::GLImpl::BufferData(
+        GL_SHADER_STORAGE_BUFFER, initial.size(), initial.data(), GL_STATIC_DRAW);
+    const GLbyte zero = 0;
+    const auto clear = reinterpret_cast<PFNGLCLEARBUFFERSUBDATAPROC>(
+        MobileGL::MG_Impl::GetProcAddress("glClearBufferSubData"));
+    ASSERT_NE(clear, nullptr);
+    clear(GL_SHADER_STORAGE_BUFFER, GL_R8, 4, 24, GL_RED, GL_BYTE, &zero);
+
+    Vector<Uint8> actual(initial.size());
+    auto bufferObject = MobileGL::MG_State::pGLContext->GetBufferObject(buffer);
+    ASSERT_NE(bufferObject, nullptr);
+    Memcpy(actual.data(), bufferObject->AcquireMemory(false, true, false), actual.size());
+    EXPECT_EQ(actual, (Vector<Uint8>{0x7F, 0x7F, 0x7F, 0x7F,
+                                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                    0x7F, 0x7F, 0x7F, 0x7F}));
+    EXPECT_EQ(MobileGL::MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    MobileGL::MG_Impl::GLImpl::BindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+    MobileGL::MG_Impl::GLImpl::DeleteBuffers(1, &buffer);
+    DrainPendingGlErrors();
+}
+
+TEST_F(BufferTest, ClearBufferSubDataInitializesCompleteIrisStaticSsbo) {
+    constexpr SizeT irisStaticSsboSize = 5'000'192;
+    GLuint buffer = 0;
+    MobileGL::MG_Impl::GLImpl::GenBuffers(1, &buffer);
+    MobileGL::MG_Impl::GLImpl::BindBuffer(GL_SHADER_STORAGE_BUFFER, buffer);
+
+    Vector<Uint8> initial(irisStaticSsboSize, 0x7F);
+    MobileGL::MG_Impl::GLImpl::BufferData(
+        GL_SHADER_STORAGE_BUFFER, initial.size(), initial.data(), GL_STATIC_DRAW);
+    const GLbyte zero = 0;
+    MobileGL::MG_Impl::GLImpl::ClearBufferSubData(
+        GL_SHADER_STORAGE_BUFFER, GL_R8, 0, irisStaticSsboSize, GL_RED, GL_BYTE, &zero);
+
+    Vector<Uint8> actual(irisStaticSsboSize);
+    auto bufferObject = MobileGL::MG_State::pGLContext->GetBufferObject(buffer);
+    ASSERT_NE(bufferObject, nullptr);
+    Memcpy(actual.data(), bufferObject->AcquireMemory(false, true, false), actual.size());
+    EXPECT_EQ(actual, Vector<Uint8>(irisStaticSsboSize, 0));
+    EXPECT_EQ(MobileGL::MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    MobileGL::MG_Impl::GLImpl::BindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+    MobileGL::MG_Impl::GLImpl::DeleteBuffers(1, &buffer);
+    DrainPendingGlErrors();
+}
+
+TEST_F(BufferTest, ClearBufferDataConvertsOneClientPixelBeforeRepeatingIt) {
+    GLuint buffer = 0;
+    MobileGL::MG_Impl::GLImpl::GenBuffers(1, &buffer);
+    MobileGL::MG_Impl::GLImpl::BindBuffer(GL_ARRAY_BUFFER, buffer);
+
+    Vector<Uint32> initial(4, 0u);
+    MobileGL::MG_Impl::GLImpl::BufferData(GL_ARRAY_BUFFER, initial.size() * sizeof(Uint32), initial.data(),
+                                           GL_STATIC_DRAW);
+    const Uint8 value = 0xAB;
+    MobileGL::MG_Impl::GLImpl::ClearBufferData(
+        GL_ARRAY_BUFFER, GL_R32UI, GL_RED_INTEGER, GL_UNSIGNED_BYTE, &value);
+
+    Vector<Uint32> actual(initial.size());
+    auto bufferObject = MobileGL::MG_State::pGLContext->GetBufferObject(buffer);
+    ASSERT_NE(bufferObject, nullptr);
+    Memcpy(actual.data(), bufferObject->AcquireMemory(false, true, false), actual.size() * sizeof(Uint32));
+    EXPECT_EQ(actual, Vector<Uint32>(initial.size(), value));
+    EXPECT_EQ(MobileGL::MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    MobileGL::MG_Impl::GLImpl::BindBuffer(GL_ARRAY_BUFFER, 0);
+    MobileGL::MG_Impl::GLImpl::DeleteBuffers(1, &buffer);
+    DrainPendingGlErrors();
+}
+
+TEST_F(BufferTest, ClearBufferSubDataRejectsUnboundTarget) {
+    MobileGL::MG_Impl::GLImpl::BindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+    const GLbyte zero = 0;
+    MobileGL::MG_Impl::GLImpl::ClearBufferSubData(
+        GL_SHADER_STORAGE_BUFFER, GL_R8, 0, 1, GL_RED, GL_BYTE, &zero);
+    ExpectSingleGlError(GL_INVALID_OPERATION);
+}
+
+TEST_F(BufferTest, ClearBufferDataRejectsInvalidPixelFormatTypePairs) {
+    GLuint buffer = 0;
+    MobileGL::MG_Impl::GLImpl::GenBuffers(1, &buffer);
+    MobileGL::MG_Impl::GLImpl::BindBuffer(GL_ARRAY_BUFFER, buffer);
+
+    const Vector<Uint8> initial{0x7F, 0x7F};
+    MobileGL::MG_Impl::GLImpl::BufferData(GL_ARRAY_BUFFER, initial.size(), initial.data(), GL_STATIC_DRAW);
+    const Uint16 packed = 0;
+    MobileGL::MG_Impl::GLImpl::ClearBufferData(
+        GL_ARRAY_BUFFER, GL_R16, GL_RED, GL_UNSIGNED_SHORT_5_6_5, &packed);
+    ExpectSingleGlError(GL_INVALID_VALUE);
+    MobileGL::MG_Impl::GLImpl::ClearBufferData(
+        GL_ARRAY_BUFFER, GL_R16, GL_RED, GL_UNSIGNED_SHORT_5_6_5, nullptr);
+    ExpectSingleGlError(GL_INVALID_VALUE);
+
+    Vector<Uint8> actual(initial.size());
+    auto bufferObject = MobileGL::MG_State::pGLContext->GetBufferObject(buffer);
+    ASSERT_NE(bufferObject, nullptr);
+    Memcpy(actual.data(), bufferObject->AcquireMemory(false, true, false), actual.size());
+    EXPECT_EQ(actual, initial);
+
+    MobileGL::MG_Impl::GLImpl::BindBuffer(GL_ARRAY_BUFFER, 0);
+    MobileGL::MG_Impl::GLImpl::DeleteBuffers(1, &buffer);
+    DrainPendingGlErrors();
 }
 
 
@@ -1608,5 +1831,190 @@ TEST_F(GeneralBufferTest, General_CoherentAsFlush_PersistentMapAdoptsZeroCopyBac
     EXPECT_TRUE(UnmapBuffer(GL_ARRAY_BUFFER));
     EXPECT_EQ(mock.flushCalls, 0);
     EXPECT_EQ(GetError(), GL_NO_ERROR);
+    g_zeroCopyMock = nullptr;
+}
+
+// A buffer whose bytes the backend adopted into its own GPU memory - which is what
+// EnsureGpuResidentStorage does for a transform-feedback capture target or a shader
+// storage binding, so that MapBuffer/GetBufferSubData read real GPU results - and which
+// the application then REDEFINES.
+//
+// The store the adopted mapping describes is the one being thrown away. Keeping that
+// mapping across the redefinition is what let a transform feedback capture be written to
+// one buffer and read back out of another: the backend replaced the storage (a
+// respecification is the orphaning point) while the frontend went on resolving every read
+// through a mapping of the storage it had just released. Two capture spans into one
+// re-specified buffer came back empty from the second one onwards.
+//
+// So the mapping is handed back and the buffer returns to the CPU-shadow model until
+// something asks for residency again. These pin all three parts of that: the adoption
+// really is dropped, the new contents really do land where later reads resolve, and the
+// backend really is told to respecify - it must not skip the storage, or its copy would
+// keep the old bytes.
+TEST_F(BufferTest, RedefiningAnAdoptedBufferHandsTheMappingBack) {
+    ZeroCopyMockBackend mock;
+    g_zeroCopyMock = &mock;
+    ScopedBackendOps scopedOps(&kZeroCopyMockOps);
+
+    GLuint buffer = 0;
+    GenBuffers(1, &buffer);
+    BindBuffer(GL_ARRAY_BUFFER, buffer);
+    const GLint before[4] = {1, 2, 3, 4};
+    BufferData(GL_ARRAY_BUFFER, sizeof(before), before, GL_DYNAMIC_DRAW);
+    ASSERT_EQ(GetError(), GL_NO_ERROR);
+
+    auto bufferObject = MG_State::pGLContext->GetBufferObject(buffer);
+    ASSERT_NE(bufferObject, nullptr);
+    // The backend adopts the bytes, exactly as a capture target or an SSBO binding does.
+    ASSERT_TRUE(bufferObject->EnsureGpuResidentStorage());
+    ASSERT_TRUE(bufferObject->IsBackendPersistentMapped());
+    ASSERT_EQ(static_cast<const void*>(bufferObject->MappedData()),
+              static_cast<const void*>(mock.gpu.data()));
+    mock.respecifyCalls = 0;
+
+    const GLint after[4] = {10, 20, 30, 40};
+    BufferData(GL_ARRAY_BUFFER, sizeof(after), after, GL_DYNAMIC_DRAW);
+    ASSERT_EQ(GetError(), GL_NO_ERROR);
+
+    EXPECT_FALSE(bufferObject->IsBackendPersistentMapped());
+    EXPECT_NE(static_cast<const void*>(bufferObject->MappedData()),
+              static_cast<const void*>(mock.gpu.data()));
+    EXPECT_EQ(std::memcmp(bufferObject->MappedData(), after, sizeof(after)), 0);
+    // The backend has a separate copy again, so it must have been told to refresh it.
+    EXPECT_EQ(mock.respecifyCalls, 1);
+
+    g_zeroCopyMock = nullptr;
+}
+
+// The same redefinition at a LARGER size, which is the case nothing could paper over: the
+// adopted mapping is exactly as big as the old store, so writing the new contents through
+// it ran past the end of the backend allocation.
+TEST_F(BufferTest, RedefiningAnAdoptedBufferAtANewSizeStaysInBounds) {
+    ZeroCopyMockBackend mock;
+    g_zeroCopyMock = &mock;
+    ScopedBackendOps scopedOps(&kZeroCopyMockOps);
+
+    GLuint buffer = 0;
+    GenBuffers(1, &buffer);
+    BindBuffer(GL_ARRAY_BUFFER, buffer);
+    const GLint small[2] = {1, 2};
+    BufferData(GL_ARRAY_BUFFER, sizeof(small), small, GL_DYNAMIC_DRAW);
+    auto bufferObject = MG_State::pGLContext->GetBufferObject(buffer);
+    ASSERT_NE(bufferObject, nullptr);
+    ASSERT_TRUE(bufferObject->EnsureGpuResidentStorage());
+    ASSERT_EQ(mock.gpu.size(), sizeof(small));
+
+    const GLint large[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+    BufferData(GL_ARRAY_BUFFER, sizeof(large), large, GL_DYNAMIC_DRAW);
+    ASSERT_EQ(GetError(), GL_NO_ERROR);
+
+    EXPECT_EQ(bufferObject->GetSize(), sizeof(large));
+    EXPECT_FALSE(bufferObject->IsBackendPersistentMapped());
+    EXPECT_EQ(std::memcmp(bufferObject->MappedData(), large, sizeof(large)), 0);
+    // The old, smaller GPU block was not written through: still the old size, still the
+    // old bytes.
+    EXPECT_EQ(mock.gpu.size(), sizeof(small));
+    EXPECT_EQ(std::memcmp(mock.gpu.data(), small, sizeof(small)), 0);
+
+    // And residency can be taken again, now over the new store.
+    ASSERT_TRUE(bufferObject->EnsureGpuResidentStorage());
+    EXPECT_TRUE(bufferObject->IsBackendPersistentMapped());
+    EXPECT_EQ(mock.gpu.size(), sizeof(large));
+    EXPECT_EQ(std::memcmp(bufferObject->MappedData(), large, sizeof(large)), 0);
+
+    g_zeroCopyMock = nullptr;
+}
+
+// glBufferStorage is the other way into a redefinition, and an adopted buffer can reach
+// it: the adoption came from a binding rather than from an application map, so the buffer
+// is still mutable and glBufferStorage is still legal on it.
+TEST_F(BufferTest, ImmutableStorageOnAnAdoptedBufferHandsTheMappingBackToo) {
+    ZeroCopyMockBackend mock;
+    g_zeroCopyMock = &mock;
+    ScopedBackendOps scopedOps(&kZeroCopyMockOps);
+
+    GLuint buffer = 0;
+    GenBuffers(1, &buffer);
+    BindBuffer(GL_ARRAY_BUFFER, buffer);
+    const GLint before[4] = {1, 2, 3, 4};
+    BufferData(GL_ARRAY_BUFFER, sizeof(before), before, GL_DYNAMIC_DRAW);
+    auto bufferObject = MG_State::pGLContext->GetBufferObject(buffer);
+    ASSERT_NE(bufferObject, nullptr);
+    ASSERT_TRUE(bufferObject->EnsureGpuResidentStorage());
+    ASSERT_TRUE(bufferObject->IsBackendPersistentMapped());
+
+    const GLint after[6] = {9, 8, 7, 6, 5, 4};
+    BufferStorage(GL_ARRAY_BUFFER, sizeof(after), after, GL_MAP_READ_BIT);
+    ASSERT_EQ(GetError(), GL_NO_ERROR);
+
+    EXPECT_TRUE(bufferObject->IsImmutableStorage());
+    EXPECT_FALSE(bufferObject->IsBackendPersistentMapped());
+    EXPECT_EQ(bufferObject->GetSize(), sizeof(after));
+    EXPECT_EQ(std::memcmp(bufferObject->MappedData(), after, sizeof(after)), 0);
+
+    g_zeroCopyMock = nullptr;
+}
+
+// A redefinition to nothing. The backend declines residency for an empty store, so this
+// is also the path where the mapping is given back and never retaken.
+TEST_F(BufferTest, RedefiningAnAdoptedBufferToZeroBytesLeavesItOnTheShadow) {
+    ZeroCopyMockBackend mock;
+    g_zeroCopyMock = &mock;
+    ScopedBackendOps scopedOps(&kZeroCopyMockOps);
+
+    GLuint buffer = 0;
+    GenBuffers(1, &buffer);
+    BindBuffer(GL_ARRAY_BUFFER, buffer);
+    const GLint before[4] = {1, 2, 3, 4};
+    BufferData(GL_ARRAY_BUFFER, sizeof(before), before, GL_DYNAMIC_DRAW);
+    auto bufferObject = MG_State::pGLContext->GetBufferObject(buffer);
+    ASSERT_NE(bufferObject, nullptr);
+    ASSERT_TRUE(bufferObject->EnsureGpuResidentStorage());
+    ASSERT_TRUE(bufferObject->IsBackendPersistentMapped());
+
+    BufferData(GL_ARRAY_BUFFER, 0, nullptr, GL_DYNAMIC_DRAW);
+    ASSERT_EQ(GetError(), GL_NO_ERROR);
+
+    EXPECT_EQ(bufferObject->GetSize(), 0u);
+    EXPECT_FALSE(bufferObject->IsBackendPersistentMapped());
+    EXPECT_FALSE(bufferObject->EnsureGpuResidentStorage()); // nothing to make resident
+
+    // ...and it comes back to life on the next non-empty store.
+    const GLint again[3] = {5, 6, 7};
+    BufferData(GL_ARRAY_BUFFER, sizeof(again), again, GL_DYNAMIC_DRAW);
+    ASSERT_EQ(GetError(), GL_NO_ERROR);
+    EXPECT_TRUE(bufferObject->EnsureGpuResidentStorage());
+    EXPECT_EQ(std::memcmp(bufferObject->MappedData(), again, sizeof(again)), 0);
+
+    g_zeroCopyMock = nullptr;
+}
+
+// The negative control for the four above: a backend that DECLINES to hand out a mapping
+// leaves the buffer shadow-backed throughout, so a redefinition is just a redefinition -
+// no adoption to give back, and the backend still gets its Respecify.
+TEST_F(BufferTest, RedefiningANonAdoptedBufferIsUnchanged) {
+    ZeroCopyMockBackend mock;
+    mock.provideMap = false;
+    g_zeroCopyMock = &mock;
+    ScopedBackendOps scopedOps(&kZeroCopyMockOps);
+
+    GLuint buffer = 0;
+    GenBuffers(1, &buffer);
+    BindBuffer(GL_ARRAY_BUFFER, buffer);
+    const GLint before[4] = {1, 2, 3, 4};
+    BufferData(GL_ARRAY_BUFFER, sizeof(before), before, GL_DYNAMIC_DRAW);
+    auto bufferObject = MG_State::pGLContext->GetBufferObject(buffer);
+    ASSERT_NE(bufferObject, nullptr);
+    EXPECT_FALSE(bufferObject->EnsureGpuResidentStorage());
+    EXPECT_FALSE(bufferObject->IsBackendPersistentMapped());
+    mock.respecifyCalls = 0;
+
+    const GLint after[4] = {10, 20, 30, 40};
+    BufferData(GL_ARRAY_BUFFER, sizeof(after), after, GL_DYNAMIC_DRAW);
+    ASSERT_EQ(GetError(), GL_NO_ERROR);
+    EXPECT_FALSE(bufferObject->IsBackendPersistentMapped());
+    EXPECT_EQ(std::memcmp(bufferObject->MappedData(), after, sizeof(after)), 0);
+    EXPECT_EQ(mock.respecifyCalls, 1);
+
     g_zeroCopyMock = nullptr;
 }

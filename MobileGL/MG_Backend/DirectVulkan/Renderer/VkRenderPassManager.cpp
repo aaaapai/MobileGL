@@ -123,7 +123,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         if (!attachment.IsComplete()) {
-            MGLOG_W("GetOrCreateRenderPass: draw buffer slot %u (%s) on FBO %u has an incomplete texture attachment; using VK_ATTACHMENT_UNUSED",
+            MGLOG_W_ONCE("GetOrCreateRenderPass: draw buffer slot %u (%s) on FBO %u has an incomplete texture attachment; using VK_ATTACHMENT_UNUSED",
                     drawBufferIndex,
                     MG_Util::ConvertFramebufferAttachmentTypeToString(attachmentType).c_str(),
                     fbo.GetExternalIndex());
@@ -132,7 +132,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         auto* texture = attachment.GetTexture().get();
         if (texture == nullptr) {
-            MGLOG_W("GetOrCreateRenderPass: draw buffer slot %u (%s) on FBO %u resolved to a null texture; using VK_ATTACHMENT_UNUSED",
+            MGLOG_W_ONCE("GetOrCreateRenderPass: draw buffer slot %u (%s) on FBO %u resolved to a null texture; using VK_ATTACHMENT_UNUSED",
                     drawBufferIndex,
                     MG_Util::ConvertFramebufferAttachmentTypeToString(attachmentType).c_str(),
                     fbo.GetExternalIndex());
@@ -311,7 +311,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         VkSampleCountFlagBits sampleCount = VK_SAMPLE_COUNT_1_BIT;
         if (!TryResolveSampleCountFlagBits(renderbuffer->GetSamples(), sampleCount)) {
-            MGLOG_E("GetOrCreateRenderbufferResource: unsupported renderbuffer sample count %d for renderbuffer %u",
+            MGLOG_E_ONCE("GetOrCreateRenderbufferResource: unsupported renderbuffer sample count %d for renderbuffer %u",
                     renderbuffer->GetSamples(),
                     renderbuffer->GetExternalIndex());
             return nullptr;
@@ -457,7 +457,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             m_physicalDevice, format, imageInfo.imageType, imageInfo.tiling, imageInfo.usage, imageInfo.flags,
             &imageFormatProperties);
         if (imageFormatResult != VK_SUCCESS || (imageFormatProperties.sampleCounts & sampleCount) == 0) {
-            MGLOG_E("GetOrCreateRenderbufferResource: unsupported renderbuffer format=%d samples=%d for renderbuffer %u",
+            MGLOG_E_ONCE("GetOrCreateRenderbufferResource: unsupported renderbuffer format=%d samples=%d for renderbuffer %u",
                     static_cast<Int>(format),
                     static_cast<Int>(sampleCount),
                     renderbuffer->GetExternalIndex());
@@ -831,6 +831,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         // recreated since (texture + renderbuffer image epochs), and no pending clear (which alters
         // load ops). Any of these differing forces the full recompute below. Portable to VK 1.1.
         if (activeRenderPass != nullptr && m_rpFastValid && m_rpFastFbo == &fbo &&
+            m_rpFastFboLifetimeId == fbo.GetLifetimeId() &&
             m_rpFastFboVersion == fbo.GetObjectVersion() && m_rpFastSwapchainIndex == swapchainImageIndex &&
             m_rpFastTexEpoch == m_textureManager.GetTextureImageEpoch() &&
             m_rpFastRbEpoch == m_renderbufferImageEpoch &&
@@ -855,6 +856,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             // epochs AFTER ComputeHash: its attachment SyncTexture can create an image (bump the epoch).
             m_rpFastValid = true;
             m_rpFastFbo = &fbo;
+            m_rpFastFboLifetimeId = fbo.GetLifetimeId();
             m_rpFastFboVersion = fbo.GetObjectVersion();
             m_rpFastSwapchainIndex = swapchainImageIndex;
             m_rpFastTexEpoch = m_textureManager.GetTextureImageEpoch();
@@ -929,7 +931,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                     const auto& renderbuffer = rbAtt.GetRenderbuffer();
                     auto* rbResource = GetOrCreateRenderbufferResource(renderbuffer);
                     if (rbResource == nullptr || (rbResource->aspect & VK_IMAGE_ASPECT_COLOR_BIT) == 0) {
-                        MGLOG_E("GetOrCreateRenderPass: draw buffer slot %u on FBO %u has an unsupported color "
+                        MGLOG_E_ONCE("GetOrCreateRenderPass: draw buffer slot %u on FBO %u has an unsupported color "
                                 "renderbuffer %u; using VK_ATTACHMENT_UNUSED",
                                 i, fbo.GetExternalIndex(), renderbuffer->GetExternalIndex());
                         continue;
@@ -1105,7 +1107,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                     adoptRenderPassSampleCount(attachmentSampleCount, "color", texture->GetExternalIndex());
 
                     if (!hasClear && trackedColorLayout == VK_IMAGE_LAYOUT_UNDEFINED) {
-                        MGLOG_W("GetOrCreateRenderPass: color attachment textureId=%d starts with undefined layout and no clear; "
+                        MGLOG_W_ONCE("GetOrCreateRenderPass: color attachment textureId=%d starts with undefined layout and no clear; "
                                 "using LOAD_OP_DONT_CARE",
                                 texture->GetExternalIndex());
                         desc.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
@@ -1161,7 +1163,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             isUsableDepthStencilAttachment(depthAtt) && isUsableDepthStencilAttachment(stencilAtt) &&
             !sameDepthStencilAttachmentObject(depthAtt, stencilAtt);
         if (hasDistinctDepthAndStencilAttachments) {
-            MGLOG_E("GetOrCreateRenderPass: separate depth/stencil attachments are not supported yet; using the depth attachment and ignoring the standalone stencil attachment for framebuffer %u",
+            MGLOG_E_ONCE("GetOrCreateRenderPass: separate depth/stencil attachments are not supported yet; using the depth attachment and ignoring the standalone stencil attachment for framebuffer %u",
                     fbo.GetExternalIndex());
         }
         if (selectedDepthStencilAttachment != nullptr) {
@@ -1223,7 +1225,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             depthAttachmentDescription.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
             depthAttachmentDescription.initialLayout = loadInfo.initialLayout;
             if (trackedDepthLayout == VK_IMAGE_LAYOUT_UNDEFINED && (!clearDepth || !clearStencil)) {
-                MGLOG_W("GetOrCreateRenderPass: depth/stencil attachment id=%d starts with undefined layout "
+                MGLOG_W_ONCE("GetOrCreateRenderPass: depth/stencil attachment id=%d starts with undefined layout "
                         "and partial/no clear; using DONT_CARE for uncleared aspects",
                         depthAttachmentId);
             }
@@ -1507,7 +1509,23 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             ClearAttachmentPayload clearPayload{};
             SharedPtr<MG_State::GLState::ITextureObject> liveTexture;
             if (pending.hasInlinePayload) {
-                clearPayload = pending.inlinePayload;
+                // The inline payload was snapshotted when the entry was CREATED, but the
+                // clear VALUE is not part of the entry's hash - a cache hit with a newer
+                // glClear would replay the creation-time value and drop the new one (the
+                // texture path below is immune because it re-reads the live payload).
+                // Same defense as ClearAttachmentsOnActiveRenderPass: prefer the live
+                // pending clear, fall back to the snapshot only when none is queued.
+                if (s_renderPassManager != nullptr &&
+                    s_renderPassManager->GetPendingRenderbufferClear(pending.renderbuffer, clearPayload)) {
+                    if ((clearPayload.mask & GL_COLOR_BUFFER_BIT) != 0 && pending.renderbuffer != nullptr &&
+                        MG_Util::GetBaseInternalFormatComponentCount(pending.renderbuffer->GetInternalFormat()) ==
+                            3) {
+                        // RGB renderbuffers are backed by an RGBA image; the missing alpha reads as 1.
+                        ForceOpaqueClearAlpha(clearPayload);
+                    }
+                } else {
+                    clearPayload = pending.inlinePayload;
+                }
             } else {
                 if (pending.key.texture == nullptr ||
                     !s_clearManager->GetPendingClear(pending.key, clearPayload, liveTexture)) {

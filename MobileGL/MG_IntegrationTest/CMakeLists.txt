@@ -24,9 +24,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(MGL_ITEST_ROOT ${CMAKE_CURRENT_LIST_DIR}/../..)
 
-# Only meaningful where MobileGL_s exists (i.e. not Android).
-if (NOT TARGET MobileGL_s)
-    message(STATUS "MobileGL_s is not available; skipping the integration test module")
+# Desktop links the static implementation directly. Android runs the same
+# executable from adb shell and links the shipping shared library instead.
+if (ANDROID)
+    set(MGL_ITEST_MOBILEGL_TARGET MobileGL)
+elseif (TARGET MobileGL_s)
+    set(MGL_ITEST_MOBILEGL_TARGET MobileGL_s)
+else()
+    message(STATUS "No MobileGL library target is available; skipping the integration test module")
     return()
 endif()
 
@@ -50,24 +55,48 @@ add_executable(MobileGLIntegrationTest
     Scenarios/CrossFrameBufferScenario.cpp
     Scenarios/ResidentIndexScenario.cpp
     Scenarios/MultiDrawScenario.cpp
+    Scenarios/DrawParametersScenario.cpp
     Scenarios/AsyncCompileScenario.cpp
     Scenarios/XfbAfterClipDistanceScenario.cpp
     Scenarios/ThreeChannelAttachmentScenario.cpp
+    Scenarios/SnormAttachmentScenario.cpp
     Scenarios/PipelineFailureScenario.cpp
     Scenarios/AdvertisedLimitsScenario.cpp
     Scenarios/PixelStoreSweepScenario.cpp
     Scenarios/FragCoordOriginScenario.cpp
     Scenarios/ClearThenReadPixelsScenario.cpp
     Scenarios/DepthStencilReadbackScenario.cpp
+    Scenarios/DepthStencilReadbackMatrixScenario.cpp
+    Scenarios/DepthStencilReadbackAttachmentShapeScenario.cpp
+    Scenarios/ClipDistanceScenario.cpp
+    Scenarios/ViewportArrayScenario.cpp
     Scenarios/SsboArrayLengthScenario.cpp
+    Scenarios/DoublePrecisionScenario.cpp
     Scenarios/UniformInitializerScenario.cpp
     Scenarios/SwizzleAccessRoutineScenario.cpp
+    Scenarios/IterationRPFirstReductionScenario.cpp
+    Scenarios/IterationRPProgram203Scenario.cpp
+    Scenarios/IterationRPScratchFixScenario.cpp
     Scenarios/ProgramPipelineScenario.cpp
     Scenarios/ImageLoadStoreSsoScenario.cpp
+    Scenarios/ImageTargetKindScenario.cpp
+    Scenarios/ImageFormatQualifierScenario.cpp
+    Scenarios/ImageSizeAfterRespecScenario.cpp
     Scenarios/SsboDeclarationFormScenario.cpp
     Scenarios/Glsl420DeclarationScenario.cpp
+    Scenarios/IoBlockNameCollisionScenario.cpp
     Scenarios/FragmentOutputArrayIndexScenario.cpp
     Scenarios/BufferTextureScenario.cpp
+    Scenarios/VertexAttribBindingScenario.cpp
+    Scenarios/XfbCaptureBufferReuseScenario.cpp
+    Scenarios/XfbPrimitiveQueryScenario.cpp
+    Scenarios/VertexArrayEnableDisableScenario.cpp
+    Scenarios/CopyImageLevelRangeScenario.cpp
+    Scenarios/CopyImageLayeredScenario.cpp
+    Scenarios/PackedWordReadbackScenario.cpp
+    Scenarios/LayeredAttachmentBarrierScenario.cpp
+    Scenarios/LayeredTextureReadbackScenario.cpp
+    Scenarios/AtomicCounterScenario.cpp
 )
 
 target_include_directories(MobileGLIntegrationTest PRIVATE
@@ -78,8 +107,19 @@ target_include_directories(MobileGLIntegrationTest PRIVATE
 # gtest, not gtest_main: Main.cpp installs the harness banner itself.
 target_link_libraries(MobileGLIntegrationTest PRIVATE
     GTest::gtest
-    MobileGL_s
+    ${MGL_ITEST_MOBILEGL_TARGET}
 )
+
+if (ANDROID)
+    find_library(MGL_ITEST_ANDROID_LIBRARY android REQUIRED)
+    find_library(MGL_ITEST_LOG_LIBRARY log REQUIRED)
+    find_library(MGL_ITEST_MEDIANDK_LIBRARY mediandk REQUIRED)
+    target_link_libraries(MobileGLIntegrationTest PRIVATE
+        ${MGL_ITEST_ANDROID_LIBRARY}
+        ${MGL_ITEST_LOG_LIBRARY}
+        ${MGL_ITEST_MEDIANDK_LIBRARY}
+    )
+endif()
 
 if (MSVC)
     # Same reason as MG_Test/Backend/DirectVulkan: the GLES headers declare gl*
@@ -88,6 +128,10 @@ if (MSVC)
     target_link_options(MobileGLIntegrationTest PRIVATE /WHOLEARCHIVE:MobileGL_s)
 endif()
 target_compile_definitions(MobileGLIntegrationTest PRIVATE -DNOMINMAX)
+
+if (ANDROID)
+    return()
+endif()
 
 # --- ctest wiring --------------------------------------------------------
 # A bare libEGL on a glvnd box resolves to whatever vendor comes first, which is
@@ -209,6 +253,19 @@ endif()
 set(MGL_ITEST_VULKAN_ENV ${MGL_ITEST_COMMON_ENV})
 if (MOBILEGL_ITEST_VK_ICD)
     list(APPEND MGL_ITEST_VULKAN_ENV "VK_ICD_FILENAMES=${MOBILEGL_ITEST_VK_ICD}")
+    # The three iterationRP repairs are tri-state quirks that default to device
+    # auto-detection, and lavapipe is not on any auto list - so on lavapipe the
+    # iterationRP scenarios run unrepaired and Program 203 misses its golden
+    # output. CI's integration-gpu job exports these three by hand; pinning them
+    # to the ICD instead means a local `ctest -L integration-gpu` measures the
+    # same thing the gate does, with no environment to remember.
+    if (MOBILEGL_ITEST_VK_ICD MATCHES "lvp_icd|lavapipe")
+        message(STATUS "Integration tests: lavapipe ICD - forcing the iterationRP repairs on")
+        list(APPEND MGL_ITEST_VULKAN_ENV
+            "MOBILEGL_FIX_ITERATIONRP_SUBGROUP_SCRATCH=1"
+            "MOBILEGL_DERIVE_NUM_SUBGROUPS=1"
+            "MOBILEGL_ITERATIONRP_FIX_BARRIER=1")
+    endif()
 endif()
 
 # The ENVIRONMENT test property is itself a `;`-list, and gtest_discover_tests
@@ -235,6 +292,8 @@ mgl_itest_join_environment(MGL_ITEST_VULKAN_ENVIRONMENT
     "MOBILEGL_BACKEND_TYPE=DirectVulkan" ${MGL_ITEST_VULKAN_ENV})
 mgl_itest_join_environment(MGL_ITEST_VULKAN_ASYNC_ENVIRONMENT
     "MOBILEGL_BACKEND_TYPE=DirectVulkan" "MOBILEGL_ASYNC_SHADER_COMPILE=1" ${MGL_ITEST_VULKAN_ENV})
+mgl_itest_join_environment(MGL_ITEST_GLES_FORCED_DS_ENVIRONMENT
+    "MOBILEGL_BACKEND_TYPE=DirectGLES" "MOBILEGL_ESPRYT_FORCE_DS_READBACK_EMULATION=1" ${MGL_ITEST_COMMON_ENV})
 
 # TIMEOUT on every entry: a GPU test that wedges must fail the run, not hang it.
 set(MGL_ITEST_TIMEOUT 120)
@@ -281,4 +340,22 @@ gtest_discover_tests(MobileGLIntegrationTest
         LABELS integration-gpu
         TIMEOUT ${MGL_ITEST_TIMEOUT}
         ENVIRONMENT "${MGL_ITEST_VULKAN_ASYNC_ENVIRONMENT}"
+)
+
+# A fourth registration, of the depth/stencil readback scenarios, with the ES
+# shader-sampling emulation forced on. Not paranoia - without it these scenarios are
+# UNFALSIFIABLE on the machines this suite runs on: OpenGL ES has no depth or stencil
+# readback in core, but Mesa accepts the reads anyway, so on llvmpipe every one of them
+# goes green through a native path that the Adreno device does not have. Deleting the
+# entire emulation left all of them passing. With the flag the native spellings are off
+# the table and only the path the device actually takes remains. DirectGLES only - the
+# emulation is DirectGLES's.
+gtest_discover_tests(MobileGLIntegrationTest
+    TEST_PREFIX "DirectGLES.ForcedDepthStencilEmulation."
+    TEST_FILTER "DepthStencilReadback*Scenario.*"
+    DISCOVERY_TIMEOUT 30
+    PROPERTIES
+        LABELS integration-gpu
+        TIMEOUT ${MGL_ITEST_TIMEOUT}
+        ENVIRONMENT "${MGL_ITEST_GLES_FORCED_DS_ENVIRONMENT}"
 )

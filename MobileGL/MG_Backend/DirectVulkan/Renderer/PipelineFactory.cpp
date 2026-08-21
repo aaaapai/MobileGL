@@ -206,6 +206,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         XXHASH_VERIFY(
             XXH64_update(m_hashState, &payload.primitiveRestartEnable, sizeof(payload.primitiveRestartEnable)));
         XXHASH_VERIFY(XXH64_update(m_hashState, &payload.patchControlPoints, sizeof(payload.patchControlPoints)));
+        XXHASH_VERIFY(XXH64_update(m_hashState, &payload.viewportCount, sizeof(payload.viewportCount)));
         XXHASH_VERIFY(XXH64_update(m_hashState, &payload.polygonMode, sizeof(payload.polygonMode)));
         XXHASH_VERIFY(XXH64_update(m_hashState, &payload.cullMode, sizeof(payload.cullMode)));
         XXHASH_VERIFY(XXH64_update(m_hashState, &payload.frontFace, sizeof(payload.frontFace)));
@@ -259,7 +260,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         // is the correct price for a broken pipeline and is bounded by the draw itself being
         // skipped.
         if (pipeline == VK_NULL_HANDLE) {
-            MGLOG_I("PipelineFactory::GetOrCreatePipeline: creation failed for hash=0x%llx "
+            // Unlatched, like the CreatePipeline report it accompanies: a pipeline MobileGL
+            // assembled and the driver refused is a broken invariant, not an expected failure,
+            // so it stays loud for as long as it is reachable. Raised from MGLOG_I once the
+            // Log.h ordering fix made MGLOG_E live in INFO builds.
+            MGLOG_E("PipelineFactory::GetOrCreatePipeline: creation failed for hash=0x%llx "
                     "programHash=0x%llx; not caching the failure",
                     static_cast<unsigned long long>(hash),
                     static_cast<unsigned long long>(payload.programHash));
@@ -402,8 +407,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         tessellation.patchControlPoints = payload.patchControlPoints;
 
         VkPipelineViewportStateCreateInfo vpci{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
-        vpci.viewportCount = 1;
-        vpci.scissorCount = 1;
+        // Both counts move together: GL has one scissor rectangle per viewport, and Vulkan
+        // requires viewportCount == scissorCount whenever both are dynamic
+        // (VUID-VkPipelineViewportStateCreateInfo-scissorCount-04136). The caller has already
+        // clamped this to the device's multiViewport capability.
+        vpci.viewportCount = std::max<Uint32>(payload.viewportCount, 1u);
+        vpci.scissorCount = vpci.viewportCount;
 
         VkPipelineRasterizationStateCreateInfo raster{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
         raster.polygonMode = payload.polygonMode;
@@ -471,9 +480,56 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         blend.attachmentCount = payload.colorAttachmentCount;
         blend.pAttachments = colorAttachments.empty() ? nullptr : colorAttachments.data();
 
+        // A GL program may have a tessellation EVALUATION stage and no CONTROL stage: GL 4.6 core
+        // 11.2.2 gives it a fixed-function pass-through instead. Vulkan has no such stage, and
+        // VUID-VkGraphicsPipelineCreateInfo-pStages-00730 requires both tessellation stages or
+        // neither - so the renderer synthesizes the pass-through GL describes and hands it in
+        // here (see ProgramFactory::GetOrCreatePassthroughTessControlStage).
+        //
+        // The refusal below is what keeps the half-tessellated shape away from the driver when
+        // there is no synthesized stage to add - because Mali does not reject it, it dereferences
+        // null INSIDE vkCreateGraphicsPipelines and takes the process down (SIGSEGV, fault addr
+        // 0x34, on Mali-G715/r54p2 and Mali-G925/r49p1 alike; Adreno and lavapipe merely render
+        // wrong). Returning VK_NULL_HANDLE routes this through the same path a driver rejection
+        // takes: the draw is skipped, nothing is memoised, and the process survives.
+        const Vector<VkPipelineShaderStageCreateInfo>* effectiveStages = payload.stages;
+        Vector<VkPipelineShaderStageCreateInfo> stagesWithPassthrough;
+        if (payload.passthroughTessControlStage.module != VK_NULL_HANDLE) {
+            stagesWithPassthrough = *payload.stages;
+            stagesWithPassthrough.push_back(payload.passthroughTessControlStage);
+            effectiveStages = &stagesWithPassthrough;
+        }
+        {
+            VkShaderStageFlags stagesPresent = 0;
+            for (const auto& stageInfo : *effectiveStages) {
+                stagesPresent |= stageInfo.stage;
+            }
+            const Bool hasTessControl = (stagesPresent & VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT) != 0;
+            const Bool hasTessEval = (stagesPresent & VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT) != 0;
+            if (hasTessControl != hasTessEval) {
+                // Latched, and the latch is the point: a failed creation is deliberately never
+                // memoised (see GetOrCreatePipeline), so a program in this state re-enters here
+                // once per draw, every frame - and a refusal diagnostic that repeats per draw is
+                // noise, not a diagnostic. One line names the program; the draws it explains are
+                // all the same draw.
+                static Bool s_warnedHalfTessellatedPipeline = false;
+                if (!s_warnedHalfTessellatedPipeline) {
+                    s_warnedHalfTessellatedPipeline = true;
+                    MGLOG_E_ONCE("PipelineFactory::CreatePipeline: refusing a pipeline with %s tessellation stage and "
+                            "no %s stage (VUID-VkGraphicsPipelineCreateInfo-pStages-00730). programHash=0x%llx "
+                            "patchControlPoints=%u. Its draws are skipped; logged once.",
+                            hasTessEval ? "an evaluation" : "a control",
+                            hasTessEval ? "control" : "evaluation",
+                            static_cast<unsigned long long>(payload.programHash),
+                            payload.patchControlPoints);
+                }
+                return VK_NULL_HANDLE;
+            }
+        }
+
         VkGraphicsPipelineCreateInfo gpi{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
-        gpi.stageCount = static_cast<Uint32>(payload.stages->size());
-        gpi.pStages = payload.stages->data();
+        gpi.stageCount = static_cast<Uint32>(effectiveStages->size());
+        gpi.pStages = effectiveStages->data();
         gpi.pVertexInputState = payload.vertexInputState;
         gpi.pInputAssemblyState = &ia;
         gpi.pTessellationState =
@@ -490,6 +546,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         VkPipeline pipeline = VK_NULL_HANDLE;
         const VkResult result = vkCreateGraphicsPipelines(m_device, m_pipelineCache, 1, &gpi, nullptr, &pipeline);
+        // Loud, at MGLOG_F, and deliberately NOT latched. vkCreateGraphicsPipelines refusing a
+        // pipeline MobileGL assembled is a should-never-happen state, and the driver's own
+        // answer is VK_ERROR_UNKNOWN - no information at all - so this dump is the entire
+        // diagnosis. It is not an expected failure mode, so the one-shot rule that quiets W/E
+        // does not apply: while this is reachable it should keep saying so on every draw.
+        // GetOrCreatePipeline deliberately does not cache the failure, which is what makes that
+        // repetition happen; if the repetition ever needs to stop, fix the pipeline, not the log.
         if (result != VK_SUCCESS) {
             MGLOG_F("PipelineFactory::CreatePipeline failed: result=%s (%d) programHash=0x%llx vertexInputHash=0x%llx stageCount=%u topology=%s(%d) colorAttachmentCount=%u samples=%s(%d) subpass=%u",
                     VkResultToString(result),
@@ -522,8 +585,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                     payload.vertexInputState->vertexAttributeDescriptionCount);
             // The driver's own answer is VK_ERROR_UNKNOWN, i.e. no information at all, so the only
             // way to work out WHICH shader it choked on (the open sampler-array-in-struct
-            // investigation) is to name the modules. MGLOG_I, not _D/_E: this must survive in the
-            // INFO-level builds that CTS actually runs against.
+            // investigation) is to name the modules. MGLOG_I, not _D: this is part of a
+            // should-never-happen report and must survive in the INFO-level builds that CTS
+            // actually runs against, alongside the MGLOG_F lines above.
             if (payload.stageSpirvDigests) {
                 for (SizeT i = 0; i < payload.stageSpirvDigests->size(); ++i) {
                     const auto& digest = (*payload.stageSpirvDigests)[i];

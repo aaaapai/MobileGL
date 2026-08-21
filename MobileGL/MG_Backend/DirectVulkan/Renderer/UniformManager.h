@@ -26,9 +26,20 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     public:
         struct SamplerBindingOverride {
             Uint32 binding = 0;
+            Uint32 element = 0;
             MG_State::GLState::ITextureObject* texture = nullptr;
             const MG_State::GLState::SamplerObject* sampler = nullptr;
             VkImageView imageView = VK_NULL_HANDLE;
+            VkImageLayout imageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            Bool forceNearestFiltering = false;
+        };
+
+        struct SamplerImageFeedbackBinding {
+            Uint32 samplerBinding = 0;
+            Uint32 samplerElement = 0;
+            MG_State::GLState::ITextureObject* texture = nullptr;
+            const MG_State::GLState::SamplerObject* sampler = nullptr;
+            SamplerNumericDomain numericDomain = SamplerNumericDomain::Unknown;
         };
 
         Bool Initialize(VkDevice device, VkBufferManager* bufferManager,
@@ -79,6 +90,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Bool CollectStorageImageTextures(const MG_State::GLState::ProgramObject& program,
                                          const ProgramFactory::VkProgramObject& programObj,
                                          Vector<MG_State::GLState::ITextureObject*>& outTextures) const;
+        Bool CollectSamplerImageFeedback(
+            const MG_State::GLState::ProgramObject& program,
+            const ProgramFactory::VkProgramObject& programObj,
+            Vector<SamplerImageFeedbackBinding>& outBindings) const;
+        static Bool SamplerOverlapsWritableImageSubresource(Int samplerBaseLevel, Int samplerMaxLevel,
+                                                             GLint imageLevel, GLenum imageAccess);
         // samplerDescriptorsUnchangedHint: the caller (SetupDraw fast path) proved that
         // every input of every combined-image-sampler resolution is unchanged since the
         // previous draw's resolve - same (texture, sampler) per binding, texture params
@@ -91,7 +108,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                        Uint32 frameIndex,
                                        VkPipelineBindPoint bindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
                                        const SamplerBindingOverride* samplerBindingOverride = nullptr,
-                                       Bool samplerDescriptorsUnchangedHint = false);
+                                       Bool samplerDescriptorsUnchangedHint = false,
+                                       const Vector<SamplerBindingOverride>* samplerBindingOverrides = nullptr);
 
         // Pure format-policy helper kept public for host regression tests. Formatted storage
         // images use their shader qualifier; transformed float images use glBindImageTexture's
@@ -114,6 +132,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             VkDescriptorPool handle = VK_NULL_HANDLE;
             Uint32 maxSets = 0;
             Uint32 allocatedSets = 0;
+            Bool updateAfterBind = false;
         };
 
         // A cached descriptor set together with the pool it was allocated from, so a
@@ -175,6 +194,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Bool ResolveTexelBufferDescriptor(const MG_State::GLState::ProgramObject& program,
                                           const ProgramFactory::VkProgramObject& programObj, Uint32 binding,
                                           Uint32 frameIndex, VkBufferView& outBufferView);
+        // GLSL `imageBuffer`: the same VkBufferView descriptor as the sampled texel buffer above,
+        // but resolved from an IMAGE unit (glBindImageTexture) rather than a texture unit, and
+        // made GPU-resident-writable because the shader may store to it. No `element` parameter:
+        // an imageBuffer ARRAY is refused at program creation, so a binding is always one
+        // descriptor (see the array gate in RemapDescriptorBindingsForVulkan).
+        Bool ResolveStorageTexelBufferDescriptor(const MG_State::GLState::ProgramObject& program,
+                                                 const ProgramFactory::VkProgramObject& programObj, Uint32 binding,
+                                                 Uint32 frameIndex, VkBufferView& outBufferView);
         // `element` indexes a block INSTANCE array's descriptors; it is 0 for every ordinary
         // block. Each element resolves through its own GL storage block, and so its own GL
         // binding point, buffer and glBindBufferRange window.
@@ -215,8 +242,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void BindDescriptorSetDeduped(VkCommandBuffer commandBuffer, VkPipelineBindPoint bindPoint,
                                       VkPipelineLayout pipelineLayout, VkDescriptorSet descriptorSet,
                                       const Vector<Uint32>& dynamicOffsets);
-        Bool CreateDescriptorPool(Uint32 maxSets, VkDescriptorPool& outPool) const;
-        Bool GrowFrameDescriptorPool(FrameResources& frame, Uint32 frameIndex);
+        Bool CreateDescriptorPool(Uint32 maxSets, Bool updateAfterBind, VkDescriptorPool& outPool) const;
+        Bool GrowFrameDescriptorPool(FrameResources& frame, Uint32 frameIndex, Bool updateAfterBind);
         VkResult AllocateDescriptorSetsFromActivePool(
             Uint32 frameIndex, const ProgramFactory::VkProgramObject& programObj, VkDescriptorSet& outDescriptorSet);
         VkResult AcquireDescriptorSet(Uint32 frameIndex,
@@ -333,8 +360,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         // lifetime id, so a freed-and-reallocated sampler or texture at the same heap address
         // always gets a fresh id and misses (a raw pointer would false-hit that ABA) - so a
         // stale guess can only miss and fall through to the hash, never resolve wrong. Still
-        // reset each frame alongside the descriptor-set cache. Indexed by binding.
+        // reset each frame alongside the descriptor-set cache. Indexed by binding, but the
+        // whole-descriptor entry is additionally keyed by program lifetime: Vulkan binding
+        // numbers are layout-local and unrelated programs routinely reuse binding 0/1.
         struct SamplerResolveMemo {
+            Uint64 infoProgramLifetimeId = 0;
             Uint64 samplerLifetimeId = 0;
             Uint64 textureLifetimeId = 0;
             VkSampler sampler = VK_NULL_HANDLE;

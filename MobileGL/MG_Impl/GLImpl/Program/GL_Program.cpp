@@ -21,6 +21,9 @@
 #include <MG_Backend/BackendObjects.h>
 
 namespace MobileGL::MG_Impl::GLImpl {
+    // The flattened uniform type these helpers used to take as a raw glslang::TType*
+    // pointing into the TProgram's pool allocator. See ProgramObject::TypeFacts.
+    using TypeFactsRef = const MG_State::GLState::ProgramObject::TypeFacts&;
     static GLint BoolToGLInt(bool value) {
         return value ? GL_TRUE : GL_FALSE;
     }
@@ -223,14 +226,14 @@ namespace MobileGL::MG_Impl::GLImpl {
         return false;
     }
 
-    GLint GetOpaqueUniformUnitLimit(const glslang::TType* type) {
+    GLint GetOpaqueUniformUnitLimit(const TypeFactsRef type) {
         const auto& dynamicParameters = MG_Backend::pActiveBackendObject->GetDynamicParameters();
-        if (type && type->isImage()) return dynamicParameters.MaxImageUnits;
-        if (type && type->isTexture()) return dynamicParameters.MaxCombinedTextureImageUnits;
+        if (type.isImage) return dynamicParameters.MaxImageUnits;
+        if (type.isTexture) return dynamicParameters.MaxCombinedTextureImageUnits;
         return 0;
     }
 
-    bool ValidateOpaqueUniformUnit(const char* functionName, const glslang::TType* type, GLint unit) {
+    bool ValidateOpaqueUniformUnit(const char* functionName, const TypeFactsRef type, GLint unit) {
         const GLint limit = GetOpaqueUniformUnitLimit(type);
         if (unit < 0 || unit >= limit) {
             MG_State::pGLContext->RecordError(
@@ -642,7 +645,13 @@ namespace MobileGL::MG_Impl::GLImpl {
             break;
         }
         case GL_ACTIVE_ATOMIC_COUNTER_BUFFERS:
-            *params = programObject->GetActiveAtomicCounterCount();
+            // Counter BUFFERS, not counters, and glslang's own getNumAtomicCounters() answers
+            // neither: the relaxed parse has already turned every atomic_uint into a plain uint
+            // member of a synthesized storage block by the time it builds its reflection, so it
+            // reports zero. The interface-query model recovers the buffers from those blocks and
+            // is what glGetProgramInterfaceiv(GL_ATOMIC_COUNTER_BUFFER, GL_ACTIVE_RESOURCES)
+            // already answers - the two queries are required to agree.
+            *params = ProgramInterface::GetActiveResourceCount(*programObject, GL_ATOMIC_COUNTER_BUFFER);
             MGLOG_D("%s: %s = %d", __func__, MG_Util::ConvertGLEnumToString(pname).c_str(), *params);
             break;
         case GL_ACTIVE_ATTRIBUTES:
@@ -850,11 +859,16 @@ namespace MobileGL::MG_Impl::GLImpl {
     // vector per column - while the value glGetUniform* must return is tightly packed
     // columns * rows floats. Only mat4 is the same either way; every other shape needs the
     // padding undone, and the readback has to undo exactly what UniformMatrixfv_Object put
-    // there. Returns false when `ttype` is not a float matrix (nothing to unpack).
-    Bool TryGatherFloatMatrixColumns(const glslang::TType* ttype, const char* pBase, void* params) {
-        if (ttype == nullptr || !ttype->isMatrix() || ttype->getBasicType() == glslang::EbtDouble) return false;
-        const Int columns = ttype->getMatrixCols();
-        const Int rows = ttype->getMatrixRows();
+    // there. Returns false when there is nothing here to unpack.
+    //
+    // A DOUBLE matrix is declined not because it is laid out differently - it is not, the
+    // demotion makes a dmat4 a mat4 in the shader and a mat4-shaped slot here - but because it
+    // is ROUTED differently: the caller's component-by-component EbtDouble branch has to widen
+    // each float back to the queried type, and it undoes the same padding itself.
+    Bool TryGatherFloatMatrixColumns(const TypeFactsRef ttype, const char* pBase, void* params) {
+        if (!ttype.isMatrix || ttype.isDouble) return false;
+        const Int columns = ttype.matrixCols;
+        const Int rows = ttype.matrixRows;
         for (Int column = 0; column < columns; ++column) {
             Memcpy(static_cast<char*>(params) + static_cast<SizeT>(column) * rows * sizeof(GLfloat),
                    pBase + static_cast<SizeT>(column) * 4 * sizeof(GLfloat), rows * sizeof(GLfloat));
@@ -866,7 +880,7 @@ namespace MobileGL::MG_Impl::GLImpl {
     // everything except a float matrix, whose padded columns make it wider. The rule itself
     // lives on ProgramObject, because the pipeline composite's uniform refresh needs the same
     // one and two copies of a layout rule is one too many.
-    SizeT UniformStorageSpanInBytes(const glslang::TType* ttype, SizeT tightSize) {
+    SizeT UniformStorageSpanInBytes(const TypeFactsRef ttype, SizeT tightSize) {
         return MG_State::GLState::ProgramObject::UniformStorageSpanInBytes(ttype, tightSize);
     }
 
@@ -899,17 +913,23 @@ namespace MobileGL::MG_Impl::GLImpl {
             auto offset = programObject->GetUniformOffset(location);
             auto size = programObject->GetUniformSizesInBytes(location);
             char* pUBO = (char*)programObject->MapUBO();
-            auto* ttype = programObject->GetUniformTType(location);
+            const auto& ttype = programObject->GetUniformTypeFacts(location);
             const SizeT span = UniformStorageSpanInBytes(ttype, size);
             if (pUBO == nullptr || offset == MG_State::GLState::ProgramObject::kInvalidUniformOffset ||
                 offset + span > programObject->GetUBOSize()) {
-                MGLOG_E("%s: uniform at program %u location %d has no backing storage; returning nothing", __func__,
+                MGLOG_E_ONCE("%s: uniform at program %u location %d has no backing storage; returning nothing", __func__,
                         program, location);
                 return;
             }
 
             if (!TryGatherFloatMatrixColumns(ttype, pUBO + offset, params)) {
-                Memcpy(params, pUBO + offset, size);
+                // Never more than the uniform actually occupies. `size` is the GL type size,
+                // which for a `double` uniform is twice its storage - every 64-bit float is
+                // narrowed before the module reaches a backend, so the slot holds floats. The
+                // typed entry points (glGetUniformdv and friends) go through
+                // GetUniformScalar_State, which converts component by component; this raw
+                // copy has no type to convert with, so it is bounded rather than converted.
+                Memcpy(params, pUBO + offset, std::min<SizeT>(size, span));
             }
         }
         // TODO: handle 1i variant as texture unit
@@ -947,11 +967,11 @@ namespace MobileGL::MG_Impl::GLImpl {
         auto offset = programObject->GetUniformOffset(location);
         auto size = programObject->GetUniformSizesInBytes(location);
         char* pUBO = static_cast<char*>(programObject->MapUBO());
-        auto* ttype = programObject->GetUniformTType(location);
+        const auto& ttype = programObject->GetUniformTypeFacts(location);
         const SizeT span = UniformStorageSpanInBytes(ttype, size);
         if (pUBO == nullptr || offset == MG_State::GLState::ProgramObject::kInvalidUniformOffset ||
             offset + span > programObject->GetUBOSize()) {
-            MGLOG_E("%s: uniform at program %u location %d has no backing storage; returning nothing", __func__,
+            MGLOG_E_ONCE("%s: uniform at program %u location %d has no backing storage; returning nothing", __func__,
                     program, location);
             return;
         }
@@ -960,22 +980,27 @@ namespace MobileGL::MG_Impl::GLImpl {
             if (TryGatherFloatMatrixColumns(ttype, pUBO + offset, params)) return;
         }
 
-        // A double-precision uniform is the one case where the stored component type can
-        // differ from the queried one for a non-opaque uniform, and the difference is not
-        // just a reinterpretation: it is twice as wide, so a raw copy would overrun the
-        // caller's buffer as well as return nonsense. Read component by component and let
-        // GL's conversion rules (7.6: round to nearest for the integer queries) apply.
-        if (ttype->getBasicType() == glslang::EbtDouble) {
-            const Int columns = ttype->isMatrix() ? ttype->getMatrixCols() : 1;
-            const Int rows = ttype->isMatrix() ? ttype->getMatrixRows()
-                                               : (ttype->isVector() ? ttype->getVectorSize() : 1);
-            // The slot the linker handed out is exactly `columns` columns wide, so it also
-            // states the column stride - which for a double matrix is not a float's 16 bytes.
-            const SizeT columnStride = columns > 0 ? size / static_cast<SizeT>(columns) : size;
+        // A double-precision uniform is the one case where the stored component type differs
+        // from the DECLARED one for a non-opaque uniform: the shader's 64-bit floats are
+        // narrowed to 32 bits before the module reaches a backend
+        // (ShaderTranspiler::DemoteFloat64Pass), so what is in the global UBO is a float per
+        // component, laid out exactly like the float-typed twin of this uniform - std140
+        // 16-byte column stride for a matrix included. Reading it as a GLdouble would return
+        // two components reinterpreted as one. Read component by component and let GL's
+        // conversion rules (7.6: round to nearest for the integer queries) apply; the value
+        // widens back to the queried type, having lost precision at the glUniform*d that
+        // stored it and not here.
+        if (ttype.isDouble) {
+            const Int columns = ttype.isMatrix ? ttype.matrixCols : 1;
+            const Int rows = ttype.isMatrix ? ttype.matrixRows
+                                               : (ttype.isVector ? ttype.vectorSize : 1);
+            // std140 gives every matrix column its own 16-byte slot; a non-matrix is one
+            // tightly packed run and never reaches the stride at all.
+            const SizeT columnStride = 4 * sizeof(GLfloat);
             for (Int column = 0; column < columns; ++column) {
                 for (Int row = 0; row < rows; ++row) {
-                    GLdouble component = 0.0;
-                    Memcpy(&component, pUBO + offset + column * columnStride + row * sizeof(GLdouble),
+                    GLfloat component = 0.0f;
+                    Memcpy(&component, pUBO + offset + column * columnStride + row * sizeof(GLfloat),
                            sizeof(component));
                     if constexpr (std::is_integral_v<T>) {
                         // Rounded to the nearest integer and clamped into the queried type's
@@ -1041,21 +1066,20 @@ namespace MobileGL::MG_Impl::GLImpl {
             return;
         }
 
-        static Bool allowVSOnlyPrograms;
-        static Bool initialized = false;
-        if (!initialized) {
-            const auto& activeBackendObject = MG_Backend::pActiveBackendObject;
-            if (!activeBackendObject) {
-                MGLOG_E("activeBackendObject is not initialized!");
-                return;
-            }
-            const auto& rendererInfo = activeBackendObject->GetRendererInfo();
-            allowVSOnlyPrograms = (Int)rendererInfo.StaticBackendCapability.AllowVSOnlyPrograms;
-        }
+        // Read fresh every link, never latched in a static: the capability is
+        // per-backend, and a latch would freeze it across a backend teardown +
+        // re-initialization (the previous function-static memo here never even set
+        // its own initialized flag, so it re-read every call anyway - this makes
+        // the always-fresh behavior the stated one). A struct-field read per
+        // glLinkProgram costs nothing.
         const auto& activeBackendObject = MG_Backend::pActiveBackendObject;
-        if (activeBackendObject) {
-            programObject->SetMaxFragmentOutputColorNumber(activeBackendObject->GetDynamicParameters().MaxDrawBuffers);
+        if (!activeBackendObject) {
+            MGLOG_E_ONCE("activeBackendObject is not initialized!");
+            return;
         }
+        const Bool allowVSOnlyPrograms =
+            activeBackendObject->GetRendererInfo().StaticBackendCapability.AllowVSOnlyPrograms;
+        programObject->SetMaxFragmentOutputColorNumber(activeBackendObject->GetDynamicParameters().MaxDrawBuffers);
         programObject->Link(!allowVSOnlyPrograms);
     }
 
@@ -1136,7 +1160,7 @@ namespace MobileGL::MG_Impl::GLImpl {
             SizeT writeSize = ItemCount * sizeof(T);
             if (size < writeSize) {
                 // Metadata bug: degrade to a clamped copy instead of killing the process.
-                MGLOG_E("%s: uniform size mismatch at program %u location %u: expected at least %zu bytes, got %zu "
+                MGLOG_E_ONCE("%s: uniform size mismatch at program %u location %u: expected at least %zu bytes, got %zu "
                         "bytes; clamping",
                         __func__, programObject.GetExternalIndex(), location, ItemCount * sizeof(T), size);
                 writeSize = size;
@@ -1157,7 +1181,7 @@ namespace MobileGL::MG_Impl::GLImpl {
                 offset + byteOffsetInsideUniform + writeSize > uboSize) {
                 // Should not happen: linking gives every settable uniform backing
                 // storage. Log and drop the write instead of faulting.
-                MGLOG_E("%s: uniform at program %u location %u has no backing storage (ubo=%p offset=%u size=%zu "
+                MGLOG_E_ONCE("%s: uniform at program %u location %u has no backing storage (ubo=%p offset=%u size=%zu "
                         "uboSize=%zu); dropping write",
                         __func__, programObject.GetExternalIndex(), location, static_cast<void*>(pUBO), offset,
                         writeSize, uboSize);
@@ -1176,8 +1200,8 @@ namespace MobileGL::MG_Impl::GLImpl {
             Memcpy(pUBO + offset + byteOffsetInsideUniform, value, writeSize);
             programObject.MarkUBOContentDirty();
         } else {
-            auto* ttype = programObject.GetUniformTType(location);
-            if (!ttype->isTexture() && !ttype->isImage()) return;
+            const auto& ttype = programObject.GetUniformTypeFacts(location);
+            if (!ttype.isTexture && !ttype.isImage) return;
             if constexpr (!std::is_same_v<std::remove_cv_t<T>, GLint> || ItemCount != 1) {
                 MG_State::pGLContext->RecordError(
                     ErrorCode::InvalidOperation,
@@ -1248,36 +1272,39 @@ namespace MobileGL::MG_Impl::GLImpl {
         }
     }
 
-    // glUniform*d / glUniformMatrix*dv. The vector forms need nothing beyond the shared
-    // upload template - it is already typed on the component - but a matrix does: the
-    // column stride the linker used for a double matrix is not the 16 bytes a float one
-    // gets. It is not guessed here; the slot the uniform was given is exactly `columns`
-    // columns wide, so dividing states the stride the rest of the pipeline agreed on.
-    template <typename Program>
-    void UniformMatrixdv_Object(Program& programObject, GLint location, GLsizei count, GLboolean transpose,
-                                const GLdouble* value, Int columns, Int rows) {
-        const SizeT slotSize = programObject.GetUniformSizesInBytes(location);
-        const SizeT columnStride = columns > 0 ? slotSize / static_cast<SizeT>(columns) : slotSize;
-        const SizeT componentCount = static_cast<SizeT>(columns) * static_cast<SizeT>(rows);
-        Vector<GLdouble> column(static_cast<SizeT>(rows));
-        for (GLint matrix = 0; matrix < count; ++matrix) {
-            if (matrix > 0 && !programObject.UniformLocationsAliasSameUniform(location, location + matrix)) break;
-            if (!programObject.IsValidUniformLocation(location + matrix)) {
-                RecordInvalidUniformLocationError(__func__, location + matrix, "the current program object");
-                return;
-            }
-            const GLdouble* source = value + matrix * componentCount;
-            for (Int c = 0; c < columns; ++c) {
-                for (Int r = 0; r < rows; ++r) {
-                    column[r] = transpose == GL_TRUE ? source[r * columns + c] : source[c * rows + r];
-                }
-                Uniform_State<1>(programObject, location + matrix, column.data(), c * columnStride);
-                for (Int r = 1; r < rows; ++r) {
-                    Uniform_State<1>(programObject, location + matrix, column.data() + r,
-                                     c * columnStride + r * sizeof(GLdouble));
-                }
-            }
+    // glUniform*d / glUniformMatrix*dv. Neither needs a layout of its own any more: the
+    // transpile chain narrows every 64-bit float in the shader to 32 bits
+    // (ShaderTranspiler::DemoteFloat64Pass) and the global UBO is laid out by reflecting that
+    // demoted module, so a double uniform's storage IS a float uniform's - same offset, same
+    // 4-byte components, same std140 column padding for matrices. Narrowing here, at the one
+    // place the 64-bit value enters, and then handing the bytes to the ordinary float upload
+    // path is what keeps the two in step; a separate double-shaped layout here would write
+    // 8-byte components into 4-byte slots and silently address the wrong ones.
+    //
+    // The narrowing is the same static_cast the shader's own arithmetic now performs, so the
+    // value the shader reads is the value glUniform*d was given, at float precision.
+    template <GLsizei ItemCount>
+    void UniformvNarrowed_State(GLint location, GLsizei count, const GLdouble* value) {
+        if (value == nullptr || count <= 0) {
+            // Same shape as the float entry points: the location validation still runs, and a
+            // null pointer is left to fault exactly where glUniform*fv would.
+            Uniformv_State<ItemCount>(location, count, reinterpret_cast<const GLfloat*>(value));
+            return;
         }
+        Vector<GLfloat> narrowed(static_cast<SizeT>(count) * ItemCount);
+        for (SizeT i = 0; i < narrowed.size(); ++i) narrowed[i] = static_cast<GLfloat>(value[i]);
+        Uniformv_State<ItemCount>(location, count, narrowed.data());
+    }
+
+    template <GLsizei ItemCount>
+    void ProgramUniformvNarrowed_State(GLuint program, GLint location, GLsizei count, const GLdouble* value) {
+        if (value == nullptr || count <= 0) {
+            ProgramUniformv_State<ItemCount>(program, location, count, reinterpret_cast<const GLfloat*>(value));
+            return;
+        }
+        Vector<GLfloat> narrowed(static_cast<SizeT>(count) * ItemCount);
+        for (SizeT i = 0; i < narrowed.size(); ++i) narrowed[i] = static_cast<GLfloat>(value[i]);
+        ProgramUniformv_State<ItemCount>(program, location, count, narrowed.data());
     }
 
     // glUniformMatrix*fv / glProgramUniformMatrix*fv, every shape (square and non-square).
@@ -1324,6 +1351,22 @@ namespace MobileGL::MG_Impl::GLImpl {
                 }
             }
         }
+    }
+
+    // glUniformMatrix*dv / glProgramUniformMatrix*dv. Narrowed to the float form and handed
+    // straight to it: after DemoteFloat64Pass a `dmat4` uniform is a `mat4` in the shader and a
+    // mat4-shaped slot in the global UBO, columns padded to a vec4 and all. Everything else
+    // about the call - transpose handling, the array-element walk, the opaque-uniform refusal -
+    // is then the one implementation both spellings share.
+    template <typename Program>
+    void UniformMatrixdv_Object(Program& programObject, GLint location, GLsizei count, GLboolean transpose,
+                                const GLdouble* value, Int columns, Int rows) {
+        if (value == nullptr || count <= 0) return;
+        const SizeT componentCount = static_cast<SizeT>(columns) * static_cast<SizeT>(rows);
+        Vector<GLfloat> narrowed(static_cast<SizeT>(count) * componentCount);
+        for (SizeT i = 0; i < narrowed.size(); ++i) narrowed[i] = static_cast<GLfloat>(value[i]);
+        UniformMatrixfv_Object(programObject, "glUniformMatrixdv", location, count, transpose, narrowed.data(),
+                               columns, rows, "the current program object");
     }
 
     // Helper function to transpose a 2x2 matrix
@@ -1772,7 +1815,7 @@ namespace MobileGL::MG_Impl::GLImpl {
             break;
         }
         default:
-            MGLOG_E("%s: unknown pname = %p %s", __func__, pname, MG_Util::ConvertGLEnumToString(pname).c_str());
+            MGLOG_D("%s: unknown pname = %p %s", __func__, pname, MG_Util::ConvertGLEnumToString(pname).c_str());
             MG_State::pGLContext->RecordError(
                 ErrorCode::InvalidEnum,
                 MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
@@ -2089,71 +2132,71 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
     void Uniform1d(GLint location, GLdouble v0) {
         const GLdouble v[] = {v0};
-        Uniformv_State<1>(location, 1, v);
+        UniformvNarrowed_State<1>(location, 1, v);
     }
 
     void Uniform1dv(GLint location, GLsizei count, const GLdouble* value) {
-        Uniformv_State<1>(location, count, value);
+        UniformvNarrowed_State<1>(location, count, value);
     }
 
     void ProgramUniform1d(GLuint program, GLint location, GLdouble v0) {
         const GLdouble v[] = {v0};
-        ProgramUniformv_State<1>(program, location, 1, v);
+        ProgramUniformvNarrowed_State<1>(program, location, 1, v);
     }
 
     void ProgramUniform1dv(GLuint program, GLint location, GLsizei count, const GLdouble* value) {
-        ProgramUniformv_State<1>(program, location, count, value);
+        ProgramUniformvNarrowed_State<1>(program, location, count, value);
     }
     void Uniform2d(GLint location, GLdouble v0, GLdouble v1) {
         const GLdouble v[] = {v0, v1};
-        Uniformv_State<2>(location, 1, v);
+        UniformvNarrowed_State<2>(location, 1, v);
     }
 
     void Uniform2dv(GLint location, GLsizei count, const GLdouble* value) {
-        Uniformv_State<2>(location, count, value);
+        UniformvNarrowed_State<2>(location, count, value);
     }
 
     void ProgramUniform2d(GLuint program, GLint location, GLdouble v0, GLdouble v1) {
         const GLdouble v[] = {v0, v1};
-        ProgramUniformv_State<2>(program, location, 1, v);
+        ProgramUniformvNarrowed_State<2>(program, location, 1, v);
     }
 
     void ProgramUniform2dv(GLuint program, GLint location, GLsizei count, const GLdouble* value) {
-        ProgramUniformv_State<2>(program, location, count, value);
+        ProgramUniformvNarrowed_State<2>(program, location, count, value);
     }
     void Uniform3d(GLint location, GLdouble v0, GLdouble v1, GLdouble v2) {
         const GLdouble v[] = {v0, v1, v2};
-        Uniformv_State<3>(location, 1, v);
+        UniformvNarrowed_State<3>(location, 1, v);
     }
 
     void Uniform3dv(GLint location, GLsizei count, const GLdouble* value) {
-        Uniformv_State<3>(location, count, value);
+        UniformvNarrowed_State<3>(location, count, value);
     }
 
     void ProgramUniform3d(GLuint program, GLint location, GLdouble v0, GLdouble v1, GLdouble v2) {
         const GLdouble v[] = {v0, v1, v2};
-        ProgramUniformv_State<3>(program, location, 1, v);
+        ProgramUniformvNarrowed_State<3>(program, location, 1, v);
     }
 
     void ProgramUniform3dv(GLuint program, GLint location, GLsizei count, const GLdouble* value) {
-        ProgramUniformv_State<3>(program, location, count, value);
+        ProgramUniformvNarrowed_State<3>(program, location, count, value);
     }
     void Uniform4d(GLint location, GLdouble v0, GLdouble v1, GLdouble v2, GLdouble v3) {
         const GLdouble v[] = {v0, v1, v2, v3};
-        Uniformv_State<4>(location, 1, v);
+        UniformvNarrowed_State<4>(location, 1, v);
     }
 
     void Uniform4dv(GLint location, GLsizei count, const GLdouble* value) {
-        Uniformv_State<4>(location, count, value);
+        UniformvNarrowed_State<4>(location, count, value);
     }
 
     void ProgramUniform4d(GLuint program, GLint location, GLdouble v0, GLdouble v1, GLdouble v2, GLdouble v3) {
         const GLdouble v[] = {v0, v1, v2, v3};
-        ProgramUniformv_State<4>(program, location, 1, v);
+        ProgramUniformvNarrowed_State<4>(program, location, 1, v);
     }
 
     void ProgramUniform4dv(GLuint program, GLint location, GLsizei count, const GLdouble* value) {
-        ProgramUniformv_State<4>(program, location, count, value);
+        ProgramUniformvNarrowed_State<4>(program, location, count, value);
     }
     void UniformMatrix2dv(GLint location, GLsizei count, GLboolean transpose, const GLdouble* value) {
         if (location == -1) return;
@@ -2799,6 +2842,73 @@ namespace MobileGL::MG_Impl::GLImpl {
             return -1;
         }
         return ProgramInterface::GetResourceLocationIndex(*programObject, programInterface, name);
+    }
+
+    // GL 4.6 §7.7. Every property this reports is one the GL_ATOMIC_COUNTER_BUFFER interface
+    // already carries, so this is a rename of glGetProgramResourceiv's props onto the older
+    // entry point's - and the two are required to agree, which is only true while both read the
+    // same model. It was a silent stub: it wrote nothing, raised nothing, and left every probe
+    // reading its own uninitialised output.
+    static Bool TryMapActiveAtomicCounterBufferProp(GLenum pname, GLenum& outProp) {
+        switch (pname) {
+        case GL_ATOMIC_COUNTER_BUFFER_BINDING:
+            outProp = GL_BUFFER_BINDING;
+            return true;
+        case GL_ATOMIC_COUNTER_BUFFER_DATA_SIZE:
+            outProp = GL_BUFFER_DATA_SIZE;
+            return true;
+        case GL_ATOMIC_COUNTER_BUFFER_ACTIVE_ATOMIC_COUNTERS:
+            outProp = GL_NUM_ACTIVE_VARIABLES;
+            return true;
+        case GL_ATOMIC_COUNTER_BUFFER_ACTIVE_ATOMIC_COUNTER_INDICES:
+            outProp = GL_ACTIVE_VARIABLES;
+            return true;
+        case GL_ATOMIC_COUNTER_BUFFER_REFERENCED_BY_VERTEX_SHADER:
+            outProp = GL_REFERENCED_BY_VERTEX_SHADER;
+            return true;
+        case GL_ATOMIC_COUNTER_BUFFER_REFERENCED_BY_TESS_CONTROL_SHADER:
+            outProp = GL_REFERENCED_BY_TESS_CONTROL_SHADER;
+            return true;
+        case GL_ATOMIC_COUNTER_BUFFER_REFERENCED_BY_TESS_EVALUATION_SHADER:
+            outProp = GL_REFERENCED_BY_TESS_EVALUATION_SHADER;
+            return true;
+        case GL_ATOMIC_COUNTER_BUFFER_REFERENCED_BY_GEOMETRY_SHADER:
+            outProp = GL_REFERENCED_BY_GEOMETRY_SHADER;
+            return true;
+        case GL_ATOMIC_COUNTER_BUFFER_REFERENCED_BY_FRAGMENT_SHADER:
+            outProp = GL_REFERENCED_BY_FRAGMENT_SHADER;
+            return true;
+        case GL_ATOMIC_COUNTER_BUFFER_REFERENCED_BY_COMPUTE_SHADER:
+            outProp = GL_REFERENCED_BY_COMPUTE_SHADER;
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    void GetActiveAtomicCounterBufferiv(GLuint program, GLuint bufferIndex, GLenum pname, GLint* params) {
+        auto& programObject = TryToGetProgramForInterfaceQuery(program, __func__);
+        if (!programObject) return;
+        GLenum prop = GL_NONE;
+        if (!TryMapActiveAtomicCounterBufferProp(pname, prop)) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidEnum,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "pname is not an active atomic counter buffer property."));
+            return;
+        }
+        Vector<GLint> values;
+        if (!ProgramInterface::GetResourceProp(*programObject, GL_ATOMIC_COUNTER_BUFFER, bufferIndex, prop, values)) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "bufferIndex is not an active atomic counter buffer index."));
+            return;
+        }
+        if (params == nullptr) return;
+        // GL_ATOMIC_COUNTER_BUFFER_ACTIVE_ATOMIC_COUNTER_INDICES is the only multi-value property
+        // here, and the caller sized its array from _ACTIVE_ATOMIC_COUNTERS.
+        for (SizeT i = 0; i < values.size(); ++i) params[i] = values[i];
     }
 
     // GL 4.6 §7.6.2: <storageBlockIndex> is an active shader storage block index of <program>

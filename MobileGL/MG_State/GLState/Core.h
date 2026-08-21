@@ -198,8 +198,10 @@ namespace MobileGL {
                 // Only the pipeline-relevant subset - see RenderState::m_pipelineStateVersion.
                 Uint GetPipelineStateVersion() const;
                 const RenderStateParameters& GetRenderStateParameters() const;
-                void SetViewport(IntVec4 viewport); // x, y, width, height
-                const IntVec4& GetViewport() const; // x, y, width, height
+                void SetViewport(IntVec4 viewport); // x, y, width, height; writes ALL viewports
+                IntVec4 GetViewport() const;        // x, y, width, height; viewport 0, rounded
+                void SetViewportIndexed(Uint index, FloatVec4 viewport);
+                const FloatVec4& GetViewportIndexed(Uint index) const;
                 void SetLineWidth(Float width);
                 Float GetLineWidth() const;
                 void SetPointSize(Float size);
@@ -260,8 +262,10 @@ namespace MobileGL {
                 Uint32 GetClearStencil() const;
                 void SetBlendColor(FloatVec4 color);
                 const FloatVec4& GetBlendColor() const;
-                void SetDepthRange(FloatVec2 range);
+                void SetDepthRange(FloatVec2 range); // writes ALL viewports' depth ranges
                 const FloatVec2& GetDepthRange() const;
+                void SetDepthRangeIndexed(Uint index, FloatVec2 range);
+                const FloatVec2& GetDepthRangeIndexed(Uint index) const;
                 void SetSampleCoverage(Float value, Bool invert);
                 Float GetSampleCoverageValue() const;
                 Bool GetSampleCoverageInvert() const;
@@ -276,8 +280,10 @@ namespace MobileGL {
                 FrontFaceMode GetFrontFaceMode() const;
                 void SetProvokingVertexMode(ProvokingVertexMode mode);
                 ProvokingVertexMode GetProvokingVertexMode() const;
-                void SetScissorBox(IntVec4 box);      // x, y, width, height
-                const IntVec4& GetScissorBox() const; // x, y, width, height
+                void SetScissorBox(IntVec4 box);      // x, y, width, height; writes ALL rectangles
+                const IntVec4& GetScissorBox() const; // x, y, width, height; rectangle 0
+                void SetScissorBoxIndexed(Uint index, IntVec4 box);
+                const IntVec4& GetScissorBoxIndexed(Uint index) const;
 
                 // Transform feedback. The fields below are the state of the transform
                 // feedback object currently bound to GL_TRANSFORM_FEEDBACK; see the object
@@ -322,6 +328,7 @@ namespace MobileGL {
                 // transform feedback counter cannot see them - nothing was being captured.
                 void AddTransformFeedbackPausedPrimitives(Uint64 primitives) {
                     m_transformFeedbackPausedPrimitiveCounter += primitives;
+                    m_transformFeedbackGeneratedPrimitiveCounter += primitives;
                 }
                 Uint64 GetTransformFeedbackPausedPrimitiveCounter() const {
                     return m_transformFeedbackPausedPrimitiveCounter;
@@ -336,8 +343,55 @@ namespace MobileGL {
                 // (pre-clamp; drives the GS strip capture-order fixup at EndTF).
                 void AddTransformFeedbackInputPrimitives(Uint64 primitives) {
                     m_transformFeedbackInputPrimitives += primitives;
+                    m_transformFeedbackGeneratedPrimitiveCounter += primitives;
                 }
                 Uint64 GetTransformFeedbackInputPrimitives() const { return m_transformFeedbackInputPrimitives; }
+                // What a GL_PRIMITIVES_GENERATED query counts over its span: every primitive the
+                // capture stage assembled, including the ones a paused span discarded (those are
+                // generated but never written). Kept as its own running total rather than derived
+                // from the input counter above, which BeginTransformFeedback resets per span while
+                // a query may cover several of them.
+                Uint64 GetTransformFeedbackGeneratedCounter() const {
+                    return m_transformFeedbackGeneratedPrimitiveCounter;
+                }
+                // Capture draws whose written-primitive count the CPU accounting reproduced
+                // exactly, and the subset it could not: a program with a geometry stage amplifies
+                // by whatever the shader emits, which only the driver's own counter knows. The
+                // transform feedback queries diff both over their span to decide whether the CPU
+                // delta may stand in for the backend's GPU result (GL_Query.cpp).
+                void AddTransformFeedbackAccountedCaptureDraw() { ++m_transformFeedbackAccountedCaptureDraws; }
+                Uint64 GetTransformFeedbackAccountedCaptureDraws() const {
+                    return m_transformFeedbackAccountedCaptureDraws;
+                }
+                void AddTransformFeedbackGeometryCaptureDraw() { ++m_transformFeedbackGeometryCaptureDraws; }
+                Uint64 GetTransformFeedbackGeometryCaptureDraws() const {
+                    return m_transformFeedbackGeometryCaptureDraws;
+                }
+
+                // Conditional rendering (GL 4.6 core 10.9). `discard` is the verdict already
+                // resolved from the query object at glBeginConditionalRender - the predicate is
+                // read ONCE there, not per command, because GL specifies the block against the
+                // result available at Begin and re-reading it would let a query that is still
+                // being written change the answer mid-block.
+                void BeginConditionalRender(GLuint queryId, GLenum mode, Bool discard) {
+                    m_conditionalRenderActive = true;
+                    m_conditionalRenderQuery = queryId;
+                    m_conditionalRenderMode = mode;
+                    m_conditionalRenderDiscards = discard;
+                }
+                void EndConditionalRender() {
+                    m_conditionalRenderActive = false;
+                    m_conditionalRenderQuery = 0;
+                    m_conditionalRenderMode = GL_NONE;
+                    m_conditionalRenderDiscards = false;
+                }
+                Bool IsConditionalRenderActive() const { return m_conditionalRenderActive; }
+                GLuint GetConditionalRenderQuery() const { return m_conditionalRenderQuery; }
+                // Whether the commands GL 4.6 core 10.9 makes conditional are being discarded
+                // right now. False whenever no block is open, so a caller needs no second test.
+                Bool ConditionalRenderDiscardsCommands() const {
+                    return m_conditionalRenderActive && m_conditionalRenderDiscards;
+                }
 
                 // Transform feedback objects (ARB_transform_feedback2 / GL 4.0 core).
                 // The capture state above and the indexed GL_TRANSFORM_FEEDBACK_BUFFER
@@ -407,9 +461,12 @@ namespace MobileGL {
                 // cannot be captured in MG_State::Init() - that runs BEFORE MG_Backend::Init(),
                 // so there is no backend to query yet. Re-captured whenever the active backend
                 // object changes, which also rolls the fingerprint and therefore invalidates
-                // every P0b preprocess memo keyed against the old one.
+                // every P0b preprocess memo keyed against the old one. A backend whose dynamic
+                // capabilities become available without changing object identity must call
+                // InvalidateCompileEnv() after publishing them.
                 // GL thread only.
                 const SharedPtr<const MG_Util::ShaderTranspiler::CompileEnv>& GetCompileEnv();
+                void InvalidateCompileEnv();
 
             private:
                 // State Components
@@ -430,6 +487,16 @@ namespace MobileGL {
                 Uint64 m_transformFeedbackPausedPrimitiveCounter = 0;
                 Uint64 m_transformFeedbackCapturedVertices = 0;
                 Uint64 m_transformFeedbackInputPrimitives = 0;
+                Uint64 m_transformFeedbackGeneratedPrimitiveCounter = 0;
+                Uint64 m_transformFeedbackAccountedCaptureDraws = 0;
+                Uint64 m_transformFeedbackGeometryCaptureDraws = 0;
+
+                // Conditional rendering. Context state, not object state: GL 4.6 core 10.9 allows
+                // exactly one block open at a time and no object owns it.
+                Bool m_conditionalRenderActive = false;
+                Bool m_conditionalRenderDiscards = false;
+                GLuint m_conditionalRenderQuery = 0;
+                GLenum m_conditionalRenderMode = GL_NONE;
 
                 // Everything a transform feedback object owns while it is NOT the bound one.
                 struct TransformFeedbackObjectState {

@@ -9,8 +9,10 @@
 #include "Managers.h"
 #include "Utils.h"
 #include "DirectGLES.h"
+#include "BackendObject_DirectGLES.h"
 #include <Config.h>
 #include <MG_Util/ShaderTranspiler/ShaderCompiler.h>
+#include <MG_Util/ShaderTranspiler/TranslationCache.h>
 
 #include <MG_Util/BackendLoaders/OpenGL/Loader.h>
 #include <MG_Util/Converters/GLToStr/GLEnumConverter.h>
@@ -28,6 +30,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
+#include <map>
 #include <mutex>
 #include <cstring>
 #include <regex>
@@ -44,6 +47,16 @@ namespace MobileGL::MG_Backend::DirectGLES {
     constexpr const char* INDIRECT_PARAMS_BLOCK_NAME = "mg_IndirectParams";
     constexpr const char* ZERO_BASED_INSTANCE_ID_NAME = "mg_ZeroBasedInstanceID";
 
+    // ES has no atomic-counter buffers: glslang lowers every atomic_uint onto a synthesized
+    // storage block, so one GL counter BUFFER costs one of the driver's shader-storage binding
+    // points. Those slots are taken from the TOP of the range downwards - below the one
+    // mg_IndirectParams already reserves - so an application binding its own SSBOs from 0 upwards
+    // never meets them, and the slot for GL binding N is `this - N` in every stage of the
+    // program without any shared state. Negative when the driver has no room left at all.
+    static Int AtomicCounterEsslBindingTop() {
+        return g_GLESCapabilities.MaxShaderStorageBufferBindings - 2;
+    }
+
     static Bool IsAngleLlvmpipeRenderer() {
         return g_GLESCapabilities.IsAngleLlvmpipeRenderer;
     }
@@ -53,6 +66,12 @@ namespace MobileGL::MG_Backend::DirectGLES {
         // MOBILEGL_AVOID_SAMPLER_MIPMAP_MIN_FILTER feature toggle,
         // both resolved in FillInGLESCapabilities.
         return g_GLESCapabilities.AvoidSamplerMipmapMinFilter;
+    }
+
+    static Bool ShouldAvoidExplicitLodBiasOnAngleLlvmpipe() {
+        // IsAngleLlvmpipeRenderer combined with the MOBILEGL_AVOID_EXPLICIT_LOD_BIAS
+        // feature toggle, both resolved in FillInGLESCapabilities.
+        return g_GLESCapabilities.AvoidExplicitLodBias;
     }
 
     static GLenum ResolveBackendMinFilter(const SamplerParameters& samplerParams,
@@ -73,6 +92,15 @@ namespace MobileGL::MG_Backend::DirectGLES {
             return filter;
         }
     }
+
+    // GL 4.6 core table 23.53 requires GL_MAX_SAMPLES >= 4, so this is the floor MobileGL
+    // advertises whatever the ES driver reports. It steers ClampMultisampleFetchesForEssl
+    // AND is part of the L2 translation-memo key, so the transpile and the key must read
+    // the same constant - hence one definition rather than two locals.
+    // Recomputed here rather than calling GL_Getter's GetAdvertisedMaxSamples(): this is
+    // backend code and must not reach into the GL frontend. 4 is that translation unit's
+    // kFrontendMaxSamples, which is the source of truth - keep the two in step.
+    constexpr Int kFrontendMaxSamples = 4;
 
     static Uint ResolveBackendEsslVersion() {
         const auto& version = g_GLESCapabilities.GLESVersion;
@@ -128,6 +156,18 @@ namespace MobileGL::MG_Backend::DirectGLES {
                        [] { std::atexit(+[] { g_processTeardown = true; }); });
     }
 
+    Bool VertexStageStorageBlockUsable(Int maxVertexShaderStorageBlocks) {
+        // One block is all the indirect-params view needs, so this is a >= 1 test and not a
+        // budget calculation. Negative is treated as unusable rather than clamped: a driver
+        // that leaves the out-param untouched is telling us nothing, and guessing "yes" here
+        // is what produces an unlinkable program.
+        return maxVertexShaderStorageBlocks >= 1;
+    }
+
+    static Bool CanUseVertexStageStorageBlock() {
+        return VertexStageStorageBlockUsable(g_GLESCapabilities.MaxVertexShaderStorageBlocks);
+    }
+
     String EmulateBaseInstanceInVertexShader(String source, GLenum shaderType) {
         if (shaderType != GL_VERTEX_SHADER || source.find("gl_BaseInstance") == String::npos) {
             return source;
@@ -149,6 +189,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
     // (possibly GPU-written) indirect command buffer, so its declaration expands into a
     // std430 SSBO view of that buffer indexed by a CPU-computed word index, with the plain
     // mg_BaseInstance uniform as the fallback for non-indirect draws.
+    //
+    // The word index is stored ONE-BASED, so that zero - the value every GLSL uniform starts
+    // at - is the "not an indirect draw" sentinel. Nothing seeds this uniform before a
+    // program's first draw, and the non-indirect draw entry points never write it at all, so a
+    // zero-based index with a negative sentinel would leave every such draw reading
+    // mg_indirectWords[0] out of a storage buffer no one bound. That is not a silent zero on a
+    // real driver: it returned garbage on Adreno, and a garbage gl_BaseInstance pushed the CTS
+    // shader_draw_parameters geometry clean off screen.
     String PromoteDrawParameterGlobalsToUniforms(String source, GLenum shaderType) {
         if (shaderType != GL_VERTEX_SHADER) {
             return source;
@@ -192,9 +240,47 @@ namespace MobileGL::MG_Backend::DirectGLES {
             const Int paramsBinding = g_GLESCapabilities.MaxShaderStorageBufferBindings > 0
                                           ? g_GLESCapabilities.MaxShaderStorageBufferBindings - 1
                                           : 0;
+            // The whole indirect half of this machinery is a storage block read from the VERTEX
+            // stage, and a storage block in the vertex stage is optional in both APIs: the
+            // minimum for GL_MAX_VERTEX_SHADER_STORAGE_BLOCKS is 0 (GL 4.6 table 23.64, ES 3.2
+            // table 21.44) and ARM's GLES driver takes that allowance - a Mali-G925 reports 0.
+            // Emitting the block anyway does not make it work; it makes the program UNLINKABLE
+            // ("The number of vertex shader storage blocks (1) is greater than the maximum
+            // number allowed (0)"), and because the frontend's LINK_STATUS is glslang's and not
+            // the driver's, the application never learns: every draw with that program silently
+            // renders nothing. Dropping just the indirect half costs strictly less.
+            const Bool canReadIndirectParamsFromVertexStage = CanUseVertexStageStorageBlock();
             String machinery;
             if (source.find(String("uniform highp int ") + BASE_INSTANCE_UNIFORM_NAME + ";") == String::npos) {
                 machinery += String("uniform highp int ") + BASE_INSTANCE_UNIFORM_NAME + ";\n";
+            }
+            if (!canReadIndirectParamsFromVertexStage) {
+                // Degraded, but contained and loud. gl_BaseInstance collapses to the plain
+                // mg_BaseInstance uniform, which the non-indirect draw entry points do set
+                // correctly - so ordinary instanced draws are unaffected. What is lost is the
+                // per-command baseInstance of an INDIRECT draw, which lives in the (possibly
+                // GPU-written) command buffer and can only be read through this block: those
+                // draws now see the last uniform value rather than their own command's. No
+                // alternative path is attempted, deliberately - there is nowhere else in the
+                // vertex stage to read a GPU-written buffer from.
+                //
+                // MGLOG_E_ONCE, not _D: this silently changes rendering for exactly the
+                // workloads (Create/Flywheel indirect instancing) whose bug reports are
+                // impossible to read without it, and once per process is bounded.
+                MGLOG_E_ONCE("gl_BaseInstance: this driver reports GL_MAX_VERTEX_SHADER_STORAGE_BLOCKS = %d, so the "
+                             "%s storage block an indirect draw's baseInstance must be read through cannot be "
+                             "declared in the vertex stage. Dropping indirect baseInstance support: non-indirect "
+                             "draws are correct, indirect draws will see a stale per-command baseInstance.",
+                             g_GLESCapabilities.MaxVertexShaderStorageBlocks, INDIRECT_PARAMS_BLOCK_NAME);
+                if (rebaseInstanceId) {
+                    // Without the block there is no per-command baseInstance to subtract, and
+                    // the uniform is the same value the define below resolves to, so rebasing
+                    // by it would cancel the base out of gl_InstanceID twice.
+                    machinery += String("#define ") + ZERO_BASED_INSTANCE_ID_NAME + " gl_InstanceID\n";
+                }
+                machinery += String("#define ") + BASE_INSTANCE_LOWERED_NAME + " (" + BASE_INSTANCE_UNIFORM_NAME + ")";
+                source.replace(pos, declaration.size(), machinery);
+                break;
             }
             machinery += String("uniform highp int ") + BASE_INSTANCE_WORD_INDEX_UNIFORM_NAME + ";\n";
             machinery += String("layout(std430, binding = ") + std::to_string(paramsBinding) +
@@ -202,12 +288,12 @@ namespace MobileGL::MG_Backend::DirectGLES {
                          " { highp uint mg_indirectWords[]; };\n";
             if (rebaseInstanceId) {
                 machinery += String("#define ") + ZERO_BASED_INSTANCE_ID_NAME + " (gl_InstanceID - ((" +
-                             BASE_INSTANCE_WORD_INDEX_UNIFORM_NAME + " >= 0) ? int(mg_indirectWords[uint(" +
-                             BASE_INSTANCE_WORD_INDEX_UNIFORM_NAME + ")]) : 0))\n";
+                             BASE_INSTANCE_WORD_INDEX_UNIFORM_NAME + " > 0) ? int(mg_indirectWords[uint(" +
+                             BASE_INSTANCE_WORD_INDEX_UNIFORM_NAME + " - 1)]) : 0))\n";
             }
             machinery += String("#define ") + BASE_INSTANCE_LOWERED_NAME + " ((" +
-                         BASE_INSTANCE_WORD_INDEX_UNIFORM_NAME + " >= 0) ? int(mg_indirectWords[uint(" +
-                         BASE_INSTANCE_WORD_INDEX_UNIFORM_NAME + ")]) : " + BASE_INSTANCE_UNIFORM_NAME + ")";
+                         BASE_INSTANCE_WORD_INDEX_UNIFORM_NAME + " > 0) ? int(mg_indirectWords[uint(" +
+                         BASE_INSTANCE_WORD_INDEX_UNIFORM_NAME + " - 1)]) : " + BASE_INSTANCE_UNIFORM_NAME + ")";
             source.replace(pos, declaration.size(), machinery);
             break;
         }
@@ -344,8 +430,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 // Require working fences: recycling is gated on the frame-completion
                 // watermark, which only advances if Present can insert/poll fences.
                 return g_GLESFuncs.glFenceSync != nullptr && g_GLESFuncs.glGetSynciv != nullptr &&
-                       r.id != 0 && !r.persistentMapped && r.contextGeneration == g_bufferContextGeneration &&
-                       r.storageInitialized && r.storageSize > 0 && r.storageSize <= kMaxPoolableBufferBytes;
+                       r.id != 0 && !r.persistentMapped && !r.immutableStorage &&
+                       r.contextGeneration == g_bufferContextGeneration && r.storageInitialized &&
+                       r.storageSize > 0 && r.storageSize <= kMaxPoolableBufferBytes;
             }
 
             // Retire a buffer id into the pool (owning thread; caller verified IsPoolable).
@@ -541,6 +628,17 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     resource = created.get();
                     bufferObject.SetBackendResource(std::move(created));
                 }
+                // Before the generation is stamped, not after: everything on the resource
+                // describes a context that is gone, and the idempotency check below would
+                // otherwise hand the caller the dead context's mapped pointer.
+                if (resource->contextGeneration != g_bufferContextGeneration) {
+                    resource->id = 0;
+                    resource->persistentMapped = false;
+                    resource->persistentPtr = nullptr;
+                    resource->immutableStorage = false;
+                    resource->storageInitialized = false;
+                    resource->storageSize = 0;
+                }
                 resource->contextGeneration = g_bufferContextGeneration;
 
                 if (resource->persistentMapped && resource->persistentPtr && resource->storageSize == size) {
@@ -550,9 +648,13 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 // Need a fresh id: glBufferStorage fails on a buffer that already has
                 // immutable storage, and any prior mutable store is replaced anyway.
                 if (resource->id != 0) {
-                    ScrubBufferBindingShadowsForId(resource->id);
+                    NoteBufferIdDeleted(resource->id);
+                    // Driver VAOs may have this id baked into attribute/element bindings
+                    // keyed on frontend versions this re-mint does not move.
+                    ++g_bufferBackendIdGeneration;
                     g_GLESFuncs.glDeleteBuffers(1, &resource->id);
                     resource->id = 0;
+                    resource->immutableStorage = false;
                 }
                 g_GLESFuncs.glGenBuffers(1, &resource->id);
                 if (resource->id == 0) return nullptr;
@@ -564,10 +666,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 g_GLESFuncs.glBufferStorageEXT(TempBufferTarget, static_cast<GLsizeiptr>(size), initial,
                                                GL_MAP_WRITE_BIT | kMapPersistentBit | kMapCoherentBit |
                                                    kDynamicStorageBit);
+                // Set as soon as the store exists, not once the map succeeds: the failure
+                // path below leaves this id holding immutable storage, and whoever touches
+                // it next has to know that glBufferData cannot redefine it.
+                resource->immutableStorage = true;
                 void* ptr = g_GLESFuncs.glMapBufferRange(TempBufferTarget, 0, static_cast<GLsizeiptr>(size),
                                                          GL_MAP_WRITE_BIT | kMapPersistentBit | kMapCoherentBit);
                 if (!ptr) {
-                    MGLOG_E("Ops_AcquirePersistentMap: glMapBufferRange(persistent) failed for buffer %u",
+                    MGLOG_E_ONCE("Ops_AcquirePersistentMap: glMapBufferRange(persistent) failed for buffer %u",
                             resource->id);
                     resource->persistentMapped = false;
                     resource->persistentPtr = nullptr;
@@ -589,7 +695,37 @@ namespace MobileGL::MG_Backend::DirectGLES {
             void Ops_Respecify(BufferObject& bufferObject) {
                 auto* resource = ResourceOf(bufferObject);
                 if (!resource) return; // lazy: EnsureBufferResource full-uploads on creation
-                if (resource->persistentMapped) return; // immutable persistent storage is never respecified
+                // The frontend hands an adopted mapping back before it redefines the store
+                // (BufferObject::RedefineStorage), so a resource that still carries the
+                // persistent state here describes the OLD store - and its storage is
+                // IMMUTABLE (glBufferStorageEXT), which the glBufferData below cannot
+                // respecify and which the driver would refuse in silence. Retire the id so
+                // EnsureBufferResource mints a mutable one, with a full upload from the
+                // shadow the frontend has just filled.
+                //
+                // Keyed on the STORAGE, not on persistentMapped: a glMapBufferRange that
+                // failed after its glBufferStorageEXT succeeded clears persistentMapped and
+                // still leaves an immutable store behind, and that one reached glBufferData.
+                if (resource->immutableStorage) {
+                    resource->persistentMapped = false;
+                    resource->persistentPtr = nullptr;
+                    if (resource->id != 0 && CanTouchGLNow() &&
+                        resource->contextGeneration == g_bufferContextGeneration) {
+                        NoteBufferIdDeleted(resource->id);
+                        g_GLESFuncs.glDeleteBuffers(1, &resource->id);
+                        resource->id = 0;
+                        resource->immutableStorage = false;
+                    }
+                    // Off the context thread the id cannot be deleted here, and dropping it
+                    // would leak an immutable, persistently mapped store. It stays put, and
+                    // stays flagged, until EnsureBufferResource retires it on the thread
+                    // that owns the context.
+                    resource->storageInitialized = false;
+                    resource->storageSize = 0;
+                    resource->pendingRespecify = true;
+                    resource->pendingRanges.clear();
+                    return;
+                }
                 if (!CanTouchGLNow() || resource->id == 0 ||
                     resource->contextGeneration != g_bufferContextGeneration) {
                     resource->pendingRespecify = true;
@@ -655,7 +791,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                         resource->syncedChangeSerial = bufferObject.GetChangeSerial();
                         return;
                     }
-                    MGLOG_E("Failed to map buffer with ID: %u for flush, falling back to glBufferSubData",
+                    MGLOG_E_ONCE("Failed to map buffer with ID: %u for flush, falling back to glBufferSubData",
                             resource->id);
                 }
                 UploadRangeNow(*resource, bufferObject, range.start, range.end);
@@ -668,8 +804,13 @@ namespace MobileGL::MG_Backend::DirectGLES {
             void Ops_ReadbackFromGpu(BufferObject& bufferObject) {
                 auto* resource = ResourceOf(bufferObject);
                 if (!resource || resource->id == 0 || !resource->storageInitialized) return;
-                if (resource->persistentMapped) return; // shadow already IS the GPU storage
                 if (!CanTouchGLNow() || resource->contextGeneration != g_bufferContextGeneration) return;
+                if (resource->persistentMapped) {
+                    // Host writes to a persistent map must not race shader writes already queued
+                    // on this context. There is no backend copy to read back in this case.
+                    if (g_GLESFuncs.glFinish) g_GLESFuncs.glFinish();
+                    return;
+                }
                 if (!g_GLESFuncs.glMapBufferRange || !g_GLESFuncs.glUnmapBuffer) return;
                 const SizeT size = std::min<SizeT>(bufferObject.GetSize(), resource->storageSize);
                 if (size == 0) return;
@@ -678,7 +819,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 void* mapped = g_GLESFuncs.glMapBufferRange(TempBufferTarget, 0, static_cast<GLsizeiptr>(size),
                                                             GL_MAP_READ_BIT);
                 if (mapped == nullptr) {
-                    MGLOG_E("Ops_ReadbackFromGpu: glMapBufferRange(read) failed for buffer %u", resource->id);
+                    MGLOG_E_ONCE("Ops_ReadbackFromGpu: glMapBufferRange(read) failed for buffer %u", resource->id);
                     return;
                 }
                 bufferObject.WritebackFromBackend({mapped, size}, 0);
@@ -766,6 +907,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
         void BumpBufferMutationEpoch() {
             g_bufferMutationEpoch.fetch_add(1, std::memory_order_release);
         }
+
+        // See the declaration: re-mints of a live resource's driver id. Written only on
+        // the context thread (both re-mint sites run there), read only by the VAO sync.
+        Uint64 g_bufferBackendIdGeneration = 0;
 
         void RegisterBufferBackendOps() {
             MG_State::GLState::SetBufferBackendOps(&g_glesBufferBackendOps);
@@ -885,6 +1030,24 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 // frontend re-acquires a fresh one on its next map.
                 resource->persistentMapped = false;
                 resource->persistentPtr = nullptr;
+                resource->immutableStorage = false;
+            }
+
+            // An immutable store nothing maps any more: a respecification of a buffer that
+            // had been persistently mapped, which Ops_Respecify could not retire because it
+            // ran off the context thread. glBufferData cannot redefine it, so it is retired
+            // here, on the thread that can, and the id is re-minted below.
+            if (resource->immutableStorage && !resource->persistentMapped && resource->id != 0) {
+                NoteBufferIdDeleted(resource->id);
+                // Same as the persistent-map re-mint: the dying id may be baked into
+                // driver VAO bindings whose frontend versions do not move for this.
+                ++g_bufferBackendIdGeneration;
+                g_GLESFuncs.glDeleteBuffers(1, &resource->id);
+                resource->id = 0;
+                resource->immutableStorage = false;
+                resource->storageInitialized = false;
+                resource->storageSize = 0;
+                resource->pendingRespecify = true;
             }
 
             // Zero-copy coherent persistent buffer: the app writes straight into the
@@ -917,8 +1080,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 } else {
                     g_GLESFuncs.glGenBuffers(1, &resource->id);
                     if (resource->id == 0) {
-                        MGLOG_E("Failed to generate buffer object.");
-                        MGLOG_E("ES glGetError(): %s",
+                        MGLOG_E_ONCE("Failed to generate buffer object.");
+                        MGLOG_E_ONCE("ES glGetError(): %s",
                                 MG_Util::ConvertGLEnumToString(g_GLESFuncs.glGetError()).c_str());
                         return resource;
                     }
@@ -1148,7 +1311,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     }
                 }
                 if (id == 0) {
-                    MGLOG_E("Global-UBO ring: persistent storage creation failed (%zu bytes); "
+                    MGLOG_E_ONCE("Global-UBO ring: persistent storage creation failed (%zu bytes); "
                             "falling back to glBufferSubData uploads.",
                             newSize);
                     g_uboRing.creationFailed = true;
@@ -1394,8 +1557,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
             m_clientAttributeBufferIds.fill(0);
             g_GLESFuncs.glGenVertexArrays(1, &m_backendVAOId);
             if (m_backendVAOId == 0) {
-                MGLOG_E("Failed to generate vertex array object.");
-                MGLOG_E("ES glGetError(): %s", MG_Util::ConvertGLEnumToString(g_GLESFuncs.glGetError()).c_str());
+                MGLOG_E_ONCE("Failed to generate vertex array object.");
+                MGLOG_E_ONCE("ES glGetError(): %s", MG_Util::ConvertGLEnumToString(g_GLESFuncs.glGetError()).c_str());
             } else {
                 MGLOG_D("Generated vertex array object with ID: %u.", m_backendVAOId);
             }
@@ -1453,17 +1616,89 @@ namespace MobileGL::MG_Backend::DirectGLES {
         inline Bool BindAttributeBuffer(const MG_State::GLState::VertexAttribute& attrib) {
             const auto& bufferObject = attrib.Buffer;
             if (!bufferObject) {
-                MGLOG_W("Attribute has no bound buffer, skipping.");
+                MGLOG_W_ONCE("Attribute has no bound buffer, skipping.");
                 return false;
             }
 
             auto* backendResource = BufferImpl::EnsureBufferResource(bufferObject);
             if (!backendResource || backendResource->id == 0) {
-                MGLOG_E("No backend buffer found for attribute's buffer, cannot bind attribute.");
+                MGLOG_E_ONCE("No backend buffer found for attribute's buffer, cannot bind attribute.");
                 return false;
             }
 
             BufferImpl::BindBufferId(GL_ARRAY_BUFFER, backendResource->id);
+            return true;
+        }
+
+        // ES 3.1 core. Queried through the loader rather than the version, because the whole
+        // point of using it is to express something the pointer API cannot, and falling back
+        // silently on a driver that lacks it is better than crashing on a null entry point.
+        inline Bool HasVertexBindingApi() {
+            return g_GLESFuncs.glBindVertexBuffer != nullptr && g_GLESFuncs.glVertexAttribFormat != nullptr &&
+                   g_GLESFuncs.glVertexAttribIFormat != nullptr && g_GLESFuncs.glVertexAttribBinding != nullptr &&
+                   g_GLESFuncs.glVertexBindingDivisor != nullptr;
+        }
+
+        // Draw state, not VAO state: set by the baseInstance draw entry points around
+        // PrepareForDraw and back to zero as soon as the draw is issued.
+        Uint32 g_pendingFetchBaseInstance = 0;
+
+        void SetPendingFetchBaseInstance(Uint32 baseInstance) {
+            g_pendingFetchBaseInstance = baseInstance;
+        }
+
+        Uint32 GetPendingFetchBaseInstance() {
+            return g_pendingFetchBaseInstance;
+        }
+
+        // The "+ baseInstance" of GL's instanced-array element index, expressed as a byte shift
+        // of the array's own offset. Only divisor'd arrays step per instance, so only they move.
+        //
+        // baseInstance is added to the ELEMENT index, not to instance/divisor - the divisor
+        // therefore does not appear here, and the shift is a whole number of strides.
+        //
+        // A resolved stride of zero is the binding model's "never advance" (see
+        // VertexAttribute::Stride), so such an array reads the same element for every instance
+        // and a baseInstance cannot move it. The arithmetic already yields zero for that case.
+        inline SizeT BaseInstanceByteShift(const MG_State::GLState::VertexAttribute& attrib, Uint32 baseInstance) {
+            if (baseInstance == 0 || attrib.Divisor == 0) {
+                return 0;
+            }
+            return static_cast<SizeT>(baseInstance) * static_cast<SizeT>(attrib.Stride);
+        }
+
+        // Declares one attribute through the ES binding-point API, the only spelling that can
+        // carry a stride of zero. Returns false when the attribute has no usable buffer, in
+        // which case nothing was emitted.
+        inline Bool SyncZeroStrideAttribute(Uint attribIndex, const MG_State::GLState::VertexAttribute& attrib) {
+            const auto& bufferObject = attrib.Buffer;
+            if (!bufferObject) {
+                MGLOG_W_ONCE("Zero-stride attribute %u has no bound buffer, skipping.", attribIndex);
+                return false;
+            }
+            auto* backendResource = BufferImpl::EnsureBufferResource(bufferObject);
+            if (!backendResource || backendResource->id == 0) {
+                MGLOG_E_ONCE("No backend buffer for zero-stride attribute %u, cannot bind it.", attribIndex);
+                return false;
+            }
+
+            if (!attrib.IsInteger) {
+                const GLint glSize = attrib.IsBgra ? static_cast<GLint>(GL_BGRA) : attrib.Size;
+                g_GLESFuncs.glVertexAttribFormat(attribIndex, glSize,
+                                                 MG_Util::ConvertDataTypeToGLEnum(attrib.Type),
+                                                 attrib.Normalized ? GL_TRUE : GL_FALSE, 0);
+            } else {
+                g_GLESFuncs.glVertexAttribIFormat(attribIndex, attrib.Size,
+                                                  MG_Util::ConvertDataTypeToGLEnum(attrib.Type), 0);
+            }
+            g_GLESFuncs.glVertexAttribBinding(attribIndex, attribIndex);
+            // The resolved offset goes on the binding point, not into a relative offset: the
+            // relative offset is capped by GL_MAX_VERTEX_ATTRIB_RELATIVE_OFFSET (2047 at
+            // minimum) while a buffer offset is not, so anything else would break on a large
+            // one. BindBufferId is bypassed deliberately - glBindVertexBuffer binds into the
+            // VAO's binding point, not the GL_ARRAY_BUFFER target that cache tracks.
+            g_GLESFuncs.glBindVertexBuffer(attribIndex, backendResource->id,
+                                           static_cast<GLintptr>(attrib.Offset), 0);
             return true;
         }
 
@@ -1473,7 +1708,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
             if (!stateVAOObject) {
-                MGLOG_E("State VAO object is null, cannot sync to backend.");
+                MGLOG_E_ONCE("State VAO object is null, cannot sync to backend.");
                 return;
             }
 
@@ -1487,9 +1722,34 @@ namespace MobileGL::MG_Backend::DirectGLES {
             // PrepareForDraw's BindCurrentVAO establishes the draw binding regardless.
             const Uint32 currentConfigVersion = stateVAOObject->GetConfigVersion();
             const Uint16 currentIndexBufferVersion = stateVAOObject->GetIndexBufferBindingSlot().GetVersion();
-            const Bool attributesDirty = !m_hasSyncedConfigVersion || m_syncedConfigVersion != currentConfigVersion;
-            const Bool indexBufferDirty = currentIndexBufferVersion != m_syncedIndexBufferVersion;
-            if (!attributesDirty && !indexBufferDirty) {
+            // A live buffer's driver id was re-minted since this twin's last emit
+            // (persistent-map adoption / immutable-store retire): every baked binding may
+            // hold the dead id while every frontend version still matches, so force a
+            // full re-emit. Read once; each buffer re-mints at most once per walk (its
+            // first EnsureBufferResource this draw), before its id is baked, so stamping
+            // the entry value at the end is exact - and a stale stamp only costs one
+            // extra full emit.
+            const Uint64 currentBufferIdGeneration = BufferImpl::g_bufferBackendIdGeneration;
+            const Bool bufferIdsRemitted = m_syncedBufferIdGeneration != currentBufferIdGeneration;
+            const Bool attributesDirty =
+                bufferIdsRemitted || !m_hasSyncedConfigVersion || m_syncedConfigVersion != currentConfigVersion;
+            // Identity joins the version compare: the slot version is a wrapping Uint16,
+            // so a wrapped-back count with a different buffer bound must still read dirty.
+            const MG_State::GLState::BufferObject* currentIndexBufferObject =
+                stateVAOObject->GetIndexBufferBindingSlot().GetBoundObject().get();
+            const Bool indexBufferDirty = bufferIdsRemitted ||
+                                          currentIndexBufferVersion != m_syncedIndexBufferVersion ||
+                                          currentIndexBufferObject != m_syncedIndexBufferObject;
+
+            // The baseInstance shift lives in the attribute offsets the driver already holds, so
+            // a change of baseInstance has to re-emit the divisor'd arrays even when the frontend
+            // config version says nothing moved - and equally has to un-shift them for the next
+            // draw that carries no baseInstance. Resting state is 0 on both sides, so a program
+            // that never calls a *BaseInstance entry point never pays for this compare.
+            const Uint32 fetchBaseInstance = g_pendingFetchBaseInstance;
+            const Bool baseInstanceDirty = m_syncedFetchBaseInstance != fetchBaseInstance;
+            const Bool emitAttributes = attributesDirty || baseInstanceDirty;
+            if (!emitAttributes && !indexBufferDirty) {
                 return;
             }
 
@@ -1497,8 +1757,12 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             const auto& allAttributeVersions = stateVAOObject->GetAllAttributeVersions();
             const auto& allAttributes = stateVAOObject->GetAllAttributes();
-            for (Uint attribIndex = 0; attribIndex < allAttributes.size() && attributesDirty; ++attribIndex) {
+            for (Uint attribIndex = 0; attribIndex < allAttributes.size() && emitAttributes; ++attribIndex) {
                 const auto& attrib = allAttributes[attribIndex];
+                // Only the divisor'd arrays carry the shift, and only an enabled one is worth
+                // re-emitting - a disabled array has no pointer the draw could fetch through,
+                // and may well have no buffer to bind either.
+                const Bool needsSyncBaseInstance = baseInstanceDirty && attrib.Enabled && attrib.Divisor != 0;
                 Bool needsSyncSwitch = allAttributeVersions[attribIndex].SwitchVersion !=
                                        m_syncedAttributeVersions[attribIndex].SwitchVersion;
                 if (needsSyncSwitch) {
@@ -1509,25 +1773,57 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     }
                 }
 
-                Bool needsSyncFormat = allAttributeVersions[attribIndex].FormatVersion !=
-                                       m_syncedAttributeVersions[attribIndex].FormatVersion;
-                Bool needsSyncBuffer = allAttributeVersions[attribIndex].BufferVersion !=
-                                       m_syncedAttributeVersions[attribIndex].BufferVersion;
-                if (!needsSyncFormat && !needsSyncBuffer) continue;
+                Bool needsSyncFormat = bufferIdsRemitted || allAttributeVersions[attribIndex].FormatVersion !=
+                                                               m_syncedAttributeVersions[attribIndex].FormatVersion;
+                Bool needsSyncBuffer = bufferIdsRemitted || allAttributeVersions[attribIndex].BufferVersion !=
+                                                               m_syncedAttributeVersions[attribIndex].BufferVersion;
+                if (!needsSyncFormat && !needsSyncBuffer && !needsSyncBaseInstance) continue;
 
-                // Defence in depth. The frontend already declines glVertexAttribLFormat on this
-                // backend (SupportsFloat64VertexAttributes is false - ES has no GL_DOUBLE vertex
-                // format and ESSL has no fp64 type), so IsLong should never arrive here; if it ever
-                // did, passing GL_DOUBLE to glVertexAttribPointer would only raise GL_INVALID_ENUM on
-                // the real driver. Disabling rather than merely skipping matters: becoming long bumps
-                // FormatVersion, not SwitchVersion, so the enable/disable block above will not run
-                // again and an already-enabled array would stay enabled with no pointer and no
-                // ARRAY_BUFFER binding - which ES 3.1+ makes an INVALID_OPERATION at draw.
-                if (attrib.IsLong) {
-                    MGLOG_E("DirectGLES: vertex attribute %u is a 64-bit (GL_DOUBLE) array, which this "
+                // This is where a 64-bit array actually stops. glVertexAttribLFormat is a legal call
+                // in a GL 4.3 context and the frontend RECORDS its format (the state queries have to
+                // answer), so IsLong does arrive here - what this backend cannot do is FEED it:
+                // SupportsFloat64VertexAttributes is false because ES has no GL_DOUBLE vertex format
+                // and ESSL has no fp64 type, and passing GL_DOUBLE to glVertexAttribPointer would
+                // only raise GL_INVALID_ENUM on the real driver. Disabling rather than merely
+                // skipping matters: becoming long bumps FormatVersion, not SwitchVersion, so the
+                // enable/disable block above will not run again and an already-enabled array would
+                // stay enabled with no pointer and no ARRAY_BUFFER binding - which ES 3.1+ makes an
+                // INVALID_OPERATION at draw.
+                //
+                // IsLong is not the only way a 64-bit array gets here: glVertexAttribFormat
+                // with GL_DOUBLE asks for doubles in memory CONVERTED to float, so it is not
+                // long, is not declined by the frontend, and still has no ES vertex format.
+                // Leaving that one enabled did not merely raise INVALID_ENUM - the Adreno
+                // driver dereferenced null inside the next draw and took the process with it
+                // (SIGSEGV in libGLESv2_adreno, KHR-GL43.vertex_attrib_binding.basic-input-case4),
+                // because the array stayed enabled with no pointer the failed call could set.
+                // The type test therefore covers the storage, not the spelling.
+                if (attrib.IsLong || attrib.Type == DataType::Float64) {
+                    MGLOG_W_ONCE("DirectGLES: vertex attribute %u is a 64-bit (GL_DOUBLE) array, which this "
                             "backend cannot feed - disabling the array",
                             attribIndex);
                     g_GLESFuncs.glDisableVertexAttribArray(attribIndex);
+                    continue;
+                }
+
+                // A resolved stride of zero is the binding model's "never advance" (see
+                // VertexAttribute::Stride) and glVertexAttribPointer cannot say it - a zero
+                // stride argument there means "tightly packed" instead, i.e. exactly the
+                // opposite. ES 3.1's binding-point API can, so a zero-stride attribute takes
+                // that spelling: its own binding point (index == attribute index, the default
+                // mapping) carrying the buffer, the whole resolved offset and stride 0, with
+                // the format at relative offset 0. Everything the pointer call would have set
+                // for this attribute is set here too, so the two spellings stay interchangeable
+                // from one sync to the next.
+                if (attrib.Stride == 0 && HasVertexBindingApi()) {
+                    if (!SyncZeroStrideAttribute(attribIndex, attrib)) {
+                        continue;
+                    }
+                    // No BaseInstanceByteShift here on purpose: a zero stride never advances, so
+                    // the shift is zero by construction and adding it would only obscure that.
+                    if (needsSyncFormat) {
+                        g_GLESFuncs.glVertexBindingDivisor(attribIndex, attrib.Divisor);
+                    }
                     continue;
                 }
 
@@ -1535,16 +1831,48 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     continue;
                 }
 
+                // GL_BGRA as a vertex SIZE is desktop-only; ES has no equivalent and rejects
+                // it. That rejection is not benign: it leaves the array ENABLED with no
+                // pointer, and the Adreno driver then dereferences null inside the next draw
+                // and kills the process rather than reporting an error (SIGSEGV in
+                // libGLESv2_adreno, KHR-GL43.vertex_attrib_binding.basic-input-case5). So the
+                // refusal has to be observed and the array disabled.
+                //
+                // Deliberately ONLY this format. Everything else MobileGL can reach here is ES
+                // core - the packed 2_10_10_10 pair included, whose size the frontend has
+                // already pinned to the 4 that ES requires - so nothing else can be refused,
+                // and the per-draw sync must not grow a glGetError round trip (a driver
+                // pipeline stall) for the formats real applications actually use. BGRA is also
+                // still ATTEMPTED rather than refused up front: some ES drivers do accept it,
+                // and the ones that do should keep working.
+                const Bool formatMayBeRefused = attrib.IsBgra;
+                if (formatMayBeRefused) {
+                    while (g_GLESFuncs.glGetError() != GL_NO_ERROR) {
+                    } // start from a clean slate so the check below is about THIS call
+                }
+
+                const SizeT fetchOffset = attrib.Offset + BaseInstanceByteShift(attrib, fetchBaseInstance);
+
                 if (!attrib.IsInteger) {
                     // GL_BGRA is passed to the driver as the size argument (the driver reorders BGRA).
                     const GLint glSize = attrib.IsBgra ? static_cast<GLint>(GL_BGRA) : attrib.Size;
                     g_GLESFuncs.glVertexAttribPointer(
                         attribIndex, glSize, MG_Util::ConvertDataTypeToGLEnum(attrib.Type),
-                        attrib.Normalized ? GL_TRUE : GL_FALSE, attrib.Stride, (const void*)attrib.Offset);
+                        attrib.Normalized ? GL_TRUE : GL_FALSE, attrib.Stride, (const void*)fetchOffset);
                 } else {
                     g_GLESFuncs.glVertexAttribIPointer(attribIndex, attrib.Size,
                                                        MG_Util::ConvertDataTypeToGLEnum(attrib.Type), attrib.Stride,
-                                                       (const void*)attrib.Offset);
+                                                       (const void*)fetchOffset);
+                }
+
+                if (formatMayBeRefused && g_GLESFuncs.glGetError() != GL_NO_ERROR) {
+                    MGLOG_W_ONCE("DirectGLES: the driver refused the vertex format of attribute %u "
+                            "(size=%d bgra=%d type=%s) - disabling the array so the draw cannot "
+                            "fetch through a pointer the driver never accepted",
+                            attribIndex, attrib.Size, attrib.IsBgra ? 1 : 0,
+                            MG_Util::ConvertGLEnumToString(MG_Util::ConvertDataTypeToGLEnum(attrib.Type)).c_str());
+                    g_GLESFuncs.glDisableVertexAttribArray(attribIndex);
+                    continue;
                 }
 
                 if (needsSyncFormat) {
@@ -1561,7 +1889,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                         BufferImpl::BindBufferId(GL_ELEMENT_ARRAY_BUFFER, backendResource->id);
                         indexBufferSynced = true;
                     } else {
-                        MGLOG_W("No backend buffer found for index buffer binding, cannot bind index buffer.");
+                        MGLOG_W_ONCE("No backend buffer found for index buffer binding, cannot bind index buffer.");
                     }
                 } else {
                     g_GLESFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
@@ -1570,6 +1898,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
                 if (indexBufferSynced) {
                     m_syncedIndexBufferVersion = currentIndexBufferVersion;
+                    m_syncedIndexBufferObject = currentIndexBufferObject;
                 }
             }
 
@@ -1578,6 +1907,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 m_syncedConfigVersion = currentConfigVersion;
                 m_hasSyncedConfigVersion = true;
             }
+            if (emitAttributes) {
+                m_syncedFetchBaseInstance = fetchBaseInstance;
+            }
+            m_syncedBufferIdGeneration = currentBufferIdGeneration;
         }
 
         void BackendVertexArrayObject::SyncClientSideAttributesForDrawArrays(
@@ -1595,9 +1928,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     continue;
                 }
 
-                // Same reason as SyncToBackend: there is no ES vertex format for a 64-bit array, and
-                // this path only ever reaches glVertexAttribPointer/IPointer.
-                if (attrib.IsLong) {
+                // Same reason as SyncToBackend, including why the test is on the storage rather
+                // than on IsLong: there is no ES vertex format for a 64-bit array, and this path
+                // only ever reaches glVertexAttribPointer/IPointer.
+                if (attrib.IsLong || attrib.Type == DataType::Float64) {
                     g_GLESFuncs.glDisableVertexAttribArray(attribIndex);
                     continue;
                 }
@@ -1615,7 +1949,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 if (bufferId == 0) {
                     g_GLESFuncs.glGenBuffers(1, &bufferId);
                     if (bufferId == 0) {
-                        MGLOG_E("Failed to create client-side vertex attribute upload buffer.");
+                        MGLOG_E_ONCE("Failed to create client-side vertex attribute upload buffer.");
                         continue;
                     }
                 }
@@ -1650,8 +1984,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
             g_GLESFuncs.glGenTextures(1, &m_backendTextureId);
             m_contextGeneration = g_backendContextGeneration;
             if (m_backendTextureId == 0) {
-                MGLOG_E("Failed to generate texture object.");
-                MGLOG_E("ES glGetError(): %s", MG_Util::ConvertGLEnumToString(g_GLESFuncs.glGetError()).c_str());
+                MGLOG_E_ONCE("Failed to generate texture object.");
+                MGLOG_E_ONCE("ES glGetError(): %s", MG_Util::ConvertGLEnumToString(g_GLESFuncs.glGetError()).c_str());
             } else {
                 MGLOG_D("Generated texture object with ID: %u.", m_backendTextureId);
             }
@@ -1714,6 +2048,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
         void BackendTextureObject::RecreateBackendTexture() {
             if (m_backendTextureId != 0) {
                 ScratchFBOImpl::NoteTextureIdDeleted(m_backendTextureId);
+                // Application FBO twins that attached the dying id memoize on FRONTEND
+                // attachment versions, which this backend-side re-mint does not move;
+                // without this bump their driver FBOs would keep the deleted name
+                // attached forever (see g_attachmentBackendIdGeneration).
+                ++FramebufferImpl::g_attachmentBackendIdGeneration;
                 if (m_contextGeneration == g_backendContextGeneration) {
                     g_GLESFuncs.glDeleteTextures(1, &m_backendTextureId);
                 }
@@ -1729,14 +2068,28 @@ namespace MobileGL::MG_Backend::DirectGLES {
             g_GLESFuncs.glGenTextures(1, &m_backendTextureId);
             m_contextGeneration = g_backendContextGeneration;
             if (m_backendTextureId == 0) {
-                MGLOG_E("Failed to regenerate texture object.");
-                MGLOG_E("ES glGetError(): %s", MG_Util::ConvertGLEnumToString(g_GLESFuncs.glGetError()).c_str());
+                MGLOG_E_ONCE("Failed to regenerate texture object.");
+                MGLOG_E_ONCE("ES glGetError(): %s", MG_Util::ConvertGLEnumToString(g_GLESFuncs.glGetError()).c_str());
             } else {
                 MGLOG_D("Regenerated texture object with ID: %u.", m_backendTextureId);
             }
             m_isInitialized = false;
             m_backendStorageImmutable = false;
             m_prevTextureInfo = {};
+            // The new ES texture starts at the ES defaults, so every parameter this object had
+            // already pushed onto the old one is gone. The change-detection caches below would
+            // otherwise still claim those values are in force and SyncTextureParamsToBackend
+            // would skip the whole pass on the unchanged params version, leaving the driver
+            // texture at defaults for the rest of its life. Latent for swizzle, LOD range and
+            // border colour long before GL_DEPTH_STENCIL_TEXTURE_MODE joined them; the mode
+            // makes it visible because falling back to the default silently samples the wrong
+            // aspect rather than merely mis-filtering.
+            m_cacheLodRange = {0, 1000};
+            m_cacheBorderColor = {0.0f, 0.0f, 0.0f, 0.0f};
+            m_cacheSwizzleParams = {TextureSwizzleParam::Red, TextureSwizzleParam::Green, TextureSwizzleParam::Blue,
+                                    TextureSwizzleParam::Alpha};
+            m_cacheDepthStencilTextureMode = GL_DEPTH_COMPONENT;
+            m_forceTextureParamsResync = true;
         }
 
         // Sets the backend GL unpack state to MobileGL's upload default for the scope,
@@ -2147,10 +2500,30 @@ namespace MobileGL::MG_Backend::DirectGLES {
             return packedData.data();
         }
 
+        // "Some level of this texture holds an image", which is all the sync gate below actually
+        // needs to know. Deliberately weaker than ITextureObject::IsComplete(): that predicate also
+        // answers whether the texture SAMPLES as complete, so it must keep rejecting a chain with
+        // undefined lower levels - but such a texture still has to be uploaded, or the level that
+        // IS defined never reaches the driver at all.
+        static Bool HasAnyDefinedMipmapLevel(const MG_State::GLState::ITextureObject* stateTextureObject) {
+            const auto* mipmapObject = MG_State::GLState::AsMipmapTexture(stateTextureObject);
+            if (mipmapObject == nullptr) return false;
+            const auto levelCount = mipmapObject->GetMipmapLevelCount();
+            for (const auto& uploadTarget : stateTextureObject->GetUploadTargets()) {
+                for (Uint level = 0; level < levelCount; ++level) {
+                    const auto levelTexelSize = mipmapObject->GetMipmapTexelSize(uploadTarget, level);
+                    if (levelTexelSize.x() > 0 && levelTexelSize.y() > 0 && levelTexelSize.z() > 0) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
         void BackendTextureObject::SyncMipmapsToBackend(
             const SharedPtr<MG_State::GLState::ITextureObject>& stateTextureObject) {
             if (!stateTextureObject) {
-                MGLOG_E("State texture object is null, cannot sync to backend.");
+                MGLOG_E_ONCE("State texture object is null, cannot sync to backend.");
                 return;
             }
 
@@ -2183,7 +2556,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MGLOG_D("    Texture target for syncing is %s",
                     MG_Util::ConvertTextureTargetToString(targetInternal).c_str());
             if (!IsSupportedTextureTarget(targetInternal)) {
-                MGLOG_E("    Texture target %s is not supported, skipping.",
+                MGLOG_E_ONCE("    Texture target %s is not supported, skipping.",
                         MG_Util::ConvertTextureTargetToString(targetInternal).c_str());
                 return;
             }
@@ -2194,8 +2567,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
             // 3. Size changed
             // 4. Mipmap levels changed
 
-            if (!stateTextureObject->IsComplete()) {
-                MGLOG_D("Texture object with ID: %u is not complete, skipping sync.",
+            // IsComplete() is the sampling predicate, and it calls a chain whose lower levels are
+            // undefined incomplete - which is what a top-down build (upload level N, then level 0)
+            // and ARB_clear_texture's conformance cases both produce. Bailing out on that shape
+            // left the backend name with no levels whatsoever, so the level that WAS defined could
+            // never be sampled or read back. Sync whenever some level holds an image; the per-level
+            // loops below skip the degenerate ones individually.
+            if (!stateTextureObject->IsComplete() && !HasAnyDefinedMipmapLevel(stateTextureObject.get())) {
+                MGLOG_D("Texture object with ID: %u has no defined image level, skipping sync.",
                         stateTextureObject->GetExternalIndex());
                 return;
             }
@@ -2297,6 +2676,13 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     for (auto& uploadTarget : uploadTargets) {
                         for (SizeT level = m_prevTextureInfo.mipmapLevels; level < mipmapCount; ++level) {
                             auto levelTexelSize = textureMipmapObject->GetMipmapTexelSize(uploadTarget, level);
+                            // A level the application never defined reads back as {0, 0, 0}; now that a
+                            // sparse chain is synced rather than skipped whole, leave those undefined on
+                            // the driver instead of giving the name a 0x0 image at that index.
+                            if (levelTexelSize.x() <= 0 || levelTexelSize.y() <= 0 || levelTexelSize.z() <= 0) {
+                                textureMipmapObject->MarkStorageDirty(uploadTarget, level, false);
+                                continue;
+                            }
                             auto levelByteSize = textureMipmapObject->GetMipmapByteSize(uploadTarget, level);
                             bool levelDirty = textureMipmapObject->IsStorageDirty(uploadTarget, level);
                             auto glUploadTarget = ConvertTextureUploadTargetToBackendGLEnum(uploadTarget);
@@ -2335,7 +2721,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                     static_cast<GLsizei>(uploadSize.z()), 0, glFormat, glType, uploadData);
                                 break;
                             default:
-                                MGLOG_E("Unhandled texture target %s",
+                                MGLOG_E_ONCE("Unhandled texture target %s",
                                         MG_Util::ConvertTextureTargetToString(stateTextureObject->GetTarget()).c_str());
                                 break;
                             }
@@ -2369,25 +2755,59 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     if (TextureImpl::IsMultisampleTextureTarget(targetInternal)) {
                         DebugImpl::ErrorLopper::Clear();
                         BufferImpl::BindPixelUnpackBufferId(0); // no-op once the resting 0 state is pinned
-                        switch (targetInternal) {
-                        case TextureTarget::Texture2DMultisample:
-                            g_GLESFuncs.glTexStorage2DMultisample(
-                                target, static_cast<GLsizei>(stateTextureObject->GetSamples()), glInternalFormat,
-                                static_cast<GLsizei>(baseSize.x()), static_cast<GLsizei>(baseSize.y()),
-                                stateTextureObject->HasFixedSampleLocations() ? GL_TRUE : GL_FALSE);
-                            break;
-                        case TextureTarget::Texture2DMultisampleArray:
-                            g_GLESFuncs.glTexStorage3DMultisample(
-                                target, static_cast<GLsizei>(stateTextureObject->GetSamples()), glInternalFormat,
-                                static_cast<GLsizei>(baseSize.x()), static_cast<GLsizei>(baseSize.y()),
-                                static_cast<GLsizei>(baseSize.z()),
-                                stateTextureObject->HasFixedSampleLocations() ? GL_TRUE : GL_FALSE);
-                            break;
-                        default:
-                            MOBILEGL_ASSERT(false, "Unexpected multisample target: %d", static_cast<Int>(targetInternal));
-                            break;
+                        // The frontend validates against the count MobileGL advertises, which can
+                        // exceed what the driver takes for this format (Adreno: GL_MAX_SAMPLES 4,
+                        // GL_MAX_INTEGER_SAMPLES 1). Clamp the ES call - and only the ES call:
+                        // stateTextureObject keeps the requested count so GL_TEXTURE_SAMPLES and
+                        // framebuffer completeness still report what the application asked for.
+                        const auto backendSamples = static_cast<GLsizei>(ClampSamplesToBackendSupport(
+                            GetFormatCapabilityTargetIndex(targetInternal), textureMipmapObject->GetFormat(),
+                            glFormat, static_cast<Int>(stateTextureObject->GetSamples())));
+                        // ES 3.1 8.19 requires width/height (and depth, for the array target) >= 1,
+                        // so a degenerate size has nothing to allocate and must not reach the
+                        // driver. The frontend deallocates such an image rather than defining it
+                        // (GL 4.6 core 8.8), so this is belt and braces for any path that still
+                        // syncs one.
+                        const Bool hasAllocatableSize =
+                            baseSize.x() >= 1 && baseSize.y() >= 1 &&
+                            (targetInternal != TextureTarget::Texture2DMultisampleArray || baseSize.z() >= 1);
+                        if (!hasAllocatableSize) {
+                            MGLOG_D("Skipping multisample storage for texture %u: degenerate size (%d, %d, %d)",
+                                    m_backendTextureId, baseSize.x(), baseSize.y(), baseSize.z());
+                        } else {
+                            switch (targetInternal) {
+                            case TextureTarget::Texture2DMultisample:
+                                g_GLESFuncs.glTexStorage2DMultisample(
+                                    target, backendSamples, glInternalFormat,
+                                    static_cast<GLsizei>(baseSize.x()), static_cast<GLsizei>(baseSize.y()),
+                                    stateTextureObject->HasFixedSampleLocations() ? GL_TRUE : GL_FALSE);
+                                break;
+                            case TextureTarget::Texture2DMultisampleArray:
+                                g_GLESFuncs.glTexStorage3DMultisample(
+                                    target, backendSamples, glInternalFormat,
+                                    static_cast<GLsizei>(baseSize.x()), static_cast<GLsizei>(baseSize.y()),
+                                    static_cast<GLsizei>(baseSize.z()),
+                                    stateTextureObject->HasFixedSampleLocations() ? GL_TRUE : GL_FALSE);
+                                break;
+                            default:
+                                MOBILEGL_ASSERT(false, "Unexpected multisample target: %d",
+                                                static_cast<Int>(targetInternal));
+                                break;
+                            }
+                            m_backendStorageImmutable = true;
                         }
-                        m_backendStorageImmutable = true;
+                        // The one storage branch that cleared the ES error queue without ever
+                        // draining it again, so anything this call raised was left for an
+                        // unrelated later query to trip over. Paired with its two siblings now.
+                        DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__, func = __func__, target,
+                                                      glInternalFormat, backendSamples](GLenum err) {
+                            MGLOG_D("%s(%s:%d) ES error: %s. glTexStorage*Multisample: target=%s, internalformat=%s, "
+                                    "samples=%d",
+                                    func, file, line, MG_Util::ConvertGLEnumToString(err).c_str(),
+                                    MG_Util::ConvertGLEnumToString(target).c_str(),
+                                    MG_Util::ConvertGLEnumToString(glInternalFormat).c_str(),
+                                    static_cast<Int>(backendSamples));
+                        });
                         for (const auto& uploadTarget : uploadTargets) {
                             for (SizeT level = 0; level < mipmapCount; ++level) {
                                 textureMipmapObject->MarkStorageDirty(uploadTarget, level, false);
@@ -2413,7 +2833,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                                        static_cast<GLsizei>(storageSize.z()));
                             break;
                         default:
-                            MGLOG_E("Unhandled immutable texture target %s",
+                            MGLOG_E_ONCE("Unhandled immutable texture target %s",
                                     MG_Util::ConvertTextureTargetToString(targetInternal).c_str());
                             break;
                         }
@@ -2490,6 +2910,13 @@ namespace MobileGL::MG_Backend::DirectGLES {
                         for (auto& uploadTarget : uploadTargets) {
                             for (SizeT level = 0; level < mipmapCount; ++level) {
                                 auto levelTexelSize = textureMipmapObject->GetMipmapTexelSize(uploadTarget, level);
+                                // See the append-mips loop: an undefined level stays undefined on the
+                                // driver rather than becoming a 0x0 image.
+                                if (levelTexelSize.x() <= 0 || levelTexelSize.y() <= 0 ||
+                                    levelTexelSize.z() <= 0) {
+                                    textureMipmapObject->MarkStorageDirty(uploadTarget, level, false);
+                                    continue;
+                                }
                                 auto levelByteSize = textureMipmapObject->GetMipmapByteSize(uploadTarget, level);
                                 bool levelDirty = textureMipmapObject->IsStorageDirty(uploadTarget, level);
                                 auto glUploadTarget = ConvertTextureUploadTargetToBackendGLEnum(uploadTarget);
@@ -2535,7 +2962,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                     break;
                                 }
                                 default: {
-                                    MGLOG_E("Unhandled texture target %s",
+                                    MGLOG_E_ONCE("Unhandled texture target %s",
                                             MG_Util::ConvertTextureTargetToString(textureTarget).c_str());
                                 }
                                 }
@@ -2587,7 +3014,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
                             auto byteSize = textureMipmapObject->GetMipmapByteSize(uploadTarget, level);
                             if (byteSize == 0) {
-                                MGLOG_W("Mipmap level %d has no data, skipping update.", level);
+                                MGLOG_D("Mipmap level %d has no data, skipping update.", level);
                                 continue;
                             }
 
@@ -2738,7 +3165,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                 }
                                 break;
                             default:
-                                MGLOG_E("Unhandled texture target %s",
+                                MGLOG_E_ONCE("Unhandled texture target %s",
                                         MG_Util::ConvertTextureTargetToString(stateTextureObject->GetTarget()).c_str());
                                 break;
                             }
@@ -2766,7 +3193,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 // Need to sync texture buffer if not synced yet
                 auto* backendBufferResource = BufferImpl::EnsureBufferResource(buffer);
                 if (!backendBufferResource || backendBufferResource->id == 0) {
-                    MGLOG_E("Failed to sync backing buffer for texture buffer with ID: %u",
+                    MGLOG_E_ONCE("Failed to sync backing buffer for texture buffer with ID: %u",
                             stateTextureObject->GetExternalIndex());
                     return;
                 }
@@ -2785,15 +3212,15 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     // below that without EXT/OES_texture_buffer. Calling it was an unconditional
                     // null dereference. There is no conformant way to refuse the call (it is valid
                     // in the context MobileGL claims), so the texture is left unbacked and the
-                    // reason is stated once per respecify at a level that survives the shipped
-                    // INFO build - MGLOG_E is compiled out there, which is exactly how this class
-                    // of defect stays invisible.
+                    // reason is stated once per object, latched by the flag below. It was parked
+                    // at MGLOG_I while the level ordering compiled MGLOG_W out of INFO builds;
+                    // W is the correct level and now survives there.
                     if (!AreBufferTexturesSupported()) {
                         if (m_bufferTextureUnsupportedReported) {
                             break;
                         }
                         m_bufferTextureUnsupportedReported = true;
-                        MGLOG_I("Texture buffer %u cannot be backed: this ES driver has no buffer "
+                        MGLOG_W("Texture buffer %u cannot be backed: this ES driver has no buffer "
                                 "textures (%s). Every draw sampling it will read zero and every "
                                 "shader declaring a samplerBuffer will fail to compile. MobileGL "
                                 "still advertises GL_MAX_TEXTURE_BUFFER_SIZE = %d because an "
@@ -2821,7 +3248,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     } else if (!CallTexBufferRange(GL_TEXTURE_BUFFER, glInternalFormat, backendId,
                                                    static_cast<GLintptr>(rangeOffset),
                                                    static_cast<GLsizeiptr>(rangeSize))) {
-                        MGLOG_I("Texture buffer %u names a sub-range but the driver has no "
+                        MGLOG_W_ONCE("Texture buffer %u names a sub-range but the driver has no "
                                 "glTexBufferRange; binding the whole buffer instead",
                                 stateTextureObject->GetExternalIndex());
                         CallTexBuffer(GL_TEXTURE_BUFFER, glInternalFormat, backendId);
@@ -2839,7 +3266,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 // TextureStorageType is {Mipmap, Buffer}, both handled above, so this is a
                 // backstop for a state object that grew a new storage kind. Skipping the upload
                 // renders wrong; throwing unwinds through the C GL ABI and kills the process.
-                MGLOG_I("DirectGLES texture sync: no upload path for storage type %d on texture %u; "
+                MGLOG_E_ONCE("DirectGLES texture sync: no upload path for storage type %d on texture %u; "
                         "skipping this sync",
                         static_cast<int>(stateTextureObject->GetStorageType()),
                         stateTextureObject->GetExternalIndex());
@@ -2874,7 +3301,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 #endif
 
             if (!stateTextureObject) {
-                MGLOG_E("State texture object is null, cannot sync to backend.");
+                MGLOG_E_ONCE("State texture object is null, cannot sync to backend.");
                 return;
             }
 
@@ -2895,7 +3322,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MGLOG_D("    Texture target for syncing is %s",
                     MG_Util::ConvertTextureTargetToString(targetInternal).c_str());
             if (!IsSupportedTextureTarget(targetInternal)) {
-                MGLOG_E("    Texture target %s is not supported, skipping.",
+                MGLOG_E_ONCE("    Texture target %s is not supported, skipping.",
                         MG_Util::ConvertTextureTargetToString(targetInternal).c_str());
                 return;
             }
@@ -2984,16 +3411,17 @@ namespace MobileGL::MG_Backend::DirectGLES {
 #endif
 
             if (!stateTextureObject) {
-                MGLOG_E("State texture object is null, cannot sync to backend.");
+                MGLOG_E_ONCE("State texture object is null, cannot sync to backend.");
                 return;
             }
 
             Uint16 currentTextureParamsVersion = stateTextureObject->GetTextureParamsVersion();
-            if (m_syncedTextureParamsVersion == currentTextureParamsVersion) {
+            if (m_syncedTextureParamsVersion == currentTextureParamsVersion && !m_forceTextureParamsResync) {
                 MGLOG_D("Texture parameters have not changed for texture ID: %u, skipping sync.", m_backendTextureId);
                 return;
             }
             m_syncedTextureParamsVersion = currentTextureParamsVersion;
+            m_forceTextureParamsResync = false;
 
             MGLOG_D("Syncing texture params with backend ID %u to backend for state ID %u", m_backendTextureId,
                     stateTextureObject->GetExternalIndex());
@@ -3003,7 +3431,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MGLOG_D("    Texture target for syncing is %s",
                     MG_Util::ConvertTextureTargetToString(targetInternal).c_str());
             if (!IsSupportedTextureTarget(targetInternal)) {
-                MGLOG_E("    Texture target %s is not supported, skipping.",
+                MGLOG_E_ONCE("    Texture target %s is not supported, skipping.",
                         MG_Util::ConvertTextureTargetToString(targetInternal).c_str());
                 return;
             }
@@ -3088,6 +3516,29 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     MGLOG_D("%s(%s:%d) ES error %s", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str());
                 });
             }
+
+            // GL_DEPTH_STENCIL_TEXTURE_MODE (GL_ARB_stencil_texturing / ES 3.1 core): which aspect
+            // of a packed depth/stencil image a sampler reads. Until this was forwarded the
+            // frontend kept the mode as a pure shadow - glGetTexParameter answered it, sampling
+            // ignored it - so a usampler2D bound to a D24S8 texture in STENCIL_INDEX mode read the
+            // depth aspect. Texture state rather than sampler state, so multisample targets take
+            // it too (ES 3.1 8.10 lists it among the three pnames they accept). It is only sent
+            // when it has moved, which for the overwhelming majority of textures is never.
+            const Bool supportsStencilTextureMode =
+                g_GLESCapabilities.GLESVersion.Major > 3 ||
+                (g_GLESCapabilities.GLESVersion.Major == 3 && g_GLESCapabilities.GLESVersion.Minor >= 1);
+            if (supportsStencilTextureMode) {
+                const GLenum depthStencilTextureMode = stateTextureObject->GetDepthStencilTextureMode();
+                if (m_cacheDepthStencilTextureMode != depthStencilTextureMode) {
+                    g_GLESFuncs.glTexParameteri(target, GL_DEPTH_STENCIL_TEXTURE_MODE,
+                                                static_cast<GLint>(depthStencilTextureMode));
+                    m_cacheDepthStencilTextureMode = depthStencilTextureMode;
+                    DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
+                        MGLOG_D("%s(%s:%d) ES error %s", func, file, line,
+                                MG_Util::ConvertGLEnumToString(err).c_str());
+                    });
+                }
+            }
         }
 
         void ActivateTextureUnit(Uint unit) {
@@ -3128,8 +3579,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
             g_GLESFuncs.glGenFramebuffers(1, &m_backendFBOId);
             m_contextGeneration = g_backendContextGeneration;
             if (m_backendFBOId == 0) {
-                MGLOG_E("Failed to generate framebuffer object.");
-                MGLOG_E("ES glGetError(): %s", MG_Util::ConvertGLEnumToString(g_GLESFuncs.glGetError()).c_str());
+                MGLOG_E_ONCE("Failed to generate framebuffer object.");
+                MGLOG_E_ONCE("ES glGetError(): %s", MG_Util::ConvertGLEnumToString(g_GLESFuncs.glGetError()).c_str());
             } else {
                 MGLOG_D("Generated framebuffer object with ID: %u.", m_backendFBOId);
             }
@@ -3247,6 +3698,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
             m_backendReadBuffer = GL_NONE;
             std::fill(m_syncedFrontendAttachmentVersions.begin(), m_syncedFrontendAttachmentVersions.end(),
                       static_cast<Uint16>(~0u));
+            // Every attachment version is invalidated above, so the next walk re-attaches
+            // everything regardless; stamp the generation so it does not re-arm twice.
+            m_syncedBackendIdGeneration = g_attachmentBackendIdGeneration;
         }
 
         static Bool SyncAttachmentObject(GLenum glFBOTarget,
@@ -3265,7 +3719,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     backendTextureObject = newTextureSlot;
                 }
                 if (!backendTextureObject) {
-                    MGLOG_E("%s: No backend texture found for FBO attachment, cannot bind texture.", __func__);
+                    MGLOG_E_ONCE("%s: No backend texture found for FBO attachment, cannot bind texture.", __func__);
                     return false;
                 }
                 backendTextureObject->SyncMipmapsToBackend(textureObject);
@@ -3634,7 +4088,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
             if (!stateFBOObject) {
-                MGLOG_E("State FBO object is null, cannot sync to backend.");
+                MGLOG_E_ONCE("State FBO object is null, cannot sync to backend.");
                 return;
             }
             MGLOG_D("Syncing FBO with backend ID %u to backend for state ID %u, as %s FBO", m_backendFBOId,
@@ -3735,6 +4189,15 @@ namespace MobileGL::MG_Backend::DirectGLES {
             }
 
             // -------------------- Attach texture to backend FBO -----------------------
+            // A backend texture id was re-minted since this twin's last walk
+            // (RecreateBackendTexture): any point here may still hold the dead id while
+            // its frontend attachment version is unchanged, so the memo below would skip
+            // exactly the attachment that needs repair. Re-arm every point first.
+            if (m_syncedBackendIdGeneration != g_attachmentBackendIdGeneration) {
+                std::fill(m_syncedFrontendAttachmentVersions.begin(), m_syncedFrontendAttachmentVersions.end(),
+                          static_cast<Uint16>(~0u));
+                m_syncedBackendIdGeneration = g_attachmentBackendIdGeneration;
+            }
             const auto& attachments = stateFBOObject->GetAllAttachmentObjects();
             const auto& attachmentVersions = stateFBOObject->GetAllFramebufferAttachmentVersions();
             for (SizeT i = 0; i < attachments.size(); ++i) {
@@ -3823,6 +4286,18 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 }
 #endif
             }
+
+            // The walk itself can re-mint an id (SyncAttachmentObject ->
+            // SyncMipmapsToBackend -> RecreateBackendTexture), invalidating points this
+            // walk already attached or version-skipped - e.g. one texture attached at two
+            // points. Re-enter until the generation is quiescent: every pass syncs each
+            // dirty texture clean, so each repeat finds strictly fewer re-mints and the
+            // common case (no re-mint) never takes a second pass. The head's draw/read-
+            // buffer syncs are memoized against their own shadows, so a repeat re-walks
+            // only the attachments.
+            if (m_syncedBackendIdGeneration != g_attachmentBackendIdGeneration) {
+                SyncToBackend(stateFBOObject, asTarget);
+            }
         }
 
         GLenum BackendFramebufferObject::GetBackendAttachmentType(FramebufferAttachmentType frontendAtt) const {
@@ -3849,6 +4324,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
         Array<Uint16, SizeT(FramebufferTarget::FramebufferTargetCount)> g_fboSyncedObjectVersions = {0};
         Array<MG_State::GLState::FramebufferObject*, SizeT(FramebufferTarget::FramebufferTargetCount)>
             g_fboSyncedObjects = {};
+        Uint64 g_attachmentBackendIdGeneration = 0;
+        Array<Uint64, SizeT(FramebufferTarget::FramebufferTargetCount)> g_fboSyncedBackendIdGenerations = {0};
     } // namespace FramebufferImpl
 
     namespace ScratchFBOImpl {
@@ -4153,8 +4630,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
 #endif
             m_backendProgramId = g_GLESFuncs.glCreateProgram();
             if (m_backendProgramId == 0) {
-                MGLOG_E("Failed to create program object in backend.");
-                MGLOG_E("ES glGetError(): %s", MG_Util::ConvertGLEnumToString(g_GLESFuncs.glGetError()).c_str());
+                MGLOG_E_ONCE("Failed to create program object in backend.");
+                MGLOG_E_ONCE("ES glGetError(): %s", MG_Util::ConvertGLEnumToString(g_GLESFuncs.glGetError()).c_str());
 
             } else {
                 MGLOG_D("Created backend program object with ID: %u", m_backendProgramId);
@@ -4232,13 +4709,565 @@ namespace MobileGL::MG_Backend::DirectGLES {
             return signature;
         }
 
+        namespace {
+            // The GL internal format bound to an image unit right now. GL_NONE for a unit
+            // outside the frontend's array, which cannot be addressed at all.
+            Uint BoundImageUnitFormat(Int unit) {
+                if (unit < 0 || unit >= MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS) return 0;
+                return static_cast<Uint>(MG_State::pGLContext->GetImageTextureBinding(unit).Format);
+            }
+
+            // Combines one (unit, format) pair into a running digest. Commutative, so the order
+            // the uniforms are walked in cannot change the answer, and mixed rather than summed
+            // so a unit and a format cannot trade places between two pairs and cancel out.
+            Uint64 MixImageUnitFormat(Uint64 signature, Int unit, Uint format) {
+                Uint64 entry = static_cast<Uint64>(static_cast<Uint32>(unit)) + 0x9e3779b97f4a7c15ull;
+                entry ^= static_cast<Uint64>(format) + 0xbf58476d1ce4e5b9ull + (entry << 6) + (entry >> 2);
+                return signature + entry;
+            }
+
+            // Pipeline position of a shader stage. Names the PRODUCER of an inter-stage
+            // interface block: a block one stage consumes was written by the stage before it.
+            // ShaderStage is declared in pipeline order, so the enum value IS the position;
+            // compute has no inter-stage interface at all and is reported as -1.
+            Int InterStagePipelineIndex(ShaderStage stage) {
+                switch (stage) {
+                case ShaderStage::Vertex:
+                case ShaderStage::TessControl:
+                case ShaderStage::TessEval:
+                case ShaderStage::Geometry:
+                case ShaderStage::Fragment:
+                    return static_cast<Int>(stage);
+                default:
+                    return -1;
+                }
+            }
+
+            // Whether a stage can declare interface blocks in BOTH directions at once, i.e.
+            // whether one block name can name two different blocks inside it. A vertex INPUT
+            // and a fragment OUTPUT cannot be blocks and compute has neither, so only these
+            // three can. This is what keeps the module probe off every program without
+            // tessellation or geometry - which is every program Minecraft and its shader packs
+            // build.
+            Bool CanDeclareBlocksInBothDirections(ShaderStage stage) {
+                return stage == ShaderStage::TessControl || stage == ShaderStage::TessEval ||
+                       stage == ShaderStage::Geometry;
+            }
+
+            // Reflection names an array uniform after its first element ("g_image[0]") at every
+            // location it spans; SPIR-V names the variable once, without the subscript. This is
+            // the name both sides agree on.
+            String ImageUniformBaseName(const String& reflectionName) {
+                if (reflectionName.size() >= 3 && reflectionName.compare(reflectionName.size() - 3, 3, "[0]") == 0) {
+                    return reflectionName.substr(0, reflectionName.size() - 3);
+                }
+                return reflectionName;
+            }
+
+            // Whether a glslang layout format is one GLSL ES has in core; the rest reach ES only
+            // through GL_NV_image_formats. Asked of DECLARED formats, which this backend passes
+            // through untouched - the emitted ESSL still has to be legal for the driver.
+            Bool IsCoreEsslLayoutFormat(glslang::TLayoutFormat format) {
+                switch (format) {
+                case glslang::ElfRgba32f:
+                case glslang::ElfRgba16f:
+                case glslang::ElfR32f:
+                case glslang::ElfRgba8:
+                case glslang::ElfRgba8Snorm:
+                case glslang::ElfRgba32i:
+                case glslang::ElfRgba16i:
+                case glslang::ElfRgba8i:
+                case glslang::ElfR32i:
+                case glslang::ElfRgba32ui:
+                case glslang::ElfRgba16ui:
+                case glslang::ElfRgba8ui:
+                case glslang::ElfR32ui:
+                    return true;
+                default:
+                    return false;
+                }
+            }
+        } // namespace
+
+        // What the format bake needs from the frontend, collected in one walk of the uniform
+        // reflection: which image uniforms declared NO format (the only ones a bake may touch -
+        // a declared format is authoritative and stays), what the units they address currently
+        // hold, and whether any format in play - declared or baked - is outside the ES core set.
+        ImageFormatBakeInputs CollectImageFormatBakeInputs(
+            const MG_State::GLState::ProgramObject& stateProgramObject) {
+            ImageFormatBakeInputs inputs;
+            // A format GLSL ES cannot spell on a driver with no GL_NV_image_formats to spell it
+            // with. There is no legal ESSL for such a shader at all, so the stage will not
+            // compile and the program is lost - a failure that used to leave nothing behind but
+            // a draw that rendered nothing. Recorded and reported ONCE per program build rather
+            // than per uniform: an image array reaches this decision once per element.
+            String unspellableUniform;
+            String unspellableFormat;
+            Uint unspellableCount = 0;
+            const auto recordUnspellableFormat = [&](const String& uniformName, String formatSpelling) {
+                if (unspellableCount == 0) {
+                    unspellableUniform = uniformName;
+                    unspellableFormat = Move(formatSpelling);
+                }
+                ++unspellableCount;
+            };
+
+            const Uint maxUniformLoc = stateProgramObject.GetMaxUniformLocation();
+            for (Uint loc = 0; loc <= maxUniformLoc; ++loc) {
+                const auto& name = stateProgramObject.GetUniformName(loc);
+                if (name.empty()) continue;
+                if (!IsImageUniformType(stateProgramObject.GetUniformType(loc))) continue;
+                const auto& type = stateProgramObject.GetUniformTypeFacts(loc);
+                if (type.hasFormat) {
+                    // Declared, and therefore left exactly as written - but a non-core spelling
+                    // still needs the extension directive to survive the ES compiler.
+                    if (!IsCoreEsslLayoutFormat(static_cast<glslang::TLayoutFormat>(type.layoutFormat))) {
+                        inputs.needsExtendedImageFormats = true;
+                        if (!g_GLESCapabilities.SupportsExtendedImageFormats) {
+                            // From the OWNED TypeFacts, not from a live TType: the reflection
+                            // snapshot already carries the declared layout format, and there is
+                            // no glslang object to ask on a translation-cache L1 hit.
+                            recordUnspellableFormat(
+                                name, glslang::TQualifier::getLayoutFormatString(
+                                          static_cast<glslang::TLayoutFormat>(type.layoutFormat)));
+                        }
+                    }
+                    continue;
+                }
+                const Int unit = stateProgramObject.GetUniformSamplerOrImageUnitIndex(loc);
+                if (unit < 0 || unit >= MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS) continue;
+                const Uint boundFormat = BoundImageUnitFormat(unit);
+
+                // Every format-less uniform contributes to the rebuild key, including one whose
+                // unit holds nothing yet: an image bound for the first time AFTER the link has
+                // to move the key, or the program built against "nothing bound" would never be
+                // rebuilt against the real format.
+                inputs.units.push_back(unit);
+                inputs.signature = MixImageUnitFormat(inputs.signature, unit, boundFormat);
+
+                if (boundFormat == 0) continue;
+                if (!MG_Util::ShaderTranspiler::ShaderCompiler::GLInternalFormatIsCoreEsslImageFormat(boundFormat)) {
+                    // Outside the GLSL ES core set, so the emitted ESSL only compiles with
+                    // GL_NV_image_formats. Without the extension there is no legal spelling at
+                    // all, and baking one would trade a "no format qualifier" compile error for
+                    // an "unsupported format" one - so the image is left format-less. Its unit
+                    // stays in the key, so a rebind to a core format still rebuilds and works.
+                    if (!g_GLESCapabilities.SupportsExtendedImageFormats) {
+                        MGLOG_D("Image uniform '%s' has no declared format and its unit %d holds 0x%x, which GLSL ES "
+                                "core cannot spell and this driver has no GL_NV_image_formats for.",
+                                name.c_str(), unit, boundFormat);
+                        recordUnspellableFormat(
+                            name, MG_Util::ShaderTranspiler::ShaderCompiler::EsslImageFormatSpelling(boundFormat));
+                        continue;
+                    }
+                    inputs.needsExtendedImageFormats = true;
+                }
+                const String baseName = ImageUniformBaseName(name);
+                const auto existing = inputs.glFormatByUniformName.find(baseName);
+                if (existing == inputs.glFormatByUniformName.end()) {
+                    inputs.glFormatByUniformName.emplace(baseName, boundFormat);
+                } else if (existing->second != boundFormat) {
+                    // An ARRAY whose elements were pointed at units holding different formats.
+                    // One declaration carries one qualifier, so there is no spelling for it, and
+                    // the uniform is left format-less rather than given a format that is wrong
+                    // for all but one element. Marked in place with GL_NONE and swept below -
+                    // never by erasing here, because the entry is reached again by the array's
+                    // remaining elements and a flat hash map must not be mutated structurally
+                    // while an iterator into it is live.
+                    existing->second = 0;
+                }
+            }
+            for (const auto& entry : inputs.glFormatByUniformName) {
+                if (entry.second == 0) inputs.conflictedNames.push_back(entry.first);
+            }
+            for (const auto& conflicted : inputs.conflictedNames) {
+                inputs.glFormatByUniformName.erase(conflicted);
+            }
+            // Split off the ones SPIRV-Cross will not print. They cannot go through the module -
+            // it throws for them when targeting ESSL, and the stage is lost - so they are spelled
+            // into the emitted text instead. Collected first, erased after, because a flat hash
+            // map must not be restructured while it is being walked.
+            Vector<String> textCompleted;
+            for (const auto& entry : inputs.glFormatByUniformName) {
+                if (MG_Util::ShaderTranspiler::ShaderCompiler::SpirvCrossCanPrintEsslImageFormat(entry.second)) {
+                    continue;
+                }
+                String spelling = MG_Util::ShaderTranspiler::ShaderCompiler::EsslImageFormatSpelling(entry.second);
+                if (spelling.empty()) continue; // no image-format spelling at all; nothing to write
+                inputs.esslFormatQualifierByUniformName.emplace(entry.first, Move(spelling));
+                textCompleted.push_back(entry.first);
+            }
+            for (const auto& name : textCompleted) {
+                inputs.glFormatByUniformName.erase(name);
+            }
+            // Unlatched MGLOG_E, like the transpile- and link-failure diagnostics in SyncToBackend:
+            // one line per failing program build, and naming the uniform and the format is the
+            // whole diagnostic value. Left as a log rather than a link failure on purpose - the
+            // frontend has already reported LINK_STATUS = true and GL cannot retract it, and the
+            // program stays queryable exactly as the "linked but not drawable" exit leaves it.
+            if (unspellableCount != 0) {
+                MGLOG_E("Image format '%s' on uniform '%s' has no GLSL ES spelling and this driver does not expose "
+                        "GL_NV_image_formats%s; the stage using it cannot compile and the program will draw "
+                        "nothing.",
+                        unspellableFormat.empty() ? "(none)" : unspellableFormat.c_str(), unspellableUniform.c_str(),
+                        unspellableCount > 1 ? " (and it is not the only image uniform affected)" : "");
+            }
+            return inputs;
+        }
+
+        Uint64 BackendProgramObjectImpl::ComputeImageUnitFormatSignature() const {
+            if (m_formatlessImageUnits.empty()) return 0; // all but a handful of programs
+            Uint64 signature = 0;
+            for (const Int unit : m_formatlessImageUnits) {
+                signature = MixImageUnitFormat(signature, unit, BoundImageUnitFormat(unit));
+            }
+            return signature;
+        }
+
+        Bool BackendProgramObjectImpl::ImageUnitFormatsStillMatch() const {
+            if (m_formatlessImageUnits.empty()) return m_imageUnitFormatSignature == 0;
+            return ComputeImageUnitFormatSignature() == m_imageUnitFormatSignature;
+        }
+
+
+        // ===== THE MEMOIZED SEGMENT (shader translation memo, level 2) =====
+        //
+        // One stage's sanitized SPIR-V turned into the ESSL SPIRV-Cross emits, through the
+        // DirectGLES-specific pass chain. Extracted out of SyncToBackend's loop so that the
+        // boundary the L2 memo keys on is a function signature rather than a comment: every
+        // input this reads is either an argument below or a process-global capability bit,
+        // and EVERY ONE OF THEM IS IN EsslTranslationKeyInputs. If you add a read here, add
+        // it to BuildEsslTranslationKey too - an under-specified key here is a silently
+        // miscompiled shader.
+        //
+        // Reads (audited): the arguments; g_GLESCapabilities.{SupportsViewportArray,
+        // MaxSamples, MaxColorTextureSamples, MaxIntegerSamples, MaxDepthTextureSamples,
+        // SupportsNoperspectiveInterpolation, GLESVersion} (the last via
+        // ResolveBackendEsslVersion); and m_backendProgramId, for a log line only.
+        //
+        // Deliberately NOT in here, and therefore NOT in the key: the text-level passes that
+        // follow in SyncToBackend. They are cheap string work and they read a long tail of
+        // live per-program state (RebindImageUniformsToFrontendUnits walks the ProgramObject
+        // reflection, the norm-clamp masks and the fragColor broadcast count are live
+        // globals, the buffer-texture tier retargets an #extension line) whose inclusion
+        // would make the key both enormous and fragile for no measurable saving.
+        //
+        // Returns false when SPIRV-Cross refused the module; `outError` then holds its
+        // message and nothing is memoized.
+        Bool BackendProgramObjectImpl::TranspileSpirvToEssl(
+            const Vector<unsigned int>& spirvCode, const GLenum glShaderType,
+            const std::set<String>& xfbCaptureBlockNames, const ImageFormatBakeInputs& imageFormatBake,
+            const UnorderedMap<String, Int>& storageBlockBindingOverrides,
+            const std::map<String, String>& inputBlockRenames,
+            const std::map<String, String>& outputBlockRenames,
+            const Int atomicCounterEsslBindingTop, const Bool enableSpirvValidation, String& outSource,
+            std::set<String>& outFlattenedXfbBlockNames, Vector<Int>& outAtomicCounterGlBindings,
+            String& outError) const {
+            // ESSL cannot express gl_DrawID/gl_BaseInstance/gl_BaseVertex; demote them to
+            // plain globals (mg_*) before handing the module to SPIRV-Cross.
+            Vector<unsigned int> loweredSpirv;
+            const Vector<unsigned int>* effectiveSpirv = &spirvCode;
+            if (glShaderType == GL_VERTEX_SHADER &&
+                MG_Util::ShaderTranspiler::ShaderCompiler::LowerDrawParametersForEssl(spirvCode, loweredSpirv, enableSpirvValidation) &&
+                !loweredSpirv.empty()) {
+                effectiveSpirv = &loweredSpirv;
+            }
+
+            // ESSL cannot express gl_ViewportIndex either, but unlike the draw parameters
+            // there IS an extension that provides it - so this runs only when the driver does
+            // NOT advertise GL_OES_viewport_array. A driver that does keeps the builtin and
+            // gets the `#extension` request added to the decompiled source below instead.
+            // Demoting the builtin costs the multi-viewport routing (every invocation lands in
+            // viewport 0), which is the degradation ViewportArrayScenario already documents
+            // for this backend; NOT demoting it costs the whole program, because the stage
+            // fails to compile and every draw made with it silently renders nothing.
+            // Gated on the module actually declaring the output, so no other stage pays an
+            // optimizer round trip for it.
+            // One parse of the module answers every armed pass gate below. The per-gate
+            // Declares* probes each cost a BuildModule per stage, and on a driver where both
+            // gates are armed (Mali: no GL_OES_viewport_array AND integer multisample
+            // squeezed to 1) the doubled parse made compile-heavy workloads ~10% slower.
+            // Probing the pre-lowering module is sound for both gates: demoting
+            // gl_ViewportIndex neither adds nor removes multisampled image types.
+            // Recomputed here rather than calling GL_Getter's GetAdvertisedMaxSamples():
+            // this is backend code and must not reach into the GL frontend. 4 is that
+            // translation unit's kFrontendMaxSamples, which is the source of truth -
+            // keep the two in step.
+            const Int advertisedMaxSamples =
+                std::max(g_GLESCapabilities.MaxSamples, kFrontendMaxSamples);
+            const Bool viewportLoweringArmed = !g_GLESCapabilities.SupportsViewportArray;
+            const Bool sampleClampArmed =
+                g_GLESCapabilities.MaxColorTextureSamples < advertisedMaxSamples ||
+                g_GLESCapabilities.MaxIntegerSamples < advertisedMaxSamples ||
+                g_GLESCapabilities.MaxDepthTextureSamples < advertisedMaxSamples;
+            MG_Util::ShaderTranspiler::ShaderCompiler::SpirvGateFeatures spirvGates;
+            if (viewportLoweringArmed || sampleClampArmed) {
+                spirvGates = MG_Util::ShaderTranspiler::ShaderCompiler::ProbeSpirvGateFeatures(
+                    *effectiveSpirv);
+            }
+
+            Vector<unsigned int> loweredViewportSpirv;
+            if (viewportLoweringArmed && spirvGates.WritesViewportIndexOutput &&
+                MG_Util::ShaderTranspiler::ShaderCompiler::LowerViewportIndexForEssl(
+                    *effectiveSpirv, loweredViewportSpirv, enableSpirvValidation) &&
+                !loweredViewportSpirv.empty()) {
+                effectiveSpirv = &loweredViewportSpirv;
+                MGLOG_D("Program %u stage %s writes gl_ViewportIndex, which this ES driver has "
+                        "no GL_OES_viewport_array for. The builtin was demoted to a plain "
+                        "global; every invocation renders into viewport 0.",
+                        m_backendProgramId,
+                        MG_Util::ConvertGLEnumToString(glShaderType).c_str());
+            }
+
+            // GL 4.6 core table 23.53 requires GL_MAX_SAMPLES >= 4, so every multisample
+            // ceiling MobileGL advertises is floored to 4 no matter what the ES driver
+            // reports - but the realised allocation cannot be, and
+            // ClampSamplesToBackendSupport quietly gives an integer or depth multisample
+            // texture the ONE sample Adreno and Mali actually support for it. A shader
+            // written against the advertised ceiling then fetches a sample that storage does
+            // not have and reads garbage; KHR-GL33/40/41.texture_swizzle.functional_* and
+            // KHR-GLxx.texture_size_promotion.functional bake exactly that literal in. Clamp
+            // the Sample operand to the backend-real per-category maximum so the fetch lands
+            // inside the allocation. Gated on some category actually being squeezed AND the
+            // module actually declaring a multisampled image, so no other stage pays an
+            // optimizer round trip for it. DirectVulkan is deliberately not given this: it
+            // allocates the sample count it was asked for, so its modules are already right.
+            Vector<unsigned int> clampedSampleSpirv;
+            if (sampleClampArmed && spirvGates.DeclaresMultisampledImage &&
+                MG_Util::ShaderTranspiler::ShaderCompiler::ClampMultisampleFetchesForEssl(
+                    *effectiveSpirv, clampedSampleSpirv,
+                    g_GLESCapabilities.MaxColorTextureSamples,
+                    g_GLESCapabilities.MaxIntegerSamples,
+                    g_GLESCapabilities.MaxDepthTextureSamples, advertisedMaxSamples,
+                    enableSpirvValidation) &&
+                !clampedSampleSpirv.empty()) {
+                effectiveSpirv = &clampedSampleSpirv;
+            }
+
+            // GLSL ES has no ARRAY vertex inputs, and SPIRV-Cross refuses the whole module
+            // rather than emulating them, so this has to happen before it sees the binary.
+            Vector<unsigned int> splitArrayInputSpirv;
+            if (glShaderType == GL_VERTEX_SHADER &&
+                MG_Util::ShaderTranspiler::ShaderCompiler::SplitArrayVertexInputsForEssl(
+                    *effectiveSpirv, splitArrayInputSpirv, enableSpirvValidation) &&
+                !splitArrayInputSpirv.empty() && splitArrayInputSpirv != *effectiveSpirv) {
+                // Only when the pass ACTUALLY split something. The optimizer hands back a
+                // re-serialised copy either way, and adopting that copy for every vertex
+                // shader would put every one of them through a round trip they do not need
+                // - which is not free: it cost the create-indirect retrace 0.15 SSIM the
+                // first time this gate was missing.
+                effectiveSpirv = &splitArrayInputSpirv;
+            }
+
+            // Adopt the rewritten module only when THIS stage actually had one of the
+            // blocks - the optimizer hands back a re-serialised copy either way, and taking
+            // that copy for a module it did not rewrite is not free (it cost the
+            // create-indirect retrace 0.15 SSIM when the array-input split first missed
+            // this gate). The report has to be per stage, not cumulative: a fragment shader
+            // consuming the same block reports a name the vertex stage already reported,
+            // and its own rewrite must still be taken or the two stages stop matching.
+            Vector<unsigned int> flattenedXfbSpirv;
+            if (!xfbCaptureBlockNames.empty()) {
+                // Reported into a local first, and published only if the module is really
+                // adopted. The caller unions the published set unconditionally (so that a
+                // cache HIT contributes its names too), so publishing a name for a rewrite
+                // that was declined would rename a capture the emitted ESSL never renamed.
+                std::set<String> flattenedNames;
+                if (MG_Util::ShaderTranspiler::ShaderCompiler::FlattenXfbInterfaceBlocksForEssl(
+                        *effectiveSpirv, xfbCaptureBlockNames, flattenedNames, flattenedXfbSpirv,
+                        enableSpirvValidation) &&
+                    !flattenedXfbSpirv.empty() && !flattenedNames.empty()) {
+                    effectiveSpirv = &flattenedXfbSpirv;
+                    outFlattenedXfbBlockNames = Move(flattenedNames);
+                }
+            }
+
+            // The producer-keyed interface-block rename, planned program-wide by the caller and
+            // applied to this stage: the blocks it CONSUMES are spelled after the previous stage
+            // present in the program and the ones it PRODUCES after itself, so a tessellation
+            // evaluation stage's two TCSOutputBlocks stop being one name and every other stage
+            // still agrees with it. See UniquifyIoBlockNamesPass for why Mali needs it.
+            //
+            // INSIDE THE MEMOIZED SEGMENT, and at exactly the position it was written in - after
+            // the XFB flatten, before the UBO precision strip. Both halves of that matter:
+            //   * INSIDE, because it rewrites the MODULE and the emitted ESSL carries the result.
+            //     Left outside, a second program sharing this stage's key would be served ESSL
+            //     with the blocks un-renamed and the repair would silently stop working - the
+            //     same trap SetAtomicCounterBlockBindings sets one screen down.
+            //   * AT THIS POSITION, because moving a SPIR-V pass in a chain is a behavioural
+            //     change, and this one arrived device-verified on Mali. Hoisting it above the
+            //     cache probe instead would have needed no key material at all (the rename would
+            //     already be in the module bytes the key hashes) and was rejected for that
+            //     reason: it reorders the chain, and it would re-serialise the module on every
+            //     build including the ones the memo is there to make free.
+            // Its two rename maps are therefore KEY MATERIAL - see the caller.
+            Vector<unsigned int> uniquifiedIoBlockSpirv;
+            if (!inputBlockRenames.empty() || !outputBlockRenames.empty()) {
+                std::set<String> stageRenamedIoBlockNames;
+                if (MG_Util::ShaderTranspiler::ShaderCompiler::UniquifyIoBlockNamesForEssl(
+                        *effectiveSpirv, inputBlockRenames, outputBlockRenames,
+                        stageRenamedIoBlockNames, uniquifiedIoBlockSpirv, enableSpirvValidation) &&
+                    !uniquifiedIoBlockSpirv.empty() && !stageRenamedIoBlockNames.empty()) {
+                    effectiveSpirv = &uniquifiedIoBlockSpirv;
+                    MGLOG_D("Program %u stage %s: %zu inter-stage interface block(s) renamed per "
+                            "producing stage, because some stage of this program declares the same "
+                            "block name in both directions and the ES driver may alias the two.",
+                            m_backendProgramId, MG_Util::ConvertGLEnumToString(glShaderType).c_str(),
+                            stageRenamedIoBlockNames.size());
+                }
+            }
+
+            // ESSL stage-matches uniform blocks by member precision, but SPIRV-Cross prints
+            // a RelaxedPrecision member as explicit "mediump" in the vertex stage and as
+            // UNQUALIFIED (mediump-by-default) in the fragment stage; after
+            // ForceSupporterOutput swaps the fragment header to highp, that member reads
+            // back as highp and the ES driver refuses to link ("definitions of uniform
+            // block ... do not match"). Strip the hint from block structs so both stages
+            // declare the member highp; nothing else about emission changes.
+            Vector<unsigned int> uboPrecisionSpirv;
+            if (MG_Util::ShaderTranspiler::ShaderCompiler::StripUboMemberRelaxedPrecisionForEssl(
+                    *effectiveSpirv, uboPrecisionSpirv, enableSpirvValidation) &&
+                !uboPrecisionSpirv.empty()) {
+                effectiveSpirv = &uboPrecisionSpirv;
+            }
+
+            // noperspective is core desktop GLSL and reaches here as the SPIR-V NoPerspective
+            // decoration. SPIRV-Cross renders it as ESSL `noperspective` + `#extension
+            // GL_NV_shader_noperspective_interpolation : require`; a driver without that extension
+            // rejects the require. So on such devices emulate screen-linear interpolation instead
+            // (pre-multiply outputs by gl_Position.w, recover inputs via gl_FragCoord.w) and drop
+            // the decoration - exact, extension-free. Devices that have the extension keep the
+            // decoration and let the hardware do it natively.
+            Vector<unsigned int> noperspectiveSpirv;
+            if (!g_GLESCapabilities.SupportsNoperspectiveInterpolation &&
+                MG_Util::ShaderTranspiler::ShaderCompiler::EmulateNoPerspectiveForEssl(
+                    *effectiveSpirv, noperspectiveSpirv, enableSpirvValidation) &&
+                !noperspectiveSpirv.empty()) {
+                effectiveSpirv = &noperspectiveSpirv;
+            }
+
+            // ES has no rectangle sampler, and SPIRV-Cross refuses the whole module rather
+            // than approximating one. The shared pass turns the type into the 2D one and
+            // divides the coordinate of every normalized-coordinate lookup by the texture
+            // size, which is the whole of the difference between the two.
+            Vector<unsigned int> rectLoweredSpirv;
+            if (MG_Util::ShaderTranspiler::ShaderCompiler::LowerRectImages(*effectiveSpirv, rectLoweredSpirv, enableSpirvValidation) &&
+                !rectLoweredSpirv.empty()) {
+                effectiveSpirv = &rectLoweredSpirv;
+            }
+
+            // ES has no 1D texture at all, so a 1D ARRAY is stored as a 2D array with height
+            // 1 (MapToBackendTextureTarget / GetBackendUploadSize). SPIRV-Cross emulates 1D
+            // as 2D for images without ever asking whether the type is arrayed, so a
+            // 1D-array image comes out as ivec2(ivec2(u, layer), 0) - three components in a
+            // two-component constructor, which every driver rejects, taking the whole
+            // program with it. The pass does the conversion properly - type to 2D array,
+            // coordinate to (u, 0, layer) - before SPIRV-Cross can apply its own.
+            Vector<unsigned int> arrayImageSpirv;
+            if (MG_Util::ShaderTranspiler::ShaderCompiler::Lower1DArrayImagesForEssl(*effectiveSpirv,
+                                                                                      arrayImageSpirv, enableSpirvValidation) &&
+                !arrayImageSpirv.empty()) {
+                effectiveSpirv = &arrayImageSpirv;
+            }
+
+            // GLSL ES has no format-less image: `writeonly uniform uimage2D` is legal desktop
+            // GLSL 4.2 and an Adreno ES compile error ("all images have to define layout
+            // format"), which loses the whole program. Give each such image the format the
+            // application bound to its unit - the one GL's format-class rules make correct -
+            // so SPIRV-Cross prints a qualifier. AFTER the 1D-array lowering above, which
+            // also rewrites image types, so this one is looking at the final shapes.
+            //
+            // Gated on the module actually declaring one: the map is empty for every program
+            // whose images all declare formats, and the cheap probe keeps a program that has
+            // an unbound format-less image from paying an optimizer round trip per stage.
+            Vector<unsigned int> imageFormatSpirv;
+            if (!imageFormatBake.glFormatByUniformName.empty() &&
+                MG_Util::ShaderTranspiler::ShaderCompiler::DeclaresFormatlessStorageImage(*effectiveSpirv) &&
+                MG_Util::ShaderTranspiler::ShaderCompiler::BakeImageFormatsForEssl(
+                    *effectiveSpirv, imageFormatBake.glFormatByUniformName, imageFormatSpirv,
+                    enableSpirvValidation) &&
+                !imageFormatSpirv.empty()) {
+                effectiveSpirv = &imageFormatSpirv;
+            }
+
+            // GLSL ES demands a constant integral expression to index a fragment output
+            // array; SPIR-V does not, so a shader that writes coeff[i] from a loop
+            // reaches SPIRV-Cross intact and comes out as ESSL a strict driver rejects
+            // outright ("array indexes for fragment outputs must be constant integral
+            // expressions"), linking no program and silently no-oping every draw that
+            // uses it. Mesa accepts it, ANGLE does not - which is the whole of the
+            // improved-transparency-minecraft-26.3 failure. Fold or lower the index here,
+            // on the ESSL path only: the same module is legal for DirectVulkan.
+            Vector<unsigned int> outputIndexSpirv;
+            if (glShaderType == GL_FRAGMENT_SHADER &&
+                MG_Util::ShaderTranspiler::ShaderCompiler::LegalizeFragmentOutputIndexingForEssl(
+                    *effectiveSpirv, outputIndexSpirv, enableSpirvValidation) &&
+                !outputIndexSpirv.empty()) {
+                effectiveSpirv = &outputIndexSpirv;
+            }
+
+            MG_Util::ShaderTranspiler::SpvcSession spvcSession(*effectiveSpirv,
+                MG_Util::ShaderTranspiler::SessionUsageBit::Transpile);
+
+            spvc_compiler_options options;
+            spvcSession.CreateOptions(&options);
+
+            spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION,
+                                           ResolveBackendEsslVersion());
+            spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ES, SPVC_TRUE);
+            spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_VULKAN_SEMANTICS, SPVC_FALSE);
+
+            spvcSession.SetOptions(options);
+
+            // ES fixes a storage block's binding at link from its layout(binding=) qualifier
+            // and has no glShaderStorageBlockBinding to move it afterwards, so a rebinding
+            // can only be honoured by printing it INTO the qualifier. Rewriting the Binding
+            // decoration before SPIRV-Cross emits is what does that; RemoveLayoutBinding
+            // then deliberately preserves the qualifier for `buffer` declarations.
+            if (!storageBlockBindingOverrides.empty()) { // empty for almost every program
+                spvcSession.SetShaderStorageBlockBinding(storageBlockBindingOverrides);
+            }
+
+            // Atomic counters, same mechanism for the same reason. glslang already turned
+            // every atomic_uint into a member of gl_AtomicCounterBlock_<N> and let the IO
+            // mapper pick that block's binding, which has no relation to the GL binding point
+            // N the application bound its counter buffer to - and can alias an SSBO the
+            // application binds itself. Move each block to its reserved slot and record N, so
+            // the draw path knows which GL_ATOMIC_COUNTER_BUFFER points to re-issue as
+            // storage-buffer bindings.
+            //
+            // BOTH HALVES ARE MEMO STATE. `atomicCounterEsslBindingTop` decides the binding
+            // this prints into the ESSL, so it is in the L2 key; `outAtomicCounterGlBindings`
+            // is an OUTPUT this stage produces and the draw path consumes, so it is in the L2
+            // payload. A hit that replayed only the text would leave the bindings empty and
+            // every counter buffer unbound - the same class of silent loss the flattened XFB
+            // block names would have been.
+            spvcSession.SetAtomicCounterBlockBindings(atomicCounterEsslBindingTop,
+                                                      outAtomicCounterGlBindings);
+
+            const char* result = nullptr;
+            spvcSession.Compile(&result);
+
+            if (!result) {
+                // The caller owns the diagnostic: it is the one that knows the
+                // frontend program id, and a failed transpile must NOT be memoized -
+                // the message names the stage and is worth re-emitting every time.
+                const char* lastError = spvcSession.GetLastErrorString();
+                outError = lastError ? lastError : "";
+                return false;
+            }
+
+            outSource = result;
+            return true;
+        }
+
         void BackendProgramObjectImpl::SyncToBackend(
             const SharedPtr<MG_State::GLState::ProgramObject>& stateProgramObject) {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
             if (!stateProgramObject) {
-                MGLOG_E("State program object is null, skipping backend sync.");
+                MGLOG_E_ONCE("State program object is null, skipping backend sync.");
                 return;
             }
             // Recorded before either early return below, so Use() can always name the GL
@@ -4251,7 +5280,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             // a LINK_STATUS it already reported true, so "linked but not drawable" is the
             // answer, and this is where the ES backend expresses it.
             if (!stateProgramObject->GetLinkStatus() || !stateProgramObject->GetSpirvStatus()) {
-                MGLOG_E("Program object is not linked or has no generated SPIR-V, skipping backend sync. State "
+                MGLOG_E_ONCE("Program object is not linked or has no generated SPIR-V, skipping backend sync. State "
                         "program ID: %u",
                         stateProgramObject->GetExternalIndex());
                 return;
@@ -4272,6 +5301,23 @@ namespace MobileGL::MG_Backend::DirectGLES {
             // this build current - the draw path compares the signature and rebuilds on a change.
             const auto& storageBlockBindingOverrides = stateProgramObject->GetShaderStorageBlockBindingOverrides();
             m_shaderStorageBlockBindingSignature = ComputeShaderStorageBlockBindingSignature(*stateProgramObject);
+            // Rebuilt by the transpile loop below, one entry per atomic-counter block it finds.
+            // The top is snapshotted here so every stage of this program - and the draw path
+            // reading it afterwards - resolves the same slot for the same GL binding.
+            m_atomicCounterGlBindings.clear();
+            m_atomicCounterEsslBindingTop = AtomicCounterEsslBindingTop();
+            // The same shape again for image FORMATS: what a format-less image declaration
+            // compiles to depends on live glBindImageTexture state, so the pairs it was built
+            // against are recorded here and compared per draw (ImageUnitFormatsStillMatch).
+            // Taken BEFORE the transpile loop so both the bake and the key see one snapshot.
+            const ImageFormatBakeInputs imageFormatBake = CollectImageFormatBakeInputs(*stateProgramObject);
+            m_formatlessImageUnits = imageFormatBake.units;
+            m_imageUnitFormatSignature = imageFormatBake.signature;
+            for (const auto& conflicted : imageFormatBake.conflictedNames) {
+                MGLOG_D("Image uniform '%s' of program %u declares no format and its elements address units with "
+                        "different bound formats; left format-less.",
+                        conflicted.c_str(), stateProgramObject->GetExternalIndex());
+            }
 
             // Detach all existing shaders
             GLint attachedCount = 0;
@@ -4309,6 +5355,77 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 MGLOG_D("%s:", src.empty() ? "" : src.c_str());
             }
             auto& shaderSpirvs = stateProgramObject->GetGeneratedSpirv();
+            const Bool enableSpirvValidation = stateProgramObject->GetSpirvValidationEnabled();
+
+            // Blocks a transform-feedback capture request names a member of ("StageData" of
+            // "StageData.attrib[0]"). The Adreno ES driver accepts such a request, links, and
+            // then captures nothing at all for it, so those blocks - and ONLY those - get
+            // flattened into per-member variables below, in EVERY stage, so a producer and its
+            // consumer keep matching. gl_PerVertex members ("gl_Position") carry no block
+            // prefix and so never enter this set.
+            std::set<String> xfbCaptureBlockNames;
+            for (const auto& xfbVarying : stateProgramObject->GetTransformFeedbackVaryings()) {
+                const SizeT dot = xfbVarying.name.find('.');
+                if (dot != String::npos && dot > 0) {
+                    xfbCaptureBlockNames.insert(xfbVarying.name.substr(0, dot));
+                }
+            }
+            std::set<String> flattenedXfbBlockNames;
+
+            // Desktop GLSL keeps SEPARATE name namespaces for input and output interface
+            // blocks, so ONE stage may legally declare `in FOO {...}` and `out FOO {...}` at
+            // the same time - which the tessellation evaluation stage of both interface-block
+            // tests in KHR-GL42/43.shading_language_420pack does ("in TCSOutputBlock ... out
+            // TCSOutputBlock"). SPIRV-Cross keeps the same split (block_input_names vs
+            // block_output_names) and re-emits BOTH under the name FOO, so the generated ESSL
+            // declares two different blocks called FOO in one shader. Adreno's ES compiler
+            // keeps them apart; Mali's does not - the stage compiles, the program links, and
+            // the output block's payload never reaches the next stage. All 22 of that group's
+            // Mali failures are exactly the two tests that write this shape, and every one of
+            // them passes on Adreno and on DirectVulkan.
+            //
+            // The repair is a rename keyed on the PRODUCING stage, planned here and applied
+            // per stage below so a producer and its consumer keep naming the same block.
+            // Gated twice over, because a re-serialised module is not free (it cost the
+            // create-indirect retrace 0.15 SSIM the first time the array-input split missed
+            // its gate): only a tessellation or geometry stage can declare blocks in both
+            // directions at all, and even then the probe has to FIND a collision before any
+            // stage is rewritten.
+            std::set<String> collidingIoBlockNames;
+            std::set<String> declaredIoBlockNames;
+            Vector<Int> stagePipelineIndices(attachedShaders.size(), -1);
+            Bool anyStageCanDeclareBlocksInBothDirections = false;
+            for (SizeT index = 0; index < attachedShaders.size(); ++index) {
+                const ShaderStage stage = attachedShaders[index]->GetShaderStage();
+                stagePipelineIndices[index] = InterStagePipelineIndex(stage);
+                if (CanDeclareBlocksInBothDirections(stage)) anyStageCanDeclareBlocksInBothDirections = true;
+            }
+            if (anyStageCanDeclareBlocksInBothDirections) {
+                for (SizeT index = 0; index < attachedShaders.size() && index < shaderSpirvs.size(); ++index) {
+                    MG_Util::ShaderTranspiler::ShaderCompiler::ProbeIoBlockNamesForEssl(
+                        shaderSpirvs[index], collidingIoBlockNames, declaredIoBlockNames);
+                }
+                // A block a capture request names is resolved BY NAME at
+                // glTransformFeedbackVaryings time - and flattened away entirely by the pass
+                // below - so renaming one would ask the driver for a block the request does
+                // not spell.
+                for (const auto& xfbCaptureBlockName : xfbCaptureBlockNames) {
+                    collidingIoBlockNames.erase(xfbCaptureBlockName);
+                }
+            }
+            // The one spelling every stage of THIS program agrees on for `blockName` as written
+            // by pipeline stage `producerPipelineIndex`. "__" is reserved in GLSL, so a name
+            // already ending in '_' does not get another one, and the digit-suffix loop steps
+            // off any name the program already spells.
+            const auto uniqueIoBlockName = [&declaredIoBlockNames](const String& blockName,
+                                                                   Int producerPipelineIndex) {
+                const char* separator = (!blockName.empty() && blockName.back() == '_') ? "" : "_";
+                String candidate = blockName + separator + "mgio" + std::to_string(producerPipelineIndex);
+                while (declaredIoBlockNames.find(candidate) != declaredIoBlockNames.end()) {
+                    candidate += "0";
+                }
+                return candidate;
+            };
 
             for (int index = 0; index < attachedShaders.size(); ++index) {
                 auto& shader = attachedShaders[index];
@@ -4316,7 +5433,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 GLuint backendShaderId = g_GLESFuncs.glCreateShader(glShaderType);
 
                 if (backendShaderId == 0) {
-                    MGLOG_E("Failed to create backend shader for attachment.");
+                    MGLOG_E_ONCE("Failed to create backend shader for attachment.");
                     continue;
                 }
                 String source;
@@ -4326,12 +5443,12 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 // ES 3.2 or EXT/OES_texture_buffer on the host. Without it SPIRV-Cross emits
                 // `#extension GL_EXT_texture_buffer : require` and the driver rejects both that
                 // and the isamplerBuffer keyword - the program never links and every draw using it
-                // becomes a silent no-op. Say so here, naming the stage, instead of leaving a
-                // driver info log the shipped INFO build compiles out (MGLOG_E is inactive there).
+                // becomes a silent no-op. Say so here, naming the stage. Deliberately unlatched:
+                // this is bounded by program count, and which stage failed is the whole point.
                 // Gated on the capability so the module walk never runs on a healthy driver.
                 if (!AreBufferTexturesSupported() &&
                     MG_Util::ShaderTranspiler::ShaderCompiler::ModuleDeclaresBufferTextureSampler(spirvCode)) {
-                    MGLOG_I("Program %u stage %s samples a buffer texture, which this ES driver "
+                    MGLOG_E("Program %u stage %s samples a buffer texture, which this ES driver "
                             "cannot provide (%s). The shader will not compile and the program will "
                             "not link; every draw using it is a no-op.",
                             m_backendProgramId,
@@ -4342,107 +5459,144 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     continue;
                 }
 
-                // ESSL cannot express gl_DrawID/gl_BaseInstance/gl_BaseVertex; demote them to
-                // plain globals (mg_*) before handing the module to SPIRV-Cross.
-                Vector<unsigned int> loweredSpirv;
-                const Vector<unsigned int>* effectiveSpirv = &spirvCode;
-                if (glShaderType == GL_VERTEX_SHADER &&
-                    MG_Util::ShaderTranspiler::ShaderCompiler::LowerDrawParametersForEssl(spirvCode, loweredSpirv) &&
-                    !loweredSpirv.empty()) {
-                    effectiveSpirv = &loweredSpirv;
+                // ---- L2 of the shader translation memo -------------------------------
+                // The whole DirectGLES SPIR-V pass chain plus SPIRV-Cross for this stage,
+                // memoized on the module bytes and on every capability bit and per-program
+                // input that steers them. See TranslationCache.h for the key inventory and
+                // for why the text-level passes below stay outside the boundary.
+                MG_Util::ShaderTranspiler::EsslTranslationKeyInputs esslKeyInputs;
+                esslKeyInputs.spirv = &spirvCode;
+                esslKeyInputs.shaderType = glShaderType;
+                esslKeyInputs.supportsViewportArray = g_GLESCapabilities.SupportsViewportArray;
+                esslKeyInputs.supportsNoperspectiveInterpolation =
+                    g_GLESCapabilities.SupportsNoperspectiveInterpolation;
+                esslKeyInputs.maxColorTextureSamples = g_GLESCapabilities.MaxColorTextureSamples;
+                esslKeyInputs.maxIntegerSamples = g_GLESCapabilities.MaxIntegerSamples;
+                esslKeyInputs.maxDepthTextureSamples = g_GLESCapabilities.MaxDepthTextureSamples;
+                esslKeyInputs.advertisedMaxSamples =
+                    std::max(g_GLESCapabilities.MaxSamples, kFrontendMaxSamples);
+                esslKeyInputs.xfbCaptureBlockNames = &xfbCaptureBlockNames;
+                esslKeyInputs.glFormatByUniformName = &imageFormatBake.glFormatByUniformName;
+                esslKeyInputs.storageBlockBindingOverrides = &storageBlockBindingOverrides;
+                esslKeyInputs.esslVersion = ResolveBackendEsslVersion();
+                esslKeyInputs.atomicCounterEsslBindingTop = m_atomicCounterEsslBindingTop;
+
+                // THIS STAGE's share of the program-wide interface-block rename plan built above
+                // the loop. Resolved here, outside the memoized segment, because it is planning
+                // and not translation - exactly like the image-format bake map - and because that
+                // makes the two maps a plain function argument the L2 key can carry.
+                //
+                // KEYING ON THE RESOLVED MAPS rather than on what they were derived from
+                // (collidingIoBlockNames, declaredIoBlockNames, stagePipelineIndices, this
+                // stage's index) is deliberate: the maps ARE the pass's arguments, so they are
+                // exactly as fine as the pass's behaviour and no finer. Two programs whose
+                // collision plans differ but whose maps for THIS stage come out identical really
+                // do produce the same ESSL and should share the entry.
+                //
+                // A block whose other end is NOT in this program is deliberately left out of the
+                // plan: in a separate-shader-objects pipeline the interface it matches across
+                // lives in another program that never saw this plan, and renaming one side of
+                // THAT would break a program pipeline to repair a driver quirk. That is what the
+                // producer/consumer presence tests below are for - in a monolithic program both
+                // are trivially satisfied for every interface the collision can touch.
+                std::map<String, String> inputBlockRenames;
+                std::map<String, String> outputBlockRenames;
+                if (!collidingIoBlockNames.empty() && stagePipelineIndices[index] >= 0) {
+                    const Int myPipelineIndex = stagePipelineIndices[index];
+                    Int producerPipelineIndex = -1;
+                    Bool hasConsumerStage = false;
+                    for (const Int otherPipelineIndex : stagePipelineIndices) {
+                        if (otherPipelineIndex < 0) continue;
+                        if (otherPipelineIndex < myPipelineIndex &&
+                            otherPipelineIndex > producerPipelineIndex) {
+                            producerPipelineIndex = otherPipelineIndex;
+                        }
+                        if (otherPipelineIndex > myPipelineIndex) hasConsumerStage = true;
+                    }
+                    for (const auto& collidingBlockName : collidingIoBlockNames) {
+                        if (producerPipelineIndex >= 0) {
+                            inputBlockRenames[collidingBlockName] =
+                                uniqueIoBlockName(collidingBlockName, producerPipelineIndex);
+                        }
+                        if (hasConsumerStage) {
+                            outputBlockRenames[collidingBlockName] =
+                                uniqueIoBlockName(collidingBlockName, myPipelineIndex);
+                        }
+                    }
+                }
+                esslKeyInputs.inputBlockRenames = &inputBlockRenames;
+                esslKeyInputs.outputBlockRenames = &outputBlockRenames;
+                esslKeyInputs.enableSpirvValidation = enableSpirvValidation;
+
+                auto& esslCache = MG_Util::ShaderTranspiler::GetEsslTranslationCache();
+                MG_Util::ShaderTranspiler::TranslationCacheKey esslCacheKey;
+                if (MG_Util::ShaderTranspiler::ShaderTranslationCacheEnabled()) {
+                    esslCacheKey = MG_Util::ShaderTranspiler::BuildEsslTranslationKey(esslKeyInputs);
                 }
 
-                // ESSL stage-matches uniform blocks by member precision, but SPIRV-Cross prints
-                // a RelaxedPrecision member as explicit "mediump" in the vertex stage and as
-                // UNQUALIFIED (mediump-by-default) in the fragment stage; after
-                // ForceSupporterOutput swaps the fragment header to highp, that member reads
-                // back as highp and the ES driver refuses to link ("definitions of uniform
-                // block ... do not match"). Strip the hint from block structs so both stages
-                // declare the member highp; nothing else about emission changes.
-                Vector<unsigned int> uboPrecisionSpirv;
-                if (MG_Util::ShaderTranspiler::ShaderCompiler::StripUboMemberRelaxedPrecisionForEssl(
-                        *effectiveSpirv, uboPrecisionSpirv) &&
-                    !uboPrecisionSpirv.empty()) {
-                    effectiveSpirv = &uboPrecisionSpirv;
+                std::set<String> stageFlattenedXfbBlockNames;
+                // Per stage, and NOT m_atomicCounterGlBindings directly: on a miss the
+                // transpile appends to this, on a hit the payload supplies it, and only then
+                // is it folded into the program-wide vector. Pointing the transpile straight
+                // at the member would have made the miss path and the hit path disagree about
+                // who owns the append.
+                Vector<Int> stageAtomicCounterGlBindings;
+                const MG_Util::ShaderTranspiler::EsslTranslationResultPtr esslHit =
+                    esslCacheKey.Valid() ? esslCache.Find(esslCacheKey) : nullptr;
+                if (esslHit) {
+                    source = esslHit->essl;
+                    stageFlattenedXfbBlockNames = esslHit->flattenedXfbBlockNames;
+                    stageAtomicCounterGlBindings = esslHit->atomicCounterGlBindings;
+                } else {
+                    String transpileError;
+                    if (!TranspileSpirvToEssl(spirvCode, glShaderType, xfbCaptureBlockNames,
+                                              imageFormatBake, storageBlockBindingOverrides,
+                                              inputBlockRenames, outputBlockRenames,
+                                              m_atomicCounterEsslBindingTop,
+                                              enableSpirvValidation, source,
+                                              stageFlattenedXfbBlockNames,
+                                              stageAtomicCounterGlBindings, transpileError)) {
+                        // MGLOG_E, unlatched, like the compile- and link-failure diagnostics
+                        // below: one line per failing stage is bounded by program count and
+                        // naming the stage is the entire diagnostic value. A stage that never
+                        // reaches the driver leaves the program short of that stage, so the link
+                        // fails with an EMPTY driver info log - the least debuggable failure
+                        // MobileGL can produce, and what hid the whole
+                        // KHR-GL43.vertex_attrib_binding family behind "the draw captured zeros".
+                        MGLOG_E("Shader transpilation to ESSL failed. State program ID: %u, stage: %s, "
+                                "SPIRV-Cross error: %s",
+                                stateProgramObject->GetExternalIndex(),
+                                MG_Util::ConvertGLEnumToString(glShaderType).c_str(),
+                                transpileError.c_str());
+                        m_backendProgramUsable = false;
+                        continue;
+                    }
+                    if (esslCacheKey.Valid()) {
+                        auto payload = MakeShared<MG_Util::ShaderTranspiler::EsslTranslationResult>();
+                        payload->essl = source;
+                        payload->flattenedXfbBlockNames = stageFlattenedXfbBlockNames;
+                        payload->atomicCounterGlBindings = stageAtomicCounterGlBindings;
+                        const SizeT payloadBytes =
+                            MG_Util::ShaderTranspiler::EsslTranslationResultBytes(*payload);
+                        esslCache.Insert(
+                            esslCacheKey,
+                            MG_Util::ShaderTranspiler::EsslTranslationResultPtr(Move(payload)),
+                            payloadBytes);
+                    }
                 }
-
-                // noperspective is core desktop GLSL and reaches here as the SPIR-V NoPerspective
-                // decoration. SPIRV-Cross renders it as ESSL `noperspective` + `#extension
-                // GL_NV_shader_noperspective_interpolation : require`; a driver without that extension
-                // rejects the require. So on such devices emulate screen-linear interpolation instead
-                // (pre-multiply outputs by gl_Position.w, recover inputs via gl_FragCoord.w) and drop
-                // the decoration - exact, extension-free. Devices that have the extension keep the
-                // decoration and let the hardware do it natively.
-                Vector<unsigned int> noperspectiveSpirv;
-                if (!g_GLESCapabilities.SupportsNoperspectiveInterpolation &&
-                    MG_Util::ShaderTranspiler::ShaderCompiler::EmulateNoPerspectiveForEssl(
-                        *effectiveSpirv, noperspectiveSpirv) &&
-                    !noperspectiveSpirv.empty()) {
-                    effectiveSpirv = &noperspectiveSpirv;
-                }
-
-                // ES has no rectangle sampler, and SPIRV-Cross refuses the whole module rather
-                // than approximating one. The shared pass turns the type into the 2D one and
-                // divides the coordinate of every normalized-coordinate lookup by the texture
-                // size, which is the whole of the difference between the two.
-                Vector<unsigned int> rectLoweredSpirv;
-                if (MG_Util::ShaderTranspiler::ShaderCompiler::LowerRectImages(*effectiveSpirv, rectLoweredSpirv) &&
-                    !rectLoweredSpirv.empty()) {
-                    effectiveSpirv = &rectLoweredSpirv;
-                }
-
-                // GLSL ES demands a constant integral expression to index a fragment output
-                // array; SPIR-V does not, so a shader that writes coeff[i] from a loop
-                // reaches SPIRV-Cross intact and comes out as ESSL a strict driver rejects
-                // outright ("array indexes for fragment outputs must be constant integral
-                // expressions"), linking no program and silently no-oping every draw that
-                // uses it. Mesa accepts it, ANGLE does not - which is the whole of the
-                // improved-transparency-minecraft-26.3 failure. Fold or lower the index here,
-                // on the ESSL path only: the same module is legal for DirectVulkan.
-                Vector<unsigned int> outputIndexSpirv;
-                if (glShaderType == GL_FRAGMENT_SHADER &&
-                    MG_Util::ShaderTranspiler::ShaderCompiler::LegalizeFragmentOutputIndexingForEssl(
-                        *effectiveSpirv, outputIndexSpirv) &&
-                    !outputIndexSpirv.empty()) {
-                    effectiveSpirv = &outputIndexSpirv;
-                }
-
-                MG_Util::ShaderTranspiler::SpvcSession spvcSession(*effectiveSpirv,
-                    MG_Util::ShaderTranspiler::SessionUsageBit::Transpile);
-
-                spvc_compiler_options options;
-                spvcSession.CreateOptions(&options);
-
-                spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION,
-                                               ResolveBackendEsslVersion());
-                spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ES, SPVC_TRUE);
-                spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_VULKAN_SEMANTICS, SPVC_FALSE);
-
-                spvcSession.SetOptions(options);
-
-                // ES fixes a storage block's binding at link from its layout(binding=) qualifier
-                // and has no glShaderStorageBlockBinding to move it afterwards, so a rebinding
-                // can only be honoured by printing it INTO the qualifier. Rewriting the Binding
-                // decoration before SPIRV-Cross emits is what does that; RemoveLayoutBinding
-                // then deliberately preserves the qualifier for `buffer` declarations.
-                if (!storageBlockBindingOverrides.empty()) { // empty for almost every program
-                    spvcSession.SetShaderStorageBlockBinding(storageBlockBindingOverrides);
-                }
-
-                const char* result = nullptr;
-                spvcSession.Compile(&result);
-
-                if (!result) {
-                    MG_Util::ShaderTranspiler::ResultInfo r;
-                    r.log += "Failed to compile the shader to GLSL: \n";
-                    r.log += spvcSession.GetLastErrorString();
-                    r.errc = -5;
-                    MGLOG_E("%s", r.log.c_str());
-                    m_backendProgramUsable = false;
-                    continue;
-                }
-
-                source = result;
+                // Per stage, never cumulative: a fragment shader consuming the same block
+                // reports a name the vertex stage already reported, and its own rewrite must
+                // still be taken or the two stages stop matching. Done here rather than inside
+                // the transpile so a cache HIT contributes its names too.
+                flattenedXfbBlockNames.insert(stageFlattenedXfbBlockNames.begin(),
+                                              stageFlattenedXfbBlockNames.end());
+                // Same rule for the atomic-counter bindings this stage declared, and for the
+                // same reason: the loop below de-duplicates across stages, so a hit that
+                // contributed nothing would silently drop a counter buffer the draw path has
+                // to bind.
+                m_atomicCounterGlBindings.insert(m_atomicCounterGlBindings.end(),
+                                                 stageAtomicCounterGlBindings.begin(),
+                                                 stageAtomicCounterGlBindings.end());
 
                 // Position in the chain is arbitrary: this is the only header-level rewrite, it
                 // edits #extension directives and never the body, and the replacement is the
@@ -4451,8 +5605,35 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 // because a header concern reads better before the body ones.
                 source = RetargetTextureBufferExtension(std::move(source),
                                                         g_GLESCapabilities.TextureBufferSupport);
+                // The other header-level rewrite, and next to that one for the same reason. The
+                // formats it covers are both the ones the bake above put into the module and the
+                // ones the application declared itself - either can be outside the thirteen GLSL
+                // ES has in core, and neither reaches the driver without this directive.
+                source = RequestExtendedImageFormats(std::move(source),
+                                                     imageFormatBake.needsExtendedImageFormats &&
+                                                         g_GLESCapabilities.SupportsExtendedImageFormats);
+                // The third header-level rewrite, for the builtin SPIRV-Cross prints bare:
+                // gl_ViewportIndex is in no version of ESSL core, so without this directive the
+                // stage does not compile and the whole program - not just its viewport routing -
+                // is lost. The token probe keeps the line off every other program and the
+                // capability gate keeps it off drivers that would hard-error on an unadvertised
+                // name; a driver without the extension took the LowerViewportIndexPass fallback
+                // above and its source no longer names the builtin at all, so the two are mutually
+                // exclusive by construction. Read `source` BEFORE it is moved from.
+                const Bool needsViewportArrayExtension = g_GLESCapabilities.SupportsViewportArray &&
+                                                         source.find("gl_ViewportIndex") != String::npos;
+                source = RequestViewportArrayExtension(std::move(source), needsViewportArrayExtension);
 
                 source = RebindImageUniformsToFrontendUnits(std::move(source), stateProgramObject);
+                // The completion half of the format bake, for the formats SPIRV-Cross throws on
+                // rather than prints (r8ui and the rest of its desktop-only set). Empty for every
+                // program whose format-less images bound a format the module could carry, which
+                // is the normal case - those were baked into the SPIR-V above and this pass finds
+                // their declarations already qualified. AFTER the rebind, so the layout qualifier
+                // it edits is the one that already exists; BEFORE the split and the binding
+                // strip, so both halves of a split image inherit the format.
+                source = BakeImageFormatQualifiers(std::move(source),
+                                                   imageFormatBake.esslFormatQualifierByUniformName);
                 // Wedged between those two on purpose:
                 //  * AFTER RebindImageUniformsToFrontendUnits, so the binding it copies onto
                 //    both halves of a split image is already the frontend texture unit (and so
@@ -4466,7 +5647,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 source = ProcessOutColorLocations(source);
                 source = ForceFlatIntegerVaryings(source, glShaderType);
                 source = BroadcastLegacyFragColor(std::move(source), glShaderType, m_fragColorBroadcastCount);
-                source = EmulateTextureLodBias(source);
+                source = EmulateTextureLodBias(source, ShouldAvoidExplicitLodBiasOnAngleLlvmpipe());
                 source = EmulateBaseInstanceInVertexShader(std::move(source), glShaderType);
                 source = PromoteDrawParameterGlobalsToUniforms(std::move(source), glShaderType);
                 source = ForceSupporterOutput(source);
@@ -4504,14 +5685,13 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     Vector<GLchar> log(static_cast<SizeT>(logLength) + 1, '\0');
                     g_GLESFuncs.glGetShaderInfoLog(backendShaderId, logLength, nullptr, log.data());
                     log.back() = '\0';
-                    // MGLOG_I, deliberately. Every CI, retrace and release build compiles at
-                    // MOBILEGL_LOG_LEVEL_INFO, where MGLOG_E and MGLOG_W expand to nothing
-                    // (Log.h orders DEBUG < WARN < ERROR < INFO), so this diagnostic used to
-                    // exist only in debug builds: the Android retrace artifact carried 294
-                    // INFO lines and zero ERROR lines while two generated shaders were being
-                    // rejected outright, and the lane could not say why it was rendering an
-                    // empty translucent layer. A shader the driver refuses is never noise.
-                    MGLOG_I("Shader compilation failed. State program ID: %u, stage: %s, backend shader ID: "
+                    // MGLOG_E, unlatched. This was parked at MGLOG_I while the level ordering
+                    // compiled E and W out of every INFO build: the Android retrace artifact
+                    // carried 294 INFO lines and zero ERROR lines while two generated shaders
+                    // were being rejected outright, and the lane could not say why it was
+                    // rendering an empty translucent layer. A shader the driver refuses is
+                    // never noise, and one line per refused shader is bounded by program count.
+                    MGLOG_E("Shader compilation failed. State program ID: %u, stage: %s, backend shader ID: "
                             "%u, driver log: %s",
                             stateProgramObject->GetExternalIndex(),
                             MG_Util::ConvertGLEnumToString(glShaderType).c_str(), backendShaderId,
@@ -4543,6 +5723,16 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 MGLOG_D("Processed shader source length: %zu", source.length());
             }
 
+            // A counter buffer declared by several stages was recorded once per stage; the draw
+            // path binds per GL binding point, so collapse the duplicates here rather than
+            // re-issuing the same glBindBufferBase two or three times every draw.
+            if (!m_atomicCounterGlBindings.empty()) {
+                std::sort(m_atomicCounterGlBindings.begin(), m_atomicCounterGlBindings.end());
+                m_atomicCounterGlBindings.erase(
+                    std::unique(m_atomicCounterGlBindings.begin(), m_atomicCounterGlBindings.end()),
+                    m_atomicCounterGlBindings.end());
+            }
+
             // Transform feedback capture runs on the real driver (see XfbImpl in
             // DirectGLES.cpp), so the capture set has to be declared on the backend
             // program before it links. SPIRV-Cross keeps user output names verbatim in
@@ -4553,8 +5743,23 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 const auto& xfbVaryings = stateProgramObject->GetTransformFeedbackVaryings();
                 Vector<const GLchar*> xfbNames;
                 xfbNames.reserve(xfbVaryings.size());
-                for (const auto& xfbVarying : xfbVaryings) {
-                    xfbNames.push_back(xfbVarying.name.c_str());
+                // A block this build flattened no longer HAS the member the application asked
+                // for; it has the variable that replaced it. Everything else - including a
+                // member of a block that was left alone - keeps the application's spelling.
+                // Storage first, pointers after: xfbNames holds pointers into these strings.
+                Vector<String> rewrittenXfbNames(xfbVaryings.size());
+                for (SizeT nameIndex = 0; nameIndex < xfbVaryings.size(); ++nameIndex) {
+                    String flatName;
+                    if (!flattenedXfbBlockNames.empty() &&
+                        MG_Util::ShaderTranspiler::ShaderCompiler::RewriteXfbCaptureNameForFlattenedBlock(
+                            xfbVaryings[nameIndex].name, flattenedXfbBlockNames, flatName)) {
+                        rewrittenXfbNames[nameIndex] = std::move(flatName);
+                    } else {
+                        rewrittenXfbNames[nameIndex] = xfbVaryings[nameIndex].name;
+                    }
+                }
+                for (const auto& xfbName : rewrittenXfbNames) {
+                    xfbNames.push_back(xfbName.c_str());
                 }
                 MGLOG_D("Declaring %zu transform feedback varyings on program %u", xfbNames.size(),
                         m_backendProgramId);
@@ -4580,7 +5785,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 // MGLOG_I for the same reason as the compile failure above: a program that
                 // links nothing no-ops every draw that uses it, and that has to be readable
                 // in an INFO-level artifact.
-                MGLOG_I("Program linking failed. State program ID: %u, backend program ID: %u, driver log: %s",
+                MGLOG_E("Program linking failed. State program ID: %u, backend program ID: %u, driver log: %s",
                         stateProgramObject->GetExternalIndex(), m_backendProgramId, log.data());
             } else {
                 MGLOG_D("Program linked successfully. ID: %u", m_backendProgramId);
@@ -4588,6 +5793,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
             m_baseInstanceUniformLocation = g_GLESFuncs.glGetUniformLocation(m_backendProgramId,
                                                                              BASE_INSTANCE_UNIFORM_NAME);
             m_drawIdUniformLocation = g_GLESFuncs.glGetUniformLocation(m_backendProgramId, DRAW_ID_UNIFORM_NAME);
+            m_baseVertexUniformLocation = g_GLESFuncs.glGetUniformLocation(m_backendProgramId,
+                                                                           BASE_VERTEX_UNIFORM_NAME);
             m_baseInstanceWordIndexUniformLocation =
                 g_GLESFuncs.glGetUniformLocation(m_backendProgramId, BASE_INSTANCE_WORD_INDEX_UNIFORM_NAME);
             // The mg_IndirectParams block binding is baked into the ESSL (ES cannot rebind
@@ -4670,7 +5877,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                         m_globalUboBackendBlockSize = static_cast<Int>(blockDataSize);
                     }
                 } else {
-                    MGLOG_W("Program %u has frontend global UBO storage, but backend has no %s block.",
+                    MGLOG_W_ONCE("Program %u has frontend global UBO storage, but backend has no %s block.",
                             stateProgramObject->GetExternalIndex(), MG_Util::ShaderTranspiler::GLOBAL_UBO_NAME);
                 }
             }
@@ -4746,13 +5953,12 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 return;
             }
             if (!m_backendProgramUsable) {
-                // MGLOG_I, not MGLOG_W: at MOBILEGL_LOG_LEVEL_INFO - the level the shipped
-                // fordebug builds compile at - only I and F survive, and this is precisely the
-                // line those builds need. Every draw made with this program renders nothing and
-                // raises no GL error, so without it the only symptom is a framebuffer that kept
-                // its clear colour. The early return above keeps it to at most one line per
-                // program state change, not one per draw.
-                MGLOG_I("Backend program for GL program %u is unusable (a shader failed to transpile, "
+                // Every draw made with this program renders nothing and raises no GL error, so
+                // without this line the only symptom is a framebuffer that kept its clear
+                // colour. Latched: the early return above only dedupes CONSECUTIVE binds, so an
+                // app alternating a healthy and a broken program would otherwise log every
+                // single draw. Parked at MGLOG_I until the level ordering was fixed.
+                MGLOG_E_ONCE("Backend program for GL program %u is unusable (a shader failed to transpile, "
                         "compile or link); binding program 0 - draws with it will render nothing",
                         m_frontendProgramId);
             }
@@ -4766,14 +5972,21 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 g_GLESFuncs.glUniform1i(m_baseInstanceUniformLocation, static_cast<GLint>(baseInstance));
             }
             // A direct value disables the indirect-command-buffer read.
+            SetBaseInstanceWordIndex(-1);
+        }
+
+        // The uniform is written one-based so that its GLSL initial value, zero, already reads
+        // as "no indirect command" - see PromoteDrawParameterGlobalsToUniforms.
+        void BackendProgramObjectImpl::SetBaseInstanceWordIndex(Int32 wordIndex) const {
             if (m_baseInstanceWordIndexUniformLocation >= 0) {
-                g_GLESFuncs.glUniform1i(m_baseInstanceWordIndexUniformLocation, -1);
+                g_GLESFuncs.glUniform1i(m_baseInstanceWordIndexUniformLocation,
+                                        wordIndex < 0 ? 0 : wordIndex + 1);
             }
         }
 
-        void BackendProgramObjectImpl::SetBaseInstanceWordIndex(Int32 wordIndex) const {
-            if (m_baseInstanceWordIndexUniformLocation >= 0) {
-                g_GLESFuncs.glUniform1i(m_baseInstanceWordIndexUniformLocation, wordIndex);
+        void BackendProgramObjectImpl::SetBaseVertex(Int32 baseVertex) const {
+            if (m_baseVertexUniformLocation >= 0) {
+                g_GLESFuncs.glUniform1i(m_baseVertexUniformLocation, baseVertex);
             }
         }
 
@@ -4793,8 +6006,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
             g_GLESFuncs.glGenSamplers(1, &m_backendSamplerId);
             m_contextGeneration = g_backendContextGeneration;
             if (m_backendSamplerId == 0) {
-                MGLOG_E("Failed to generate sampler object.");
-                MGLOG_E("ES glGetError(): %s", MG_Util::ConvertGLEnumToString(g_GLESFuncs.glGetError()).c_str());
+                MGLOG_E_ONCE("Failed to generate sampler object.");
+                MGLOG_E_ONCE("ES glGetError(): %s", MG_Util::ConvertGLEnumToString(g_GLESFuncs.glGetError()).c_str());
             } else {
                 MGLOG_D("Generated sampler object with ID: %u.", m_backendSamplerId);
             }
@@ -4826,7 +6039,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
             if (!stateSamplerObject) {
-                MGLOG_E("State sampler object is null, cannot sync to backend.");
+                MGLOG_E_ONCE("State sampler object is null, cannot sync to backend.");
                 return;
             }
 
@@ -4937,8 +6150,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
             g_GLESFuncs.glGenRenderbuffers(1, &m_backendRBOId);
             m_contextGeneration = g_backendContextGeneration;
             if (m_backendRBOId == 0) {
-                MGLOG_E("Failed to generate renderbuffer object.");
-                MGLOG_E("ES glGetError(): %s", MG_Util::ConvertGLEnumToString(g_GLESFuncs.glGetError()).c_str());
+                MGLOG_E_ONCE("Failed to generate renderbuffer object.");
+                MGLOG_E_ONCE("ES glGetError(): %s", MG_Util::ConvertGLEnumToString(g_GLESFuncs.glGetError()).c_str());
             }
         }
 
@@ -4970,7 +6183,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
             if (!stateRBOObject) {
-                MGLOG_E("State RBO object is null, cannot sync to backend.");
+                MGLOG_E_ONCE("State RBO object is null, cannot sync to backend.");
                 return;
             }
 
@@ -4995,14 +6208,39 @@ namespace MobileGL::MG_Backend::DirectGLES {
             GLenum glInternalFormat, glType, glFormat;
             TextureImpl::GenerateRenderbufferFormatInfo(internalFormat, &glInternalFormat, &glFormat, &glType);
 
+            // The allocation is deferred to here, so an ES driver that refuses it (a
+            // multi-gigabyte renderbuffer is refused routinely) used to leave m_isInitialized
+            // true over a renderbuffer with no storage and say nothing at all: the attachment
+            // then rendered nowhere. Drain first so the check cannot pick up an unrelated stale
+            // flag, and report GL_OUT_OF_MEMORY to the application. The error lands on whatever
+            // entry point triggered the sync rather than on glRenderbufferStorage itself, which
+            // is where the deferred model puts it - still far better than silence.
+            DebugImpl::ErrorLopper::Clear();
             if (samples > 0) {
-                g_GLESFuncs.glRenderbufferStorageMultisample(
-                    GL_RENDERBUFFER, static_cast<GLsizei>(samples), glInternalFormat, static_cast<GLsizei>(width),
-                    static_cast<GLsizei>(height));
+                // Same clamp as the multisample texture path: the frontend accepts the count it
+                // advertised, the driver only takes the count it supports for this format, and
+                // the state object keeps reporting the requested one.
+                const auto backendSamples = static_cast<GLsizei>(ClampSamplesToBackendSupport(
+                    GetRenderbufferFormatCapabilityTargetIndex(), internalFormat, glFormat, samples));
+                g_GLESFuncs.glRenderbufferStorageMultisample(GL_RENDERBUFFER, backendSamples, glInternalFormat,
+                                                             static_cast<GLsizei>(width),
+                                                             static_cast<GLsizei>(height));
             } else {
                 g_GLESFuncs.glRenderbufferStorage(GL_RENDERBUFFER, glInternalFormat, static_cast<GLsizei>(width),
                                                   static_cast<GLsizei>(height));
             }
+            if (g_GLESFuncs.glGetError() == GL_OUT_OF_MEMORY) {
+                MGLOG_E_ONCE("Renderbuffer %u storage allocation ran out of memory: %dx%d, samples=%d, format=%s",
+                             stateRBOObject->GetExternalIndex(), width, height, samples,
+                             MG_Util::ConvertGLEnumToString(glInternalFormat).c_str());
+                if (MG_State::pGLContext) {
+                    MG_State::pGLContext->RecordError(
+                        ErrorCode::OutOfMemory,
+                        MakeUnique<GenericErrorInfo>("DirectGLES", "BackendRenderbufferObject::SyncToBackend",
+                                                     "The ES driver could not allocate the renderbuffer storage."));
+                }
+            }
+            DebugImpl::ErrorLopper::Clear();
 
             m_cacheInternalFormat = internalFormat;
             m_cacheWidth = width;

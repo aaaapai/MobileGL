@@ -15,6 +15,7 @@
 #include <MG_Util/Converters/MGToGL/TextureEnumConverter.h>
 #include <MG_Util/Converters/MGToMG/TextureEnumConverter.h>
 #include <MG_Util/Converters/MGToStr/TextureEnumConverter.h>
+#include <MG_Util/Metrics/TextureMetrics.h>
 
 namespace MobileGL::MG_Impl::GLImpl::TextureImpl {
     Bool ValidateTextureTarget(TextureTarget target) {
@@ -312,9 +313,13 @@ namespace MobileGL::MG_Impl::GLImpl::TextureImpl {
             return false;
         }
 
-        // TexImage in core 3.3 has no stencil-only upload path (that arrived with GL 4.4).
-        if (format == TextureInputFormat::StencilIndex) {
-            return recordInvalidOperation("STENCIL_INDEX is not a valid texture upload format");
+        // The stencil-only transfer path arrived with GL 4.4 / ARB_texture_stencil8, and only ever
+        // pairs with stencil-only storage: against a depth, depth-stencil or colour internal format
+        // STENCIL_INDEX keeps the pre-4.4 answer (GL CTS packed_pixels feeds exactly that pairing
+        // and expects INVALID_OPERATION).
+        if (format == TextureInputFormat::StencilIndex &&
+            internalFormat != TextureInternalFormat::StencilIndex8) {
+            return recordInvalidOperation("STENCIL_INDEX requires a stencil-only internal format");
         }
 
         if (IsDepthLikeInputFormat(format) != IsDepthLikeInternalFormat(internalFormat)) {
@@ -349,6 +354,63 @@ namespace MobileGL::MG_Impl::GLImpl::TextureImpl {
                                                  "Level must be zero for multisample textures"));
                 return false;
             }
+        }
+        return true;
+    }
+
+    Bool ValidateTextureLevelExists(const SharedPtr<MG_State::GLState::ITextureObject>& textureObject, Int level,
+                                    const char* caller) {
+        // A null object is somebody else's error to report - ValidateTextureObject runs
+        // first at every call site and has already recorded it.
+        if (!textureObject) return false;
+
+        const auto* mipmapTexture = MG_State::GLState::AsMipmapTexture(textureObject.get());
+        if (mipmapTexture == nullptr) {
+            // The only non-mipmap storage class is a buffer texture, and GL_TEXTURE_BUFFER is
+            // not a target glCopyImageSubData accepts at all (it is in the CTS's invalid-target
+            // set). Declining here is not the error code the spec asks for - that would be
+            // INVALID_ENUM from a target check this validator is not - but it does keep a
+            // texture with no image levels whatsoever from reaching a backend that would
+            // dereference a backend texture it never created.
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", caller,
+                                             "Texture has no mipmap levels to address."));
+            return false;
+        }
+
+        // What this number is, exactly, because two other things are almost it and neither is
+        // safe to assume: it is the number of level SLOTS the shadow has allocated - holes
+        // included, since MipmapStorage::AllocateLevel grows to level+1 and never fills the gap.
+        // For a cube map MipmapUploadTargetArray reports face +X's chain rather than the union.
+        //
+        // The guarantee that matters is one-sided: this count is always >= the level count the
+        // backends derive (VkTextureManager::GetUploadMipLevelCount stops at the first level
+        // with a non-positive extent, so it can only be shorter). That is the safe direction -
+        // no copy to a level the texture genuinely has is ever rejected here. It is NOT an
+        // exact match, so the backends keep their own range guard for the band in between: a
+        // chain with a hole (level 0 and 2 defined, 1 not) is accepted by this predicate and
+        // declined by the backend, which is a silent no-op rather than a copy. That band is a
+        // backend storage limitation, not a validation one - rejecting it here with
+        // INVALID_VALUE would be refusing a copy the spec permits.
+        const Uint levelCount = mipmapTexture->GetMipmapLevelCount();
+
+        if (levelCount == 0) {
+            // No image has ever been defined on this texture, so the fault is the texture,
+            // not the number: GL 4.6 core 18.3.2 asks for INVALID_OPERATION when an object a
+            // copy names is an incomplete texture.
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", caller,
+                                             "Texture has no image defined at any level."));
+            return false;
+        }
+        if (level < 0 || static_cast<Uint>(level) >= levelCount) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", caller,
+                                             "Texture level does not exist in this texture."));
+            return false;
         }
         return true;
     }
@@ -458,24 +520,84 @@ namespace MobileGL::MG_Impl::GLImpl::TextureImpl {
         }
     } // namespace
 
-    Bool ValidateBaseInternalFormatMatch(TextureInternalFormat format1, TextureInternalFormat format2) {
-        const auto unsizedFormat1 = MG_Util::ConvertInternalFormatToUnsized(format1);
-        const auto unsizedFormat2 = MG_Util::ConvertInternalFormatToUnsized(format2);
-        if (unsizedFormat1 != unsizedFormat2) {
-            // The 3-argument GenericErrorInfo constructor used to be spelled as a single
-            // std::format() call whose format string was the component name, so every
-            // diagnostic collapsed to the literal "MG_Impl/GLImpl". Format the message, then
-            // hand over component/function/message separately.
+    CopyImageTexelBlock ResolveCopyImageTexelBlock(TextureInternalFormat format, GLenum compressedFormat) {
+        CopyImageTexelBlock block{};
+        if (compressedFormat != GL_NONE) {
+            const auto info = MG_Util::GetCompressedFormatInfo(compressedFormat);
+            if (info.blockByteSize != 0) {
+                block.byteSize = info.blockByteSize;
+                block.blockWidth = info.blockWidth;
+                block.blockHeight = info.blockHeight;
+                block.compressed = true;
+                return block;
+            }
+        }
+        // The size MobileGL actually stores a texel of this format in, which for every format GL
+        // gives a required size is that required size. The handful of legacy formats GL leaves
+        // implementation-defined (R3_G3_B2, RGB4/5/10/12, RGBA2/12) have no view class in table
+        // 8.22 to be compared against anyway, and this is the size that decides whether a raw
+        // copy between them would in fact preserve the bytes.
+        block.byteSize = MG_Util::GetSizedInternalFormatSizeInBytes(format);
+        return block;
+    }
+
+    Bool ValidateCopyImageFormatCompatibility(const CopyImageTexelBlock& srcBlock,
+                                              const CopyImageTexelBlock& dstBlock) {
+        if (srcBlock.byteSize == 0 || dstBlock.byteSize == 0) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "ValidateCopyImageFormatCompatibility",
+                                             "A copied image has no storage whose texel size is known."));
+            return false;
+        }
+        if (srcBlock.byteSize != dstBlock.byteSize) {
             MG_State::pGLContext->RecordError(
                 ErrorCode::InvalidOperation,
                 MakeUnique<GenericErrorInfo>(
-                    "MG_Impl/GLImpl", "ValidateBaseInternalFormatMatch",
-                    std::format("The base internal format of the two formats do not match ({} vs. {})",
-                                MG_Util::ConvertTextureInternalFormatToString(unsizedFormat1),
-                                MG_Util::ConvertTextureInternalFormatToString(unsizedFormat2))));
+                    "MG_Impl/GLImpl", "ValidateCopyImageFormatCompatibility",
+                    std::format("The two images' texel blocks are different sizes ({} vs. {} bytes), so the "
+                                "formats are not copy-compatible.",
+                                srcBlock.byteSize, dstBlock.byteSize)));
+            return false;
+        }
+        // Two compressed images additionally have to agree on the SHAPE of the block, not only
+        // its size: an 8-byte 4x4 block and a hypothetical 8-byte 8x8 one hold different texel
+        // counts, and GL 4.6 core 18.3.2 requires both dimensions to match.
+        if (srcBlock.compressed && dstBlock.compressed &&
+            (srcBlock.blockWidth != dstBlock.blockWidth || srcBlock.blockHeight != dstBlock.blockHeight)) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>(
+                    "MG_Impl/GLImpl", "ValidateCopyImageFormatCompatibility",
+                    std::format("The two compressed images have different block dimensions ({}x{} vs. {}x{}).",
+                                srcBlock.blockWidth, srcBlock.blockHeight, dstBlock.blockWidth,
+                                dstBlock.blockHeight)));
             return false;
         }
         return true;
+    }
+
+    Bool ValidateCopyImageBlockAlignment(const CopyImageTexelBlock& block, Int x, Int y, Int width, Int height,
+                                         Int imageWidth, Int imageHeight, const char* endpointName) {
+        if (!block.compressed) return true;
+        const Int blockWidth = static_cast<Int>(block.blockWidth);
+        const Int blockHeight = static_cast<Int>(block.blockHeight);
+        if (blockWidth <= 1 && blockHeight <= 1) return true;
+        // The origin is unconditional; the extent gets the "or it reaches the edge of the image"
+        // exemption GL 4.6 core 18.3.2 grants, which is what lets a 16x16 BPTC image be copied
+        // whole even when the last block is partial.
+        const Bool originAligned = (x % blockWidth == 0) && (y % blockHeight == 0);
+        const Bool widthOk = (width % blockWidth == 0) || (x + width == imageWidth);
+        const Bool heightOk = (height % blockHeight == 0) || (y + height == imageHeight);
+        if (originAligned && widthOk && heightOk) return true;
+        MG_State::pGLContext->RecordError(
+            ErrorCode::InvalidValue,
+            MakeUnique<GenericErrorInfo>(
+                "MG_Impl/GLImpl", "ValidateCopyImageBlockAlignment",
+                std::format("The {} region [{}, {}] + [{} x {}] is not aligned to the {}x{} compressed block "
+                            "grid of a {} x {} image.",
+                            endpointName, x, y, width, height, blockWidth, blockHeight, imageWidth, imageHeight)));
+        return false;
     }
 
     Bool ValidateCopyTexImageBaseFormatSubset(TextureInternalFormat destFormat, TextureInternalFormat srcFormat) {

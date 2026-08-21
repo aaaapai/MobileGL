@@ -14,6 +14,7 @@ namespace MobileGL {
     namespace MG_State::GLState {
         class FramebufferObject;
         class ITextureObject;
+        class RenderbufferObject;
     }
 
     enum class BackendType {
@@ -24,6 +25,19 @@ namespace MobileGL {
     };
 
     namespace MG_Backend {
+        // One endpoint of a glCopyImageSubData. GL 4.6 core 18.3.2 accepts GL_RENDERBUFFER
+        // alongside the ten whole-image texture targets, and a renderbuffer name lives in a
+        // namespace of its own - so an endpoint is a sum type, not an ITextureObject. At most
+        // one of the two pointers is set; neither is set when the name named nothing, which is
+        // the INVALID_VALUE the frontend validator reports.
+        struct CopyImageEndpoint {
+            SharedPtr<MG_State::GLState::ITextureObject> Texture;
+            SharedPtr<MG_State::GLState::RenderbufferObject> Renderbuffer;
+
+            Bool IsRenderbuffer() const { return Renderbuffer != nullptr; }
+            Bool Exists() const { return Texture != nullptr || Renderbuffer != nullptr; }
+        };
+
         enum class FormatCapability : Uint64 {
             Creatable = 1ull << 0,
 
@@ -160,9 +174,9 @@ namespace MobileGL {
                                    GLsizei height, GLint border);
             void (*CopyTexSubImage2D)(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint x, GLint y,
                                       GLsizei width, GLsizei height);
-            void (*CopyImageSubData)(const SharedPtr<MG_State::GLState::ITextureObject>& srcTexture,
+            void (*CopyImageSubData)(const CopyImageEndpoint& src,
                                      GLenum srcTarget, GLint srcLevel, GLint srcX, GLint srcY, GLint srcZ,
-                                     const SharedPtr<MG_State::GLState::ITextureObject>& dstTexture,
+                                     const CopyImageEndpoint& dst,
                                      GLenum dstTarget, GLint dstLevel, GLint dstX, GLint dstY, GLint dstZ,
                                      GLsizei srcWidth, GLsizei srcHeight, GLsizei srcDepth);
             void (*GenerateMipmap)(GLenum target);
@@ -236,6 +250,14 @@ namespace MobileGL {
             // (optional; null = frontend falls back to CPU accounting).
             BackendQueryHandle (*BeginXfbPrimitivesQuery)(Bool generated);
             void (*EndXfbPrimitivesQuery)(BackendQueryHandle query);
+            // Whether GL_TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN should be answered from the
+            // frontend's own accounting wherever that accounting is exact - a capture with no
+            // geometry stage - instead of from the query above. Set by DirectGLES, whose result
+            // is whatever the ES driver's PRIMITIVES_WRITTEN counter says: Adreno reports twice
+            // the written count for a vertex-only capture that follows a large render pass,
+            // where the desktop-exact answer is the one the frontend already computed. Defaults
+            // to false, so a backend that never sets it keeps using its GPU result.
+            Bool PrefersCpuXfbPrimitiveAccounting = false;
             // Transform feedback capture spans, for backends whose own GL/ES driver
             // performs the capture (DirectGLES). Both optional; null means the backend
             // drives capture from its draw recording instead (DirectVulkan). End is
@@ -318,6 +340,22 @@ namespace MobileGL {
             Int MaxVertexAttribs = 16;
             Int MaxComputeShaderStorageBlocks = 8;
             Int MaxCombinedShaderStorageBlocks = 32;
+            // Per-stage GL_MAX_*_SHADER_STORAGE_BLOCKS. Zero is a legal answer for the four
+            // non-compute, non-fragment stages and these defaults are the spec minimums, not
+            // placeholders: GL 4.6 table 23.64 and ES 3.2 table 21.44 both set the minimum for
+            // vertex, tessellation control, tessellation evaluation and geometry at 0, and only
+            // fragment (8 in GL, 4 in ES) and compute are guaranteed to have any. Every real ARM
+            // GLES driver takes that allowance - a Mali-G925 reports 0 for all four - so a
+            // backend that cannot honour a graphics-stage storage block MUST report 0 here
+            // rather than a hopeful number. Advertising a non-zero count the driver will refuse
+            // does not make the block work; it only moves the failure from an honest
+            // "unsupported" at query time to a backend link error the frontend never surfaces,
+            // after which every draw with that program silently renders nothing.
+            Int MaxVertexShaderStorageBlocks = 0;
+            Int MaxTessControlShaderStorageBlocks = 0;
+            Int MaxTessEvaluationShaderStorageBlocks = 0;
+            Int MaxGeometryShaderStorageBlocks = 0;
+            Int MaxFragmentShaderStorageBlocks = 8;
             Int MaxComputeUniformBlocks = 12;
             Int MaxComputeWorkGroupInvocations = 128;
             Int MaxShaderStorageBufferBindings = 8;
@@ -334,8 +372,32 @@ namespace MobileGL {
             Int MaxComputeImageUniforms = 8;
             Int MaxDrawBuffers = 8;
             Int MaxColorAttachments = 8;
+            // GL_MAX_CLIP_DISTANCES. Zero is a legal answer here, not a placeholder, and a
+            // backend that cannot host a clip distance MUST report it: advertising eight the
+            // backend will refuse does not make gl_ClipDistance work, it only moves the failure
+            // from an honest "unsupported" at query time to a backend shader-compile error the
+            // frontend never surfaces, after which every draw with that program silently renders
+            // nothing. DirectGLES fills it from GL_EXT_clip_cull_distance, DirectVulkan from the
+            // shaderClipDistance device feature. The DEFAULT stays at the GL 4.3 core minimum
+            // because it describes the no-backend case (standalone shader compiles, unit tests),
+            // where there is no device to be honest about and BuildTBuiltInResource still has to
+            // hand glslang a workable gl_MaxClipDistances.
             Int MaxClipDistances = 8;
             Int MaxViewports = 16;
+            // GL_LAYER_PROVOKING_VERTEX / GL_VIEWPORT_INDEX_PROVOKING_VERTEX: which vertex of a
+            // primitive supplies gl_Layer and gl_ViewportIndex. GL 4.6 table 23.65 makes
+            // GL_UNDEFINED_VERTEX a legal answer for both, and it is the honest default - naming
+            // a convention is a statement about behaviour, so a backend that does not pin one
+            // must not claim it does. DirectGLES fills the layer one from the ES 3.2 query and
+            // the viewport one from GL_OES_viewport_array, and leaves UNDEFINED where the
+            // capability is absent: without the viewport array extension only viewport 0 is ever
+            // rasterized, so no convention selects anything. DirectVulkan keeps UNDEFINED for
+            // both - which vertex provokes is decided per pipeline by
+            // VulkanRenderer::SelectProvokingVertexMode out of VK_EXT_provoking_vertex,
+            // provokingVertexModePerPipeline and the topology, so no single convention is true
+            // of the backend.
+            GLenum LayerProvokingVertex = GL_UNDEFINED_VERTEX;
+            GLenum ViewportIndexProvokingVertex = GL_UNDEFINED_VERTEX;
             Int MaxViewportWidth = 16384;
             Int MaxViewportHeight = 16384;
             Float ViewportBoundsRangeMin = 0.0f;

@@ -19,7 +19,7 @@ namespace MobileGL::MG_Impl::GLImpl::ProgramInterface {
         // "<getAtomicCounterBlockName()>_<binding>" (ParseContextBase.cpp), one per GL
         // atomic-counter binding point. That block IS the GL_ATOMIC_COUNTER_BUFFER resource
         // and its trailing number IS GL_BUFFER_BINDING; its members stay GL_UNIFORMs.
-        constexpr const char* kAtomicCounterBlockPrefix = "gl_AtomicCounterBlock";
+        constexpr const char* kAtomicCounterBlockPrefix = MG_Util::ShaderTranspiler::ATOMIC_COUNTER_BLOCK_PREFIX;
 
         enum class BlockKind {
             Uniform,       // a real GL uniform block
@@ -81,19 +81,18 @@ namespace MobileGL::MG_Impl::GLImpl::ProgramInterface {
         // The enumerated spelling of an array resource is "name[0]". glslang already applies
         // that to uniforms and buffer variables (EShReflectionBasicArraySuffix), but never to
         // stage inputs/outputs, so those get it here.
-        String WithArraySuffix(const String& name, const glslang::TType* type) {
-            if (type == nullptr || !type->isArray() || EndsWithZeroSubscript(name)) return name;
+        String WithArraySuffix(const String& name, const ProgramObject::TypeFacts& type) {
+            if (!type.isArray || EndsWithZeroSubscript(name)) return name;
             return name + "[0]";
         }
 
         // GL_ARRAY_SIZE: element count for a sized array, 0 for a runtime-sized one
         // (a shader storage block's unsized trailing member), 1 for a non-array.
-        GLint ArraySizeOf(const glslang::TType* type, GLint reflectedSize) {
-            if (type != nullptr && type->isArray()) {
-                if (!type->isSizedArray()) return 0;
-                return type->getOuterArraySize();
-            }
-            return reflectedSize < 1 ? 1 : reflectedSize;
+        // `record.arraySize` is already the sized-array/reflected-size resolution; the only
+        // extra rule here is GL's 0 for a runtime-sized array.
+        GLint ArraySizeOf(const ProgramObject::ResourceReflection& record) {
+            if (record.type.isArray && !record.type.isSizedArray) return 0;
+            return record.arraySize;
         }
 
         // Two spellings name the same resource when they are equal, or differ only by the
@@ -174,22 +173,21 @@ namespace MobileGL::MG_Impl::GLImpl::ProgramInterface {
             return static_cast<GLint>(element);
         }
 
-        BlockKind ClassifyBlock(const glslang::TObjectReflection& block) {
+        BlockKind ClassifyBlock(const ProgramObject::BlockReflection& block) {
             if (std::strstr(block.name.c_str(), MG_Util::ShaderTranspiler::GLOBAL_UBO_NAME) != nullptr) {
                 return BlockKind::GlobalUbo;
             }
             if (IsAtomicCounterBlockName(block.name)) return BlockKind::AtomicCounter;
-            const glslang::TType* type = block.getType();
-            if (type != nullptr && type->getQualifier().storage == glslang::EvqBuffer) return BlockKind::Storage;
+            if (block.type.isBuffer) return BlockKind::Storage;
             return BlockKind::Uniform;
         }
 
         // std140/std430 column stride, the same vec4-rounded rule ProgramObject applies to
         // uniform matrices. 0 for a non-matrix.
-        GLint MatrixStrideOf(const glslang::TType* type) {
-            if (type == nullptr || !type->isMatrix()) return 0;
-            const bool rowMajor = type->getQualifier().layoutMatrix == glslang::ElmRowMajor;
-            const int strideVectorComponents = rowMajor ? type->getMatrixCols() : type->getMatrixRows();
+        GLint MatrixStrideOf(const ProgramObject::TypeFacts& type) {
+            if (!type.isMatrix) return 0;
+            const bool rowMajor = type.layoutMatrix == static_cast<Int>(glslang::ElmRowMajor);
+            const int strideVectorComponents = rowMajor ? type.matrixCols : type.matrixRows;
             constexpr int scalarSize = 4;
             const int vectorAlignment = (strideVectorComponents <= 1)    ? scalarSize
                                         : (strideVectorComponents == 2) ? 2 * scalarSize
@@ -197,9 +195,9 @@ namespace MobileGL::MG_Impl::GLImpl::ProgramInterface {
             return (vectorAlignment + 15) & ~15;
         }
 
-        GLint IsRowMajorOf(const glslang::TType* type) {
-            if (type == nullptr || !type->isMatrix()) return 0;
-            return type->getQualifier().layoutMatrix == glslang::ElmRowMajor ? 1 : 0;
+        GLint IsRowMajorOf(const ProgramObject::TypeFacts& type) {
+            if (!type.isMatrix) return 0;
+            return type.layoutMatrix == static_cast<Int>(glslang::ElmRowMajor) ? 1 : 0;
         }
 
         GLint MappedLocation(Int rawLocation) {
@@ -210,14 +208,69 @@ namespace MobileGL::MG_Impl::GLImpl::ProgramInterface {
 
         // ---- model construction --------------------------------------------------------
 
-        void BuildBlocks(ProgramObject& program, const glslang::TProgram& reflection, Model& model,
+        // GL_REFERENCED_BY_*_SHADER for an ARRAYED block instance, refined per element.
+        //
+        // glslang records a block reference by walking up to the base symbol and calling
+        // addBlockName with the whole ARRAY type, which ORs the referencing stage into every
+        // element at once - it has not resolved the subscript yet at that point. So reading
+        // "e[0].b" marks both TrickyBlock[0] and TrickyBlock[1] as referenced by the fragment
+        // stage (KHR-GL43.program_interface_query.uniform-block-types).
+        //
+        // The MEMBER masks are exact: EShReflectionAllBlockVariables enumerates every member of
+        // every element with the stage mask suppressed, and only the dereference chain actually
+        // walked turns a bit on - and that chain carries the subscript. So the union of a block
+        // instance's members is the reference set of that instance.
+        //
+        // Applied ONLY to arrayed instances, because for a scalar block glslang is already exact.
+        // Note the union is used even when it is empty: an array element nobody dereferenced has
+        // no member bits and is genuinely referenced by nobody, which is the whole point - falling
+        // back to the block's own mask there would restore the over-approximation.
+        Vector<Uint32> BuildBlockStagesFromMembers(const ProgramObject::LinkArtifacts& reflection,
+                                                    Int blockCount) {
+            Vector<Uint32> stagesByBlock(static_cast<SizeT>(blockCount < 0 ? 0 : blockCount), 0u);
+            const Int uniformCount = static_cast<Int>(reflection.uniformReflection.size());
+            for (Int index = 0; index < uniformCount; ++index) {
+                const auto& uniform = reflection.uniformReflection[index];
+                const Int owner = uniform.index;
+                if (owner < 0 || owner >= blockCount) continue;
+                stagesByBlock[static_cast<SizeT>(owner)] |= static_cast<Uint32>(uniform.stages);
+            }
+            return stagesByBlock;
+        }
+
+        // UNIFORM blocks only, and that scope is load-bearing rather than cautious. The member
+        // names glslang produces for a uniform block array carry the subscript
+        // ("TrickyBlock[0].b", via EShReflectionStrictArraySuffix), so each element's members are
+        // distinct entries and the bits land on the right one. A SHADER STORAGE block array does
+        // NOT get that treatment - its buffer variables reflect under one subscript-free spelling
+        // shared by every element - so a union over them credits element 0 and starves the rest.
+        // KHR-GL43.program_interface_query.ssb-types is the case that says so: it reads ss[0] and
+        // ss[1] and requires both to report the fragment stage, which only glslang's own
+        // (deliberately over-approximating) block mask gets right. Storage and atomic-counter
+        // blocks therefore keep that mask untouched.
+        Uint32 UniformBlockStages(const ProgramObject::BlockReflection& block, const Vector<Uint32>& stagesFromMembers,
+                                  Int tIndex) {
+            String arrayBase;
+            Uint element = 0;
+            Bool malformed = false;
+            if (!SplitTrailingSubscript(block.name, arrayBase, element, malformed) || malformed) {
+                return static_cast<Uint32>(block.stages);
+            }
+            if (tIndex < 0 || tIndex >= static_cast<Int>(stagesFromMembers.size())) {
+                return static_cast<Uint32>(block.stages);
+            }
+            return stagesFromMembers[static_cast<SizeT>(tIndex)];
+        }
+
+        void BuildBlocks(ProgramObject& program, const ProgramObject::LinkArtifacts& reflection, Model& model,
                          Vector<BlockKind>& blockKind, Vector<Int>& blockInterfaceIndex) {
-            const Int blockCount = const_cast<glslang::TProgram&>(reflection).getNumUniformBlocks();
+            const Int blockCount = static_cast<Int>(reflection.blockReflection.size());
             blockKind.assign(blockCount, BlockKind::Uniform);
             blockInterfaceIndex.assign(blockCount, -1);
+            const Vector<Uint32> stagesFromMembers = BuildBlockStagesFromMembers(reflection, blockCount);
 
             for (Int tIndex = 0; tIndex < blockCount; ++tIndex) {
-                const auto& block = const_cast<glslang::TProgram&>(reflection).getUniformBlock(tIndex);
+                const auto& block = reflection.blockReflection[tIndex];
                 const BlockKind kind = ClassifyBlock(block);
                 blockKind[tIndex] = kind;
                 if (kind == BlockKind::AtomicCounter) {
@@ -238,7 +291,7 @@ namespace MobileGL::MG_Impl::GLImpl::ProgramInterface {
                     // glShaderStorageBlockBinding wins over the declaration (GL 4.6 §7.6.2 -
                     // exactly the same rule GL_UNIFORM_BLOCK follows through
                     // GetUniformBlockBinding below).
-                    const GLint declared = block.getBinding();
+                    const GLint declared = block.binding;
                     resource.bufferBinding = declared < 0 ? 0 : declared + BlockArrayElement(block.name);
                     const Int rebound = program.GetShaderStorageBlockBindingOverride(block.name);
                     if (rebound >= 0) resource.bufferBinding = static_cast<GLint>(rebound);
@@ -260,21 +313,22 @@ namespace MobileGL::MG_Impl::GLImpl::ProgramInterface {
                 resource.bufferDataSize = static_cast<GLint>(program.GetUBOSizeAt(glIndex));
                 const Int tIndex = program.TProgramBlockIndex(static_cast<Uint>(glIndex));
                 if (tIndex >= 0 && tIndex < blockCount) {
-                    resource.stages =
-                        static_cast<Uint32>(const_cast<glslang::TProgram&>(reflection).getUniformBlock(tIndex).stages);
+                    resource.stages = UniformBlockStages(reflection.blockReflection[tIndex],
+                                                      stagesFromMembers, tIndex);
                 }
                 model.uniformBlocks.push_back(Move(resource));
             }
         }
 
-        void BuildUniformsAndBufferVariables(ProgramObject& program, const glslang::TProgram& reflection, Model& model,
+        void BuildUniformsAndBufferVariables(ProgramObject& program,
+                                             const ProgramObject::LinkArtifacts& reflection, Model& model,
                                              const Vector<BlockKind>& blockKind,
                                              const Vector<Int>& blockInterfaceIndex) {
             const Uint uniformCount = program.GetUniformCount();
             for (Uint glIndex = 0; glIndex < uniformCount; ++glIndex) {
                 const Int tIndex = program.TProgramUniformIndex(glIndex);
-                const auto& refl = const_cast<glslang::TProgram&>(reflection).getUniform(tIndex);
-                const glslang::TType* type = refl.getType();
+                const auto& refl = ProgramObject::UniformAtIn(reflection, tIndex);
+                const auto& type = refl.type;
                 const Int owner = refl.index;
                 const BlockKind kind = (owner >= 0 && owner < static_cast<Int>(blockKind.size()))
                                            ? blockKind[owner]
@@ -283,7 +337,7 @@ namespace MobileGL::MG_Impl::GLImpl::ProgramInterface {
                 Resource resource;
                 resource.name = refl.name;
                 resource.type = static_cast<GLenum>(refl.glDefineType);
-                resource.arraySize = ArraySizeOf(type, refl.size);
+                resource.arraySize = ArraySizeOf(refl);
                 resource.stages = static_cast<Uint32>(refl.stages);
 
                 if (kind == BlockKind::Storage) {
@@ -352,49 +406,67 @@ namespace MobileGL::MG_Impl::GLImpl::ProgramInterface {
             }
         }
 
-        void BuildStageIO(ProgramObject& program, const glslang::TProgram& reflection, Model& model) {
-            auto& mutableReflection = const_cast<glslang::TProgram&>(reflection);
+        // A built-in interface block that a shader redeclares with fewer members keeps the
+        // omitted ones in its type when the redeclaration is ANONYMOUS - glslang hides them
+        // (basic type void) instead of erasing them, because the original shared declaration
+        // has to stay usable. Only the instance-named form erases. So a separable vertex
+        // program that redeclares `out gl_PerVertex { vec4 gl_Position; }` still carries
+        // gl_PointSize and gl_ClipDistance through the block-unwrapping reflection, and they
+        // are not part of its output interface.
+        Bool IsHiddenBlockMember(const ProgramObject::TypeFacts& type) { return type.isVoid; }
 
-            const Int inputCount = mutableReflection.getNumPipeInputs();
+        void BuildStageIO(ProgramObject& program, const ProgramObject::LinkArtifacts& reflection, Model& model) {
+            const Int inputCount = static_cast<Int>(reflection.pipeInputReflection.size());
             for (Int index = 0; index < inputCount; ++index) {
-                const auto& refl = mutableReflection.getPipeInput(index);
-                const glslang::TType* type = refl.getType();
+                const auto& refl = reflection.pipeInputReflection[index];
+                const auto& type = refl.type;
+                if (IsHiddenBlockMember(type)) continue;
                 Resource resource;
                 // The Vulkan-semantics parse reflects the vertex builtins under their SPIR-V
                 // names; GL enumerates the GL spellings.
                 const String& glName = ProgramObject::NormalizeBuiltinPipeInputName(refl.name);
                 resource.name = WithArraySuffix(glName, type);
                 resource.type = static_cast<GLenum>(refl.glDefineType);
-                resource.arraySize = ArraySizeOf(type, refl.size);
+                resource.arraySize = ArraySizeOf(refl);
                 resource.location = program.GetAttributeLocation(refl.name);
-                if (resource.location < 0) resource.location = MappedLocation(static_cast<Int>(refl.layoutLocation()));
-                resource.isPerPatch = (type != nullptr && type->getQualifier().patch) ? 1 : 0;
+                if (resource.location < 0) resource.location = MappedLocation(refl.location);
+                resource.isPerPatch = type.isPatch ? 1 : 0;
                 resource.stages = static_cast<Uint32>(refl.stages);
                 model.programInputs.push_back(Move(resource));
             }
 
-            const Int outputCount = mutableReflection.getNumPipeOutputs();
+            // A color number, and therefore a color INDEX, exists only for a fragment stage's
+            // outputs. The output interface belongs to the program's last stage, so for a
+            // separable tessellation/geometry/vertex program these are varyings: asking the
+            // frag-data maps about them can still answer a location (a tess-control output
+            // carries its own layout(location=N)), and a location then manufactures a color
+            // index of 0 where GL requires -1
+            // (KHR-GL43.program_interface_query.separate-programs-tess-control).
+            const Bool lastStageIsFragment = reflection.lastStageIsFragment;
+            const Int outputCount = static_cast<Int>(reflection.pipeOutputReflection.size());
             for (Int index = 0; index < outputCount; ++index) {
-                const auto& refl = mutableReflection.getPipeOutput(index);
-                const glslang::TType* type = refl.getType();
+                const auto& refl = reflection.pipeOutputReflection[index];
+                const auto& type = refl.type;
+                if (IsHiddenBlockMember(type)) continue;
                 Resource resource;
                 resource.name = WithArraySuffix(refl.name, type);
                 resource.type = static_cast<GLenum>(refl.glDefineType);
-                resource.arraySize = ArraySizeOf(type, refl.size);
+                resource.arraySize = ArraySizeOf(refl);
                 resource.location = MappedLocation(program.GetFragmentDataLocation(refl.name.c_str()));
-                if (resource.location < 0) {
-                    // A built-in output (gl_FragDepth, gl_SampleMask) and a non-fragment stage
-                    // output both have no location, and therefore no color index either.
+                if (resource.location < 0 || !lastStageIsFragment) {
+                    // A built-in output (gl_FragDepth, gl_SampleMask) has no location, and a
+                    // non-fragment stage's outputs have no color number at all - either way there
+                    // is no color index.
                     resource.locationIndex = -1;
                 } else {
                     resource.locationIndex = program.GetFragmentDataIndex(refl.name.c_str());
                     // glBindFragDataLocationIndexed wins; otherwise the shader's
                     // layout(index = N), which the frag-data maps never saw.
-                    if (resource.locationIndex == 0 && type != nullptr && type->getQualifier().hasIndex()) {
-                        resource.locationIndex = static_cast<GLint>(type->getQualifier().layoutIndex);
+                    if (resource.locationIndex == 0 && type.hasIndex) {
+                        resource.locationIndex = static_cast<GLint>(type.layoutIndex);
                     }
                 }
-                resource.isPerPatch = (type != nullptr && type->getQualifier().patch) ? 1 : 0;
+                resource.isPerPatch = type.isPatch ? 1 : 0;
                 resource.stages = static_cast<Uint32>(refl.stages);
                 model.programOutputs.push_back(Move(resource));
             }
@@ -434,15 +506,14 @@ namespace MobileGL::MG_Impl::GLImpl::ProgramInterface {
         Model BuildModel(ProgramObject& program) {
             Model model;
             if (!program.GetLinkStatus()) return model;
-            const glslang::TProgram* reflection = program.GetReflection();
-            if (reflection == nullptr) return model;
+            const ProgramObject::LinkArtifacts& reflection = program.GetLinkReflection();
             model.valid = true;
 
             Vector<BlockKind> blockKind;
             Vector<Int> blockInterfaceIndex;
-            BuildBlocks(program, *reflection, model, blockKind, blockInterfaceIndex);
-            BuildUniformsAndBufferVariables(program, *reflection, model, blockKind, blockInterfaceIndex);
-            BuildStageIO(program, *reflection, model);
+            BuildBlocks(program, reflection, model, blockKind, blockInterfaceIndex);
+            BuildUniformsAndBufferVariables(program, reflection, model, blockKind, blockInterfaceIndex);
+            BuildStageIO(program, reflection, model);
             BuildXfb(program, model);
             return model;
         }

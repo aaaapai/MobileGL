@@ -41,6 +41,13 @@
       "timeout_seconds": 180
     },
     {
+      "name": "minecraft-1.21.11-main-menu",
+      "trace_archive": "minecraft-1.21.11-main-menu.tgz",
+      "golden": "minecraft-1.21.11-main-menu.0000205347.png",
+      "target_call": 205347,
+      "timeout_seconds": 180
+    },
+    {
       "name": "minecraft-1.17-main-menu-854",
       "trace_archive": "minecraft-1.17-main-menu-854.tgz",
       "golden": "minecraft-1.17-main-menu-854.0000117757.png",
@@ -59,14 +66,6 @@
       "golden": "minecraft-1.21.4-fabric-sodium-in-world.0000923340.png",
       "target_call": 923340,
       "timeout_seconds": 1800
-    },
-    {
-      "name": "minecraft-26.2-main-menu",
-      "ci": false,
-      "trace_archive": "minecraft-26.2-main-menu.tgz",
-      "golden": "minecraft-26.2-main-menu.0000101926.png",
-      "target_call": 101926,
-      "timeout_seconds": 180
     },
     {
       "name": "minecraft-1.21.4-fabric-common-mods-in-world",
@@ -181,7 +180,8 @@
       "name": "minecraft-1.21.4-fabric-iris-sundial-lite-in-world",
       "trace_archive": "minecraft-1.21.4-fabric-iris-sundial-lite-in-world.tgz",
       "golden": "minecraft-1.21.4-fabric-iris-sundial-lite-in-world.0000150023.png",
-      "target_call": 150023
+      "target_call": 150023,
+      "avoid_angle_llvmpipe_explicit_lod_bias": true
     },
     {
       "name": "minecraft-1.21.4-fabric-iris-complementary-reimagined-in-world",
@@ -277,11 +277,14 @@
     },
     {
       "name": "minecraft-1.21.4-fabric-iris-iterationrp-in-world",
-      "ci": false,
+      "ci_backends": [
+        "DirectVulkan"
+      ],
       "trace_archive": "minecraft-1.21.4-fabric-iris-iterationrp-in-world.tgz",
       "golden": "minecraft-1.21.4-fabric-iris-iterationrp-in-world.0000202020.png",
       "target_call": 202020,
-      "timeout_seconds": 1800
+      "timeout_seconds": 1800,
+      "ssim_threshold": 0.98
     },
     {
       "name": "minecraft-1.21.4-fabric-iris-bsl-esc-menu-854",

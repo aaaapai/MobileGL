@@ -154,10 +154,30 @@ bool LoadMobileGL(const Request& request, std::string& error) {
     } else {
         unsetenv("MOBILEGL_AVOID_SAMPLER_MIPMAP_MIN_FILTER");
     }
+    if (request.avoidAngleLlvmpipeExplicitLodBias) {
+        setenv("MOBILEGL_AVOID_EXPLICIT_LOD_BIAS", "1", 1);
+    } else {
+        unsetenv("MOBILEGL_AVOID_EXPLICIT_LOD_BIAS");
+    }
     if (request.coherentAsFlush) {
         setenv("MOBILEGL_COHERENT_AS_FLUSH", "1", 1);
     } else {
         unsetenv("MOBILEGL_COHERENT_AS_FLUSH");
+    }
+    if (request.fixIterationRPSubgroupScratch) {
+        setenv("MOBILEGL_FIX_ITERATIONRP_SUBGROUP_SCRATCH", "1", 1);
+    } else {
+        unsetenv("MOBILEGL_FIX_ITERATIONRP_SUBGROUP_SCRATCH");
+    }
+    if (request.deriveNumSubgroups) {
+        setenv("MOBILEGL_DERIVE_NUM_SUBGROUPS", "1", 1);
+    } else {
+        unsetenv("MOBILEGL_DERIVE_NUM_SUBGROUPS");
+    }
+    if (request.iterationRPFixBarrier) {
+        setenv("MOBILEGL_ITERATIONRP_FIX_BARRIER", "1", 1);
+    } else {
+        unsetenv("MOBILEGL_ITERATIONRP_FIX_BARRIER");
     }
     if (request.fboAttachmentDumps.empty()) {
         unsetenv("MOBILEGL_TRACE_DUMP_FBO_ATTACHMENTS");
@@ -170,6 +190,18 @@ bool LoadMobileGL(const Request& request, std::string& error) {
             dumpPoints += dumpPoint;
         }
         setenv("MOBILEGL_TRACE_DUMP_FBO_ATTACHMENTS", dumpPoints.c_str(), 1);
+    }
+    if (request.texture2dDumps.empty()) {
+        unsetenv("MOBILEGL_TRACE_DUMP_TEXTURE_2D");
+    } else {
+        std::string dumpPoints;
+        for (const std::string& dumpPoint : request.texture2dDumps) {
+            if (!dumpPoints.empty()) {
+                dumpPoints += ';';
+            }
+            dumpPoints += dumpPoint;
+        }
+        setenv("MOBILEGL_TRACE_DUMP_TEXTURE_2D", dumpPoints.c_str(), 1);
     }
 
     void* handle = dlopen(request.mobileGlLibrary.c_str(), RTLD_NOW | RTLD_GLOBAL);
@@ -373,6 +405,13 @@ std::string SnapshotCallSet(const Request& request) {
     std::string callSet = std::to_string(request.targetCall);
     for (const std::string& dumpPoint : request.fboAttachmentDumps) {
         const std::size_t separator = dumpPoint.find(':');
+        const std::string call = dumpPoint.substr(0, separator);
+        if (!call.empty() && call != std::to_string(request.targetCall)) {
+            callSet += "," + call;
+        }
+    }
+    for (const std::string& dumpPoint : request.texture2dDumps) {
+        const std::size_t separator = dumpPoint.find(',');
         const std::string call = dumpPoint.substr(0, separator);
         if (!call.empty() && call != std::to_string(request.targetCall)) {
             callSet += "," + call;
@@ -792,6 +831,12 @@ bool WriteResultJson(const Request& request, const Result& result) {
     file << "  \"usePbuffer\": " << (request.usePbuffer ? "true" : "false") << ",\n";
     file << "  \"avoidAngleLlvmpipeSamplerMipmapMinFilter\": "
          << (request.avoidAngleLlvmpipeSamplerMipmapMinFilter ? "true" : "false") << ",\n";
+    file << "  \"avoidAngleLlvmpipeExplicitLodBias\": "
+         << (request.avoidAngleLlvmpipeExplicitLodBias ? "true" : "false") << ",\n";
+    file << "  \"fixIterationRPSubgroupScratch\": " << (request.fixIterationRPSubgroupScratch ? "true" : "false")
+         << ",\n";
+    file << "  \"deriveNumSubgroups\": " << (request.deriveNumSubgroups ? "true" : "false") << ",\n";
+    file << "  \"iterationRPFixBarrier\": " << (request.iterationRPFixBarrier ? "true" : "false") << ",\n";
     file << "  \"holdMs\": " << request.holdMs << ",\n";
     file << "  \"mismatchPixels\": " << result.mismatchPixels << "\n";
     file << "}\n";

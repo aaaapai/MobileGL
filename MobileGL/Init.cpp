@@ -15,8 +15,11 @@
 #include <MG_Impl/GLImpl/Texture/ProxyTexture.h>
 #include <MG_Impl/GLImpl/Framebuffer/GL_Framebuffer.h>
 #include <MG_Impl/GLImpl/Sync/GL_Sync.h>
+#include <MG_Impl/GLImpl/Query/GL_Query.h>
 #include <MG_Util/Async/ShaderCompilePool.h>
 #include <MG_Util/ShaderTranspiler/ShaderCompiler.h>
+#include <MG_State/GLState/ProgramState/ProgramTranslationCache.h>
+#include <MG_Util/ShaderTranspiler/TranslationCache.h>
 
 #include <atomic>
 #include <mutex>
@@ -51,6 +54,11 @@ namespace MobileGL {
             // before a re-initialized library could pair them with the wrong
             // backend's DeleteSync).
             MG_Impl::GLImpl::DestroyAllSyncObjects();
+            // Queries die with their contexts for the same reason, and their registry
+            // is the same shape of process-global map: drain it here too, while the
+            // function table can still pair each backend handle with the backend that
+            // minted it.
+            MG_Impl::GLImpl::DestroyAllQueryObjects();
             MG_Backend::pActiveBackendObject.reset();
             MG_State::pGLContext.reset();
             MG_State::pEGLContext.reset();
@@ -66,6 +74,14 @@ namespace MobileGL {
             // built-in symbol tables the prewarm latch stands for, so leaving it set would
             // make the next Initialize() skip a prewarm it genuinely needs.
             MG_Util::ShaderTranspiler::ShaderCompiler::ResetPrewarmLatch();
+            // The two-level translation memo. Nothing in it references a glslang object -
+            // both levels hold plain bytes - so this is RSS hygiene rather than a lifetime
+            // requirement, and it is safe either side of FinalizeProcess. Stats first: an
+            // fordebug build gets one line per level saying how the run went.
+            MG_Util::ShaderTranspiler::LogShaderTranslationCacheStats();
+            MG_Util::ShaderTranspiler::ClearShaderTranslationCaches();
+            MG_State::GLState::LogProgramTranslationCacheStats();
+            MG_State::GLState::ClearProgramTranslationCache();
             MG_Backend::gBackendFunctionsTable = {};
             g_isInitialized = false;
             if (logLifecycle) {

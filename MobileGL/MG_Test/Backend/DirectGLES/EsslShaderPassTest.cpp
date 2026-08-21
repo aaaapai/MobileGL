@@ -16,8 +16,12 @@
 #include <MG_Backend/DirectGLES/Utils.h>
 
 using namespace MobileGL;
+using MobileGL::MG_Backend::DirectGLES::PrgramImpl::BakeImageFormatQualifiers;
+using MobileGL::MG_Backend::DirectGLES::PrgramImpl::ForceFlatIntegerVaryings;
 using MobileGL::MG_Backend::DirectGLES::PrgramImpl::IMAGE_WRITE_ALIAS_PREFIX;
 using MobileGL::MG_Backend::DirectGLES::PrgramImpl::RemoveLayoutBinding;
+using MobileGL::MG_Backend::DirectGLES::PrgramImpl::RequestExtendedImageFormats;
+using MobileGL::MG_Backend::DirectGLES::PrgramImpl::RequestViewportArrayExtension;
 using MobileGL::MG_Backend::DirectGLES::PrgramImpl::SplitReadWriteImageUniforms;
 
 namespace {
@@ -55,9 +59,11 @@ void main()
     const String out = SplitReadWriteImageUniforms(source);
 
     // Both halves: same binding, same format, same type - which is what makes two image
-    // variables on one image unit legal.
-    EXPECT_TRUE(Contains(out, "layout(binding = 2, rgba8) uniform readonly highp image2D goku;"));
-    EXPECT_TRUE(Contains(out, "layout(binding = 2, rgba8) uniform writeonly highp image2D " + WriteAlias("goku") + ";"));
+    // variables on one image unit legal - and both `coherent`, which is what makes the store
+    // through one of them visible to the load through the other.
+    EXPECT_TRUE(Contains(out, "layout(binding = 2, rgba8) uniform coherent readonly highp image2D goku;"));
+    EXPECT_TRUE(Contains(
+        out, "layout(binding = 2, rgba8) uniform coherent writeonly highp image2D " + WriteAlias("goku") + ";"));
 
     // The load keeps the original name, the store moves to the writeonly half.
     EXPECT_TRUE(Contains(out, "imageLoad(goku,"));
@@ -148,9 +154,9 @@ void main()
 }
 )";
     const String out = SplitReadWriteImageUniforms(source);
-    EXPECT_TRUE(Contains(out, "layout(binding = 6, rgba8) uniform readonly highp image2D gohan[3];"));
-    EXPECT_TRUE(Contains(out,
-                         "layout(binding = 6, rgba8) uniform writeonly highp image2D " + WriteAlias("gohan") + "[3];"));
+    EXPECT_TRUE(Contains(out, "layout(binding = 6, rgba8) uniform coherent readonly highp image2D gohan[3];"));
+    EXPECT_TRUE(Contains(
+        out, "layout(binding = 6, rgba8) uniform coherent writeonly highp image2D " + WriteAlias("gohan") + "[3];"));
     EXPECT_TRUE(Contains(out, "imageStore(" + WriteAlias("gohan") + "[1],"));
     EXPECT_TRUE(Contains(out, "imageLoad(gohan[2],"));
 }
@@ -170,9 +176,11 @@ void main()
 )";
     const String out = SplitReadWriteImageUniforms(source);
 
-    // goku is read+write -> split; goku_hd is write-only -> qualified in place, not split.
-    EXPECT_TRUE(Contains(out, "layout(binding = 1, rgba8) uniform readonly highp image2D goku;"));
-    EXPECT_TRUE(Contains(out, "layout(binding = 1, rgba8) uniform writeonly highp image2D " + WriteAlias("goku") + ";"));
+    // goku is read+write -> split (and coherent with it); goku_hd is write-only -> qualified in
+    // place, not split, and left non-coherent because nothing aliases it.
+    EXPECT_TRUE(Contains(out, "layout(binding = 1, rgba8) uniform coherent readonly highp image2D goku;"));
+    EXPECT_TRUE(Contains(
+        out, "layout(binding = 1, rgba8) uniform coherent writeonly highp image2D " + WriteAlias("goku") + ";"));
     EXPECT_TRUE(Contains(out, "layout(binding = 2, rgba8) uniform writeonly highp image2D goku_hd;"));
     EXPECT_TRUE(Contains(out, "imageStore(goku_hd,"));
     EXPECT_FALSE(Contains(out, WriteAlias("goku") + "_hd"));
@@ -193,6 +201,36 @@ void main()
     EXPECT_TRUE(Contains(out, "uniform readonly coherent restrict highp image2D goku;"));
     EXPECT_TRUE(
         Contains(out, "uniform writeonly coherent restrict highp image2D " + WriteAlias("goku") + ";"));
+    // ...and the coherent the split adds is not a SECOND one: a repeated memory qualifier is a
+    // compile error in ESSL, so the source's own has to be recognized.
+    EXPECT_EQ(CountOf(out, "coherent"), 2u);
+}
+
+// The visibility half of the split, and the reason it is not cosmetic: GLSL orders a
+// same-variable read-after-write within one invocation by construction, but once the store goes
+// through `mg_imageWrite_goku` and the load through `goku` the two are DIFFERENT variables, and
+// the ordering only holds if both are coherent. Desktop sources almost never say so - they had
+// no reason to - which is how KHR-GL4x.shader_image_load_store.advanced-memory-order's
+// store/load/compare loop started reading back the value it had not stored yet.
+TEST(SplitReadWriteImageUniformsTest, SplitPairIsMadeCoherentEvenWhenTheSourceIsNot) {
+    const String source = R"(#version 320 es
+layout(binding = 2, rgba8) uniform highp image2D goku;
+layout(binding = 3, rgba8) uniform highp image2D storeOnly;
+layout(location = 0) out highp vec4 mg_FragColor;
+void main()
+{
+    imageStore(goku, ivec2(0), vec4(1.0));
+    mg_FragColor = imageLoad(goku, ivec2(0));
+    imageStore(storeOnly, ivec2(0), vec4(2.0));
+}
+)";
+    const String out = SplitReadWriteImageUniforms(source);
+    EXPECT_TRUE(Contains(out, "uniform coherent readonly highp image2D goku;")) << out;
+    EXPECT_TRUE(Contains(out, "uniform coherent writeonly highp image2D " + WriteAlias("goku") + ";")) << out;
+    // Exactly the two halves of the pair, and nothing else: the store-only image is repaired in
+    // place, has no alias to stay visible to, and must not pay for uncached access.
+    EXPECT_EQ(CountOf(out, "coherent"), 2u);
+    EXPECT_TRUE(Contains(out, "uniform writeonly highp image2D storeOnly;")) << out;
 }
 
 // imageSize reads no texels and writes none, so it decides nothing; readonly is what keeps
@@ -366,4 +404,236 @@ void main() {}
     EXPECT_TRUE(Contains(out, "#extension GL_EXT_shader_io_blocks : require"))
         << "an unrelated extension must survive untouched:\n" << out;
     EXPECT_EQ(CountOf(out, "GL_OES_texture_buffer"), 1u);
+}
+
+// Interpolation is only ever consumed at a fragment input, but an ES linker still compares the
+// two sides of EVERY stage interface and rejects a program whose producer says `flat` and whose
+// consumer does not. SPIRV-Cross prints `flat` on a vertex output and a geometry input of
+// integer type and on nothing else, so a program with tessellation in the middle came out
+// mismatched at both ends of the tessellator - "output vs_tcs_result interpolation mismatch
+// with other stage" on Adreno, and a program that fails to link is a draw that paints nothing.
+TEST(ForceFlatIntegerVaryingsTest, TessellationStagesGetTheQualifierOnBothSides) {
+    const String tessControl = R"(#version 320 es
+layout(vertices = 1) out;
+layout(location = 0) in uint vs_tcs_result[];
+layout(location = 0) out uint tcs_tes_result[1];
+void main() { tcs_tes_result[gl_InvocationID] = vs_tcs_result[gl_InvocationID]; }
+)";
+    const String control = ForceFlatIntegerVaryings(tessControl, GL_TESS_CONTROL_SHADER);
+    EXPECT_TRUE(Contains(control, "layout(location = 0) flat in uint vs_tcs_result[];")) << control;
+    EXPECT_TRUE(Contains(control, "layout(location = 0) flat out uint tcs_tes_result[1];")) << control;
+
+    const String tessEval = R"(#version 320 es
+layout(isolines, point_mode) in;
+layout(location = 0) in uint tcs_tes_result[];
+layout(location = 0) out uint tes_gs_result;
+void main() { tes_gs_result = tcs_tes_result[0]; }
+)";
+    const String eval = ForceFlatIntegerVaryings(tessEval, GL_TESS_EVALUATION_SHADER);
+    EXPECT_TRUE(Contains(eval, "layout(location = 0) flat in uint tcs_tes_result[];")) << eval;
+    EXPECT_TRUE(Contains(eval, "layout(location = 0) flat out uint tes_gs_result;")) << eval;
+}
+
+// The two ends the tessellation stages have to meet: what a vertex shader and a geometry shader
+// already emitted before this pass learned about tessellation at all. Pinned here so the two
+// sides cannot drift apart again.
+TEST(ForceFlatIntegerVaryingsTest, TheStagesAroundTessellationAreUnchanged) {
+    const String vertex = R"(#version 320 es
+layout(location = 0) out uint vs_tcs_result;
+void main() { vs_tcs_result = 1u; }
+)";
+    EXPECT_TRUE(Contains(ForceFlatIntegerVaryings(vertex, GL_VERTEX_SHADER),
+                         "layout(location = 0) flat out uint vs_tcs_result;"));
+
+    const String geometry = R"(#version 320 es
+layout(points) in;
+layout(triangle_strip, max_vertices = 4) out;
+layout(location = 0) in uint tes_gs_result[1];
+layout(location = 0) out uint gs_fs_result;
+void main() { gs_fs_result = tes_gs_result[0]; EmitVertex(); }
+)";
+    const String gs = ForceFlatIntegerVaryings(geometry, GL_GEOMETRY_SHADER);
+    EXPECT_TRUE(Contains(gs, "layout(location = 0) flat in uint tes_gs_result[1];")) << gs;
+    EXPECT_TRUE(Contains(gs, "layout(location = 0) flat out uint gs_fs_result;")) << gs;
+}
+
+// Non-integer interfaces keep whatever interpolation they were given: adding `flat` to a float
+// varying would turn a smoothly interpolated value into a per-provoking-vertex constant, which
+// is a rendering change, not a linker one.
+TEST(ForceFlatIntegerVaryingsTest, FloatVaryingsAreNotTouched) {
+    const String tessEval = R"(#version 320 es
+layout(isolines, point_mode) in;
+layout(location = 1) in vec2 tcs_tes_coord[];
+layout(location = 1) out vec2 tes_gs_coord;
+void main() { tes_gs_coord = tcs_tes_coord[0]; }
+)";
+    const String out = ForceFlatIntegerVaryings(tessEval, GL_TESS_EVALUATION_SHADER);
+    EXPECT_TRUE(Contains(out, "layout(location = 1) in vec2 tcs_tes_coord[];")) << out;
+    EXPECT_TRUE(Contains(out, "layout(location = 1) out vec2 tes_gs_coord;")) << out;
+    EXPECT_EQ(CountOf(out, "flat"), 0u) << out;
+}
+
+// --- image format qualifier completion ---------------------------------------------------------
+//
+// GLSL ES requires a format layout qualifier on every image; desktop GLSL lets a writeonly
+// declaration omit one. The format is normally written into the SPIR-V before SPIRV-Cross runs
+// (BakeImageFormatsPass), but SPIRV-Cross THROWS rather than printing the formats it calls
+// desktop-only for ESSL - r8ui among them - so those are completed here, on the emitted text.
+
+// The KHR-GL4x.packed_depth_stencil.stencil_texturing stencil half: `writeonly uniform uimage2D`
+// with GL_R8UI bound to its unit.
+TEST(BakeImageFormatQualifiersTest, AFormatlessDeclarationGetsTheBoundFormat) {
+    const String source = R"(#version 320 es
+layout(binding = 1) uniform writeonly highp uimage2D uni_image;
+void main() { imageStore(uni_image, ivec2(0), uvec4(15u)); }
+)";
+    const String out = BakeImageFormatQualifiers(source, {{"uni_image", "r8ui"}});
+    EXPECT_TRUE(Contains(out, "layout(r8ui, binding = 1) uniform writeonly highp uimage2D uni_image;")) << out;
+}
+
+// A declaration with NO layout at all still has to end up with one, or the driver rejects it for
+// exactly the reason this pass exists.
+TEST(BakeImageFormatQualifiersTest, ADeclarationWithNoLayoutGetsOne) {
+    const String source = R"(#version 320 es
+uniform writeonly highp uimage2D uni_image;
+void main() { imageStore(uni_image, ivec2(0), uvec4(1u)); }
+)";
+    const String out = BakeImageFormatQualifiers(source, {{"uni_image", "r16i"}});
+    EXPECT_TRUE(Contains(out, "layout(r16i) uniform writeonly highp uimage2D uni_image;")) << out;
+}
+
+// A DECLARED format is authoritative and must survive, whatever the map says - the frontend never
+// puts a declared image in the map, and the pass must not depend on that being true.
+TEST(BakeImageFormatQualifiersTest, ADeclaredFormatIsNeverOverwritten) {
+    const String source = R"(#version 320 es
+layout(binding = 1, rgba8ui) uniform writeonly highp uimage2D uni_image;
+void main() { imageStore(uni_image, ivec2(0), uvec4(1u)); }
+)";
+    const String out = BakeImageFormatQualifiers(source, {{"uni_image", "r8ui"}});
+    EXPECT_EQ(out, source) << out;
+}
+
+// Only the named uniform. A second image in the same shader - format-less because the pass
+// declined it, or because its unit holds nothing - must be left exactly as it is.
+TEST(BakeImageFormatQualifiersTest, OnlyTheNamedUniformIsTouched) {
+    const String source = R"(#version 320 es
+layout(binding = 0) uniform writeonly highp uimage2D named;
+layout(binding = 1) uniform writeonly highp uimage2D other;
+void main() { imageStore(named, ivec2(0), uvec4(1u)); imageStore(other, ivec2(0), uvec4(2u)); }
+)";
+    const String out = BakeImageFormatQualifiers(source, {{"named", "r8ui"}});
+    EXPECT_TRUE(Contains(out, "layout(r8ui, binding = 0) uniform writeonly highp uimage2D named;")) << out;
+    EXPECT_TRUE(Contains(out, "layout(binding = 1) uniform writeonly highp uimage2D other;")) << out;
+}
+
+// The format the pass writes has to survive the two passes that run after it, or nothing was
+// gained: the read+write split copies declarations, and the binding strip edits layout qualifiers.
+TEST(BakeImageFormatQualifiersTest, TheWrittenFormatSurvivesTheLaterImagePasses) {
+    const String source = R"(#version 320 es
+layout(binding = 3) uniform writeonly highp uimage2D uni_image;
+void main() { imageStore(uni_image, ivec2(0), uvec4(1u)); }
+)";
+    String out = BakeImageFormatQualifiers(source, {{"uni_image", "r8ui"}});
+    out = SplitReadWriteImageUniforms(out);
+    out = RemoveLayoutBinding(out);
+    EXPECT_TRUE(Contains(out, "r8ui")) << out;
+    EXPECT_TRUE(Contains(out, "binding = 3")) << out;
+}
+
+TEST(BakeImageFormatQualifiersTest, AnEmptyMapOrAnImagelessShaderIsANoOp) {
+    const String withImage = R"(#version 320 es
+layout(binding = 1) uniform writeonly highp uimage2D uni_image;
+void main() { imageStore(uni_image, ivec2(0), uvec4(1u)); }
+)";
+    EXPECT_EQ(BakeImageFormatQualifiers(withImage, {}), withImage);
+
+    const String withoutImage = R"(#version 320 es
+layout(location = 0) out highp vec4 mg_FragColor;
+void main() { mg_FragColor = vec4(1.0); }
+)";
+    EXPECT_EQ(BakeImageFormatQualifiers(withoutImage, {{"uni_image", "r8ui"}}), withoutImage);
+}
+
+// --- GL_NV_image_formats directive --------------------------------------------------------------
+
+TEST(RequestExtendedImageFormatsTest, TheDirectiveGoesRightAfterTheVersionLine) {
+    const String source = R"(#version 320 es
+layout(r8ui, binding = 1) uniform writeonly highp uimage2D uni_image;
+void main() { imageStore(uni_image, ivec2(0), uvec4(1u)); }
+)";
+    const String out = RequestExtendedImageFormats(source, true);
+    EXPECT_TRUE(Contains(out, "#version 320 es\n#extension GL_NV_image_formats : require\n")) << out;
+}
+
+// Never speculatively: `#extension` naming an extension the driver does not advertise is itself a
+// compile error, so the caller's "not needed" answer has to be honoured exactly.
+TEST(RequestExtendedImageFormatsTest, NotNeededMeansNotEmitted) {
+    const String source = R"(#version 320 es
+layout(rgba8ui, binding = 1) uniform writeonly highp uimage2D uni_image;
+void main() { imageStore(uni_image, ivec2(0), uvec4(1u)); }
+)";
+    EXPECT_EQ(RequestExtendedImageFormats(source, false), source);
+}
+
+TEST(RequestExtendedImageFormatsTest, AnAlreadyPresentDirectiveIsNotDuplicated) {
+    const String source = R"(#version 320 es
+#extension GL_NV_image_formats : require
+layout(r8ui, binding = 1) uniform writeonly highp uimage2D uni_image;
+void main() { imageStore(uni_image, ivec2(0), uvec4(1u)); }
+)";
+    const String out = RequestExtendedImageFormats(source, true);
+    EXPECT_EQ(out, source);
+    EXPECT_EQ(CountOf(out, "GL_NV_image_formats"), 1u) << out;
+}
+
+// --- GL_OES_viewport_array directive -------------------------------------------------------------
+
+// SPIRV-Cross prints gl_ViewportIndex bare and requests nothing for it, and ESSL has no core
+// spelling at any version - so without this directive the stage fails to compile, the program is
+// marked unusable and every draw made with it silently renders nothing.
+TEST(RequestViewportArrayExtensionTest, TheDirectiveGoesRightAfterTheVersionLine) {
+    const String source = R"(#version 320 es
+layout(points) in;
+layout(points, max_vertices = 1) out;
+void main() { gl_ViewportIndex = gl_InvocationID; EmitVertex(); }
+)";
+    const String out = RequestViewportArrayExtension(source, true);
+    EXPECT_TRUE(Contains(out, "#version 320 es\n#extension GL_OES_viewport_array : require\n")) << out;
+}
+
+// Never speculatively: ARM's compiler hard-errors on an `#extension` naming a string the driver
+// does not advertise, so the caller's "not needed" answer has to be honoured exactly. A driver
+// without the extension gets the LowerViewportIndexPass fallback instead.
+TEST(RequestViewportArrayExtensionTest, NotNeededMeansNotEmitted) {
+    const String source = R"(#version 320 es
+layout(points) in;
+layout(points, max_vertices = 1) out;
+void main() { gl_ViewportIndex = gl_InvocationID; EmitVertex(); }
+)";
+    EXPECT_EQ(RequestViewportArrayExtension(source, false), source);
+}
+
+TEST(RequestViewportArrayExtensionTest, AnAlreadyPresentDirectiveIsNotDuplicated) {
+    const String source = R"(#version 320 es
+#extension GL_OES_viewport_array : require
+layout(points) in;
+layout(points, max_vertices = 1) out;
+void main() { gl_ViewportIndex = gl_InvocationID; EmitVertex(); }
+)";
+    const String out = RequestViewportArrayExtension(source, true);
+    EXPECT_EQ(out, source);
+    EXPECT_EQ(CountOf(out, "GL_OES_viewport_array"), 1u) << out;
+}
+
+// The two image directives and this one share the insertion point, so a shader that needs both
+// must end up with both - and with #version still first.
+TEST(RequestViewportArrayExtensionTest, CoexistsWithTheImageFormatDirective) {
+    const String source = R"(#version 320 es
+layout(r8ui, binding = 1) uniform writeonly highp uimage2D uni_image;
+void main() { gl_ViewportIndex = 1; imageStore(uni_image, ivec2(0), uvec4(1u)); }
+)";
+    const String out = RequestViewportArrayExtension(RequestExtendedImageFormats(source, true), true);
+    EXPECT_EQ(out.find("#version 320 es"), 0u) << out;
+    EXPECT_TRUE(Contains(out, "#extension GL_NV_image_formats : require\n")) << out;
+    EXPECT_TRUE(Contains(out, "#extension GL_OES_viewport_array : require\n")) << out;
 }

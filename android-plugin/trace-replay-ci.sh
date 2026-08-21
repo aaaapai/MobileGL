@@ -29,7 +29,9 @@ Usage:
     --crop-height N \
     [--use-pbuffer] \
     [--avoid-angle-llvmpipe-sampler-mipmap-min-filter] \
+    [--avoid-angle-llvmpipe-explicit-lod-bias] \
     [--coherent-as-flush] \
+    [--dump-texture-2d CALL,TEXTURE,LEVEL,DIR] \
     --timeout-seconds N
 
 Set MOBILEGL_USE_ANGLE=1 to run DirectGLES replay with packaged ANGLE
@@ -38,8 +40,14 @@ Set MOBILEGL_TRACE_ANGLE_VARIANT to the packaged ANGLE short hash used by
 DirectGLES replay.
 Set MOBILEGL_RETRACE_USE_PBUFFER=1 or pass --use-pbuffer to run DirectGLES
 against an offscreen EGL pbuffer instead of the Activity surface.
+Set MOBILEGL_FIX_ITERATIONRP_SUBGROUP_SCRATCH=1,
+MOBILEGL_DERIVE_NUM_SUBGROUPS=1, and MOBILEGL_ITERATIONRP_FIX_BARRIER=1 to
+forward the corresponding iterationRP SPIR-V repairs into the APK process.
 Pass --avoid-angle-llvmpipe-sampler-mipmap-min-filter for DirectGLES traces that
 need ANGLE llvmpipe sampler mipmap filters downgraded to avoid driver stalls.
+Pass --avoid-angle-llvmpipe-explicit-lod-bias for DirectGLES traces whose shaders
+sample with an explicit LOD that ANGLE llvmpipe cannot take a LOD bias on
+(MOBILEGL_AVOID_EXPLICIT_LOD_BIAS=1).
 Pass --coherent-as-flush for traces whose engine writes persistent
 GL_MAP_FLUSH_EXPLICIT_BIT maps it never flushes (MOBILEGL_COHERENT_AS_FLUSH=1).
 EOF
@@ -98,7 +106,9 @@ crop_width=""
 crop_height=""
 use_pbuffer=0
 avoid_angle_llvmpipe_sampler_mipmap_min_filter=0
+avoid_angle_llvmpipe_explicit_lod_bias=0
 coherent_as_flush=0
+texture_2d_dumps=""
 timeout_seconds=""
 
 while [ "$#" -gt 0 ]; do
@@ -134,7 +144,12 @@ while [ "$#" -gt 0 ]; do
       avoid_angle_llvmpipe_sampler_mipmap_min_filter=1
       shift 1
       ;;
+    --avoid-angle-llvmpipe-explicit-lod-bias)
+      avoid_angle_llvmpipe_explicit_lod_bias=1
+      shift 1
+      ;;
     --coherent-as-flush) coherent_as_flush=1; shift 1 ;;
+    --dump-texture-2d) texture_2d_dumps="$(next_arg "$@")"; shift 2 ;;
     --timeout-seconds) timeout_seconds="$(next_arg "$@")"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) die "unknown argument: $1" ;;
@@ -178,7 +193,11 @@ collect_run_diagnostics() {
   if [ "${adb_state}" != "device" ]; then
     return
   fi
-  "${ADB}" logcat -d -t 2000 > "${diagnostics_dir}/logcat.txt" || true
+  # Depth matters, not just content: is_infrastructure_failure below decides "the emulator
+  # broke, retry" by finding a system_server crash in this window, and MobileGL logs into the
+  # same buffer under its own tag. A tail that is too short lets routine MobileGL output evict
+  # the crash line and charges an infrastructure fault to the trace under test.
+  "${ADB}" logcat -d -t 20000 > "${diagnostics_dir}/logcat.txt" || true
   adb_device_path shell pidof "${package_name}" > "${diagnostics_dir}/pidof.txt" 2>&1 || true
   adb_device_path shell dumpsys activity activities > "${diagnostics_dir}/activity.txt" 2>&1 || true
   adb_device_path shell run-as "${package_name}" ls -laR "${app_dir}" > "${diagnostics_dir}/app-files.txt" 2>&1 || true
@@ -247,6 +266,27 @@ copy_app_artifact() {
     echo "trace-replay-ci.sh: warning: failed to copy ${source_path}" >&2
     rm -f "${destination_path}"
   fi
+}
+
+copy_texture_2d_dumps() {
+  [ -n "${texture_2d_dumps}" ] || return 0
+  saved_ifs="${IFS}"
+  IFS=';'
+  set -- ${texture_2d_dumps}
+  IFS="${saved_ifs}"
+  for dump_point in "$@"; do
+    dump_dir="${dump_point#*,}"
+    dump_dir="${dump_dir#*,}"
+    dump_dir="${dump_dir#*,}"
+    [ -n "${dump_dir}" ] || continue
+    dump_name="$(basename "${dump_dir}")"
+    destination_dir="${result_dir}/${dump_name}"
+    mkdir -p "${destination_dir}"
+    if ! adb_device_path exec-out run-as "${package_name}" tar -C "${dump_dir}" -cf - . | tar -xf - -C "${destination_dir}"; then
+      echo "trace-replay-ci.sh: warning: failed to copy texture dump ${dump_dir}" >&2
+      rm -rf "${destination_dir}"
+    fi
+  done
 }
 
 prepare_fixture() {
@@ -320,8 +360,23 @@ run_retrace() {
   if [ "${avoid_angle_llvmpipe_sampler_mipmap_min_filter}" -eq 1 ] && [ "${backend}" = "DirectGLES" ]; then
     set -- "$@" --ez avoid_angle_llvmpipe_sampler_mipmap_min_filter true
   fi
+  if [ "${avoid_angle_llvmpipe_explicit_lod_bias}" -eq 1 ] && [ "${backend}" = "DirectGLES" ]; then
+    set -- "$@" --ez avoid_angle_llvmpipe_explicit_lod_bias true
+  fi
   if [ "${coherent_as_flush}" -eq 1 ]; then
     set -- "$@" --ez coherent_as_flush true
+  fi
+  if [ "${MOBILEGL_FIX_ITERATIONRP_SUBGROUP_SCRATCH:-}" = "1" ]; then
+    set -- "$@" --ez fix_iterationrp_subgroup_scratch true
+  fi
+  if [ "${MOBILEGL_DERIVE_NUM_SUBGROUPS:-}" = "1" ]; then
+    set -- "$@" --ez derive_num_subgroups true
+  fi
+  if [ "${MOBILEGL_ITERATIONRP_FIX_BARRIER:-}" = "1" ]; then
+    set -- "$@" --ez iterationrp_fix_barrier true
+  fi
+  if [ -n "${texture_2d_dumps}" ]; then
+    set -- "$@" --es texture_2d_dumps "${texture_2d_dumps}"
   fi
   set -- "$@" \
     --es output_dir "${app_dir}/output" \
@@ -383,6 +438,7 @@ run_retrace() {
   copy_app_artifact "${app_dir}/output/${safe_case}-diff.png" "${result_dir}/${safe_case}-${backend}-diff.png"
   copy_app_artifact "${app_dir}/output/retrace.log" "${result_dir}/retrace.log"
   copy_app_artifact "${app_dir}/output/mobilegl.log" "${result_dir}/mobilegl.log"
+  copy_texture_2d_dumps
 
   # A replay that wrote result.json but did not pass used to print nothing but
   # the JSON, which for a non-zero statusCode says only "retrace failed with

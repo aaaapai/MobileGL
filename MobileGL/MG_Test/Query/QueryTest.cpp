@@ -19,6 +19,7 @@
 #include <MG_Backend/BackendObjects.h>
 #include <MG_Impl/GLImpl/Getter/GL_Getter.h>
 #include <MG_Impl/GLImpl/Query/GL_Query.h>
+#include <MG_State/GLState/Core.h>
 
 using namespace MobileGL;
 
@@ -118,6 +119,79 @@ namespace {
         g_stubResultAvailable = true;
         g_stubResultObtainable = true;
         g_stubResultNs = 0;
+    }
+
+    // Stub backend transform feedback primitive queries. g_stubXfbQuerySupported = false
+    // models a backend with no GPU counter at all (null handle), which is what leaves the
+    // frontend's CPU accounting as the only source; g_stubResultNs is what the "driver"
+    // would answer when its query IS read, deliberately set to a value the CPU accounting
+    // never produces so the two sources are told apart.
+    Int g_stubXfbBeginCount = 0;
+    Int g_stubXfbEndCount = 0;
+    Bool g_stubXfbQuerySupported = true;
+
+    MG_Backend::BackendQueryHandle StubBeginXfbPrimitivesQuery(Bool) {
+        if (!g_stubXfbQuerySupported) {
+            return nullptr;
+        }
+        ++g_stubXfbBeginCount;
+        return reinterpret_cast<MG_Backend::BackendQueryHandle>(static_cast<uintptr_t>(0x53));
+    }
+
+    void StubEndXfbPrimitivesQuery(MG_Backend::BackendQueryHandle) { ++g_stubXfbEndCount; }
+
+    // Stub backend occlusion queries. The host has no ES context, and BeginQuery refuses the
+    // occlusion targets outright when the backend advertises no hook - so a conditional-render
+    // test cannot get a legal predicate object without these. g_stubResultNs is the sample count
+    // the "driver" reports, which is the whole input to the predicate.
+    MG_Backend::BackendQueryHandle StubBeginOcclusionQuery() {
+        return reinterpret_cast<MG_Backend::BackendQueryHandle>(static_cast<uintptr_t>(0x54));
+    }
+
+    void StubEndOcclusionQuery(MG_Backend::BackendQueryHandle) {}
+
+    void InstallStubBackendOcclusionQueries() {
+        auto& backendGL = MG_Backend::gBackendFunctionsTable.GL;
+        backendGL.BeginOcclusionQuery = StubBeginOcclusionQuery;
+        backendGL.EndOcclusionQuery = StubEndOcclusionQuery;
+        backendGL.IsQueryResultAvailable = StubIsQueryResultAvailable;
+        backendGL.GetQueryResult64 = StubGetQueryResult64;
+        backendGL.DeleteBackendQuery = StubDeleteBackendQuery;
+        g_stubDeleteCount = 0;
+        g_stubResultAvailable = true;
+        g_stubResultObtainable = true;
+        g_stubResultNs = 0;
+    }
+
+    void InstallStubBackendXfbQueries() {
+        auto& backendGL = MG_Backend::gBackendFunctionsTable.GL;
+        backendGL.BeginXfbPrimitivesQuery = StubBeginXfbPrimitivesQuery;
+        backendGL.EndXfbPrimitivesQuery = StubEndXfbPrimitivesQuery;
+        backendGL.IsQueryResultAvailable = StubIsQueryResultAvailable;
+        backendGL.GetQueryResult64 = StubGetQueryResult64;
+        backendGL.DeleteBackendQuery = StubDeleteBackendQuery;
+        // Off by default: the tests that exercise the DirectGLES preference turn it on.
+        backendGL.PrefersCpuXfbPrimitiveAccounting = false;
+        g_stubXfbBeginCount = 0;
+        g_stubXfbEndCount = 0;
+        g_stubXfbQuerySupported = true;
+        g_stubDeleteCount = 0;
+        g_stubResultAvailable = true;
+        g_stubResultObtainable = true;
+        g_stubResultNs = 0;
+    }
+
+    // What AccountTransformFeedbackPrimitives (GL_Drawing.cpp) records for one captured
+    // draw, without needing a draw: `assembled` primitives came out of the vertex stage
+    // and `written` of them fitted in the capture buffers (they differ once the buffers
+    // overflow, which is the whole point of PRIMITIVES_WRITTEN).
+    void SimulateAccountedCaptureDraw(Uint64 assembled, Uint64 written, Bool throughGeometryStage = false) {
+        MG_State::pGLContext->AddTransformFeedbackInputPrimitives(assembled);
+        if (throughGeometryStage) {
+            MG_State::pGLContext->AddTransformFeedbackGeometryCaptureDraw();
+        }
+        MG_State::pGLContext->AddTransformFeedbackPrimitives(written);
+        MG_State::pGLContext->AddTransformFeedbackAccountedCaptureDraw();
     }
 } // namespace
 
@@ -448,12 +522,286 @@ TEST_F(QueryTest, BackendResultsPropagateThroughFrontend) {
     EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
 }
 
+// The two transform feedback targets count different things and must therefore read
+// different counters: PRIMITIVES_WRITTEN what the capture buffers took, PRIMITIVES_GENERATED
+// every primitive the capture stage assembled - including the ones a paused span threw away,
+// which are generated but never written. Answering both from the written counter (as the
+// fallback used to) reports the clamped number as the generated one.
+TEST_F(QueryTest, TransformFeedbackQueryTargetsReadTheirOwnCounter) {
+    const ScopedBackendFunctionsOverride backendGuard;
+    InstallStubBackendXfbQueries();
+    g_stubXfbQuerySupported = false; // no GPU counter: the CPU accounting is the only source
+
+    GLuint ids[2] = {0, 0};
+    MG_Impl::GLImpl::GenQueries(2, ids);
+    ASSERT_NE(ids[0], 0u);
+    ASSERT_NE(ids[1], 0u);
+
+    MG_Impl::GLImpl::BeginQuery(GL_TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN, ids[0]);
+    MG_Impl::GLImpl::BeginQuery(GL_PRIMITIVES_GENERATED, ids[1]);
+    // Four points assembled into a buffer with room for three.
+    SimulateAccountedCaptureDraw(/*assembled=*/4, /*written=*/3);
+    // ...and two more points assembled while the span was paused: generated, never written.
+    MG_State::pGLContext->AddTransformFeedbackPausedPrimitives(2);
+    MG_Impl::GLImpl::EndQuery(GL_PRIMITIVES_GENERATED);
+    MG_Impl::GLImpl::EndQuery(GL_TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN);
+
+    GLuint written = 0;
+    GLuint generated = 0;
+    MG_Impl::GLImpl::GetQueryObjectuiv(ids[0], GL_QUERY_RESULT, &written);
+    MG_Impl::GLImpl::GetQueryObjectuiv(ids[1], GL_QUERY_RESULT, &generated);
+    EXPECT_EQ(written, 3u);
+    EXPECT_EQ(generated, 6u);
+
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    MG_Impl::GLImpl::DeleteQueries(2, ids);
+}
+
+// A query span that captured nothing at all reads zero from the CPU accounting rather than
+// the unsigned wrap-around a bare End-minus-Begin subtraction produces the moment the
+// snapshot is not below the counter (GetQueryObjectuiv would hand the app 4294967295).
+TEST_F(QueryTest, AnEmptyTransformFeedbackSpanReadsZero) {
+    const ScopedBackendFunctionsOverride backendGuard;
+    InstallStubBackendXfbQueries();
+    g_stubXfbQuerySupported = false;
+
+    GLuint id = 0;
+    MG_Impl::GLImpl::GenQueries(1, &id);
+    ASSERT_NE(id, 0u);
+
+    MG_Impl::GLImpl::BeginQuery(GL_TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN, id);
+    MG_Impl::GLImpl::EndQuery(GL_TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN);
+
+    GLuint result = 123u;
+    MG_Impl::GLImpl::GetQueryObjectuiv(id, GL_QUERY_RESULT, &result);
+    EXPECT_EQ(result, 0u);
+
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    MG_Impl::GLImpl::DeleteQueries(1, &id);
+}
+
+// The DirectGLES preference: for a capture the frontend counted exactly - every draw
+// accounted, none of them amplified by a geometry stage - the CPU number is the
+// desktop-exact one and the ES driver's PRIMITIVES_WRITTEN counter is not consulted, even
+// though the backend query ran. The backend query object is released at EndQuery instead of
+// being left to a result read that will never come.
+TEST_F(QueryTest, VertexOnlyCaptureSpansPreferTheCpuPrimitiveAccounting) {
+    const ScopedBackendFunctionsOverride backendGuard;
+    InstallStubBackendXfbQueries();
+    MG_Backend::gBackendFunctionsTable.GL.PrefersCpuXfbPrimitiveAccounting = true;
+    g_stubResultNs = 6; // what the driver's counter would have said - twice the truth
+
+    GLuint id = 0;
+    MG_Impl::GLImpl::GenQueries(1, &id);
+    ASSERT_NE(id, 0u);
+
+    MG_Impl::GLImpl::BeginQuery(GL_TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN, id);
+    SimulateAccountedCaptureDraw(/*assembled=*/4, /*written=*/3);
+    MG_Impl::GLImpl::EndQuery(GL_TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN);
+    EXPECT_EQ(g_stubXfbBeginCount, 1);
+    EXPECT_EQ(g_stubXfbEndCount, 1);
+    EXPECT_EQ(g_stubDeleteCount, 1); // ended, then released - not leaked
+
+    GLint available = -1;
+    MG_Impl::GLImpl::GetQueryObjectiv(id, GL_QUERY_RESULT_AVAILABLE, &available);
+    EXPECT_EQ(available, 1);
+
+    GLuint result = 0;
+    MG_Impl::GLImpl::GetQueryObjectuiv(id, GL_QUERY_RESULT, &result);
+    EXPECT_EQ(result, 3u);
+    EXPECT_EQ(g_stubDeleteCount, 1); // the read had no handle left to release
+
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    MG_Impl::GLImpl::DeleteQueries(1, &id);
+    EXPECT_EQ(g_stubDeleteCount, 1);
+}
+
+// The regression gate for that preference: a capture fed by a geometry stage writes whatever
+// the shader emits, which the CPU accounting cannot model, so the backend's counter stays the
+// answer and its handle survives EndQuery to be read later.
+TEST_F(QueryTest, AGeometryStageCaptureKeepsTheBackendPrimitiveResult) {
+    const ScopedBackendFunctionsOverride backendGuard;
+    InstallStubBackendXfbQueries();
+    MG_Backend::gBackendFunctionsTable.GL.PrefersCpuXfbPrimitiveAccounting = true;
+    g_stubResultNs = 9; // the amplified count only the driver knows
+
+    GLuint id = 0;
+    MG_Impl::GLImpl::GenQueries(1, &id);
+    ASSERT_NE(id, 0u);
+
+    MG_Impl::GLImpl::BeginQuery(GL_TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN, id);
+    SimulateAccountedCaptureDraw(/*assembled=*/1, /*written=*/1, /*throughGeometryStage=*/true);
+    MG_Impl::GLImpl::EndQuery(GL_TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN);
+    EXPECT_EQ(g_stubDeleteCount, 0); // still to be read
+
+    GLuint result = 0;
+    MG_Impl::GLImpl::GetQueryObjectuiv(id, GL_QUERY_RESULT, &result);
+    EXPECT_EQ(result, 9u);
+    EXPECT_EQ(g_stubDeleteCount, 1);
+
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    MG_Impl::GLImpl::DeleteQueries(1, &id);
+}
+
+// The other half of that gate: the instanced, indirect and multi-draw entry points never
+// reach the CPU accounting, so a span made of those moves no counter at all. Its delta would
+// be zero, which is not "nothing was written" - it is "nothing was counted" - and the
+// backend's result has to stand.
+TEST_F(QueryTest, ACaptureSpanTheAccountingNeverSawKeepsTheBackendResult) {
+    const ScopedBackendFunctionsOverride backendGuard;
+    InstallStubBackendXfbQueries();
+    MG_Backend::gBackendFunctionsTable.GL.PrefersCpuXfbPrimitiveAccounting = true;
+    g_stubResultNs = 12;
+
+    GLuint id = 0;
+    MG_Impl::GLImpl::GenQueries(1, &id);
+    ASSERT_NE(id, 0u);
+
+    MG_Impl::GLImpl::BeginQuery(GL_TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN, id);
+    MG_Impl::GLImpl::EndQuery(GL_TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN);
+
+    GLuint result = 0;
+    MG_Impl::GLImpl::GetQueryObjectuiv(id, GL_QUERY_RESULT, &result);
+    EXPECT_EQ(result, 12u);
+
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    MG_Impl::GLImpl::DeleteQueries(1, &id);
+}
+
+// GL_PRIMITIVES_GENERATED counts primitives whether or not a capture is active, while the
+// CPU accounting only ever sees capture draws - so the preference above deliberately does
+// not extend to that target, whatever the backend asked for.
+TEST_F(QueryTest, PrimitivesGeneratedKeepsTheBackendResultUnderTheCpuPreference) {
+    const ScopedBackendFunctionsOverride backendGuard;
+    InstallStubBackendXfbQueries();
+    MG_Backend::gBackendFunctionsTable.GL.PrefersCpuXfbPrimitiveAccounting = true;
+    g_stubResultNs = 7;
+
+    GLuint id = 0;
+    MG_Impl::GLImpl::GenQueries(1, &id);
+    ASSERT_NE(id, 0u);
+
+    MG_Impl::GLImpl::BeginQuery(GL_PRIMITIVES_GENERATED, id);
+    SimulateAccountedCaptureDraw(/*assembled=*/4, /*written=*/3);
+    MG_Impl::GLImpl::EndQuery(GL_PRIMITIVES_GENERATED);
+    EXPECT_EQ(g_stubDeleteCount, 0);
+
+    GLuint result = 0;
+    MG_Impl::GLImpl::GetQueryObjectuiv(id, GL_QUERY_RESULT, &result);
+    EXPECT_EQ(result, 7u);
+
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    MG_Impl::GLImpl::DeleteQueries(1, &id);
+}
+
 // Environment-agnostic property test for the env -> ConfigLoader -> Features
 // chain: whatever MOBILEGL_DISABLE_TIMERQUERY is set to in the environment of
 // this test process, MG_ConfigLoader::Init must have parsed it with the
 // unified truthy rule (set, non-empty, not "0", case-insensitive not "false").
 // Running the binary under MOBILEGL_DISABLE_TIMERQUERY=1 therefore exercises
 // the real end-to-end path rather than the struct field alone.
+// KHR-GL43.compute_shader.conditional-dispatching and the conditional_render family.
+// glBeginConditionalRender/glEndConditionalRender were bare stubs: every command inside a
+// conditional block executed whatever the query said, so the block that should have been
+// discarded ran and doubled the atomic counter the case reads back.
+TEST_F(QueryTest, ConditionalRenderResolvesItsPredicateFromTheOcclusionQuery) {
+    ScopedBackendFunctionsOverride backendGuard;
+    InstallStubBackendOcclusionQueries();
+
+    GLuint ids[2] = {0, 0};
+    MG_Impl::GLImpl::GenQueries(2, ids);
+    ASSERT_NE(ids[0], 0u);
+    ASSERT_NE(ids[1], 0u);
+
+    // One span that saw samples and one that saw none, which is exactly the pair the
+    // conformance case builds out of a passing and a failing depth test.
+    g_stubResultNs = 1;
+    MG_Impl::GLImpl::BeginQuery(GL_ANY_SAMPLES_PASSED, ids[0]);
+    MG_Impl::GLImpl::EndQuery(GL_ANY_SAMPLES_PASSED);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    GLuint passedResult = 0xFFFFFFFFu;
+    MG_Impl::GLImpl::GetQueryObjectuiv(ids[0], GL_QUERY_RESULT, &passedResult);
+    ASSERT_EQ(passedResult, 1u);
+
+    g_stubResultNs = 0;
+    MG_Impl::GLImpl::BeginQuery(GL_ANY_SAMPLES_PASSED, ids[1]);
+    MG_Impl::GLImpl::EndQuery(GL_ANY_SAMPLES_PASSED);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    // A block on the query that passed executes.
+    MG_Impl::GLImpl::BeginConditionalRender(ids[0], GL_QUERY_WAIT);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    EXPECT_TRUE(MG_State::pGLContext->IsConditionalRenderActive());
+    EXPECT_FALSE(MG_State::pGLContext->ConditionalRenderDiscardsCommands());
+    MG_Impl::GLImpl::EndConditionalRender();
+    EXPECT_FALSE(MG_State::pGLContext->IsConditionalRenderActive());
+    EXPECT_FALSE(MG_State::pGLContext->ConditionalRenderDiscardsCommands());
+
+    // A block on the query that did not passes nothing through.
+    MG_Impl::GLImpl::BeginConditionalRender(ids[1], GL_QUERY_WAIT);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    EXPECT_TRUE(MG_State::pGLContext->ConditionalRenderDiscardsCommands());
+    MG_Impl::GLImpl::EndConditionalRender();
+
+    // ...and the _INVERTED modes swap both verdicts.
+    MG_Impl::GLImpl::BeginConditionalRender(ids[0], GL_QUERY_WAIT_INVERTED);
+    EXPECT_TRUE(MG_State::pGLContext->ConditionalRenderDiscardsCommands());
+    MG_Impl::GLImpl::EndConditionalRender();
+    MG_Impl::GLImpl::BeginConditionalRender(ids[1], GL_QUERY_BY_REGION_NO_WAIT_INVERTED);
+    EXPECT_FALSE(MG_State::pGLContext->ConditionalRenderDiscardsCommands());
+    MG_Impl::GLImpl::EndConditionalRender();
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    MG_Impl::GLImpl::DeleteQueries(2, ids);
+}
+
+TEST_F(QueryTest, ConditionalRenderRejectsTheErrorsTheSpecNames) {
+    ScopedBackendFunctionsOverride backendGuard;
+    InstallStubBackendOcclusionQueries();
+
+    GLuint ids[2] = {0, 0};
+    MG_Impl::GLImpl::GenQueries(2, ids);
+    g_stubResultNs = 1;
+    MG_Impl::GLImpl::BeginQuery(GL_ANY_SAMPLES_PASSED, ids[0]);
+    MG_Impl::GLImpl::EndQuery(GL_ANY_SAMPLES_PASSED);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    // GL 4.6 core 10.9, one rule at a time.
+    MG_Impl::GLImpl::BeginConditionalRender(ids[0], GL_TIME_ELAPSED);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_INVALID_ENUM);
+    EXPECT_FALSE(MG_State::pGLContext->IsConditionalRenderActive());
+
+    // A generated NAME is not yet a query object.
+    MG_Impl::GLImpl::BeginConditionalRender(ids[1], GL_QUERY_WAIT);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_INVALID_VALUE);
+    MG_Impl::GLImpl::BeginConditionalRender(0, GL_QUERY_WAIT);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_INVALID_VALUE);
+
+    // A query that is not an occlusion query cannot drive one.
+    GLuint timerId = 0;
+    MG_Impl::GLImpl::GenQueries(1, &timerId);
+    MG_Impl::GLImpl::BeginQuery(GL_TIME_ELAPSED, timerId);
+    MG_Impl::GLImpl::EndQuery(GL_TIME_ELAPSED);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    MG_Impl::GLImpl::BeginConditionalRender(timerId, GL_QUERY_WAIT);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_INVALID_OPERATION);
+
+    // End without a block, and a nested Begin.
+    MG_Impl::GLImpl::EndConditionalRender();
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_INVALID_OPERATION);
+    MG_Impl::GLImpl::BeginConditionalRender(ids[0], GL_QUERY_WAIT);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    MG_Impl::GLImpl::BeginConditionalRender(ids[0], GL_QUERY_WAIT);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_INVALID_OPERATION);
+    // The rejected nested Begin must not have disturbed the open block.
+    EXPECT_EQ(MG_State::pGLContext->GetConditionalRenderQuery(), ids[0]);
+    MG_Impl::GLImpl::EndConditionalRender();
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    MG_Impl::GLImpl::DeleteQueries(2, ids);
+    MG_Impl::GLImpl::DeleteQueries(1, &timerId);
+}
+
 TEST_F(QueryTest, DisableTimerQueryFeatureMatchesEnvironment) {
     const char* raw = std::getenv("MOBILEGL_DISABLE_TIMERQUERY");
     Bool expected = false;

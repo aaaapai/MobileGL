@@ -300,8 +300,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Bool ok = VkTextureManager::TransitionImageLayout(
             commandBuffer, newResource.image, newResource.layout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
             VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-            0, VK_ACCESS_TRANSFER_WRITE_BIT, newResource.aspect, 0, newResource.mipLevels,
-            newResource.arrayLayers);
+            0, VK_ACCESS_TRANSFER_WRITE_BIT, newResource.aspect, 0, newResource.mipLevels);
         MOBILEGL_ASSERT(ok, "PreserveTextureContentsOnRecreate: failed to prepare destination image");
 
         VkImageLayout srcTrackedLayout = oldResource.layout;
@@ -311,8 +310,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         ok = VkTextureManager::TransitionImageLayout(
             commandBuffer, oldResource.image, srcTrackedLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
             srcStageMask, VK_PIPELINE_STAGE_TRANSFER_BIT,
-            srcAccessMask, VK_ACCESS_TRANSFER_READ_BIT, oldResource.aspect, 0, preservedMipLevels,
-            oldResource.arrayLayers);
+            srcAccessMask, VK_ACCESS_TRANSFER_READ_BIT, oldResource.aspect, 0, preservedMipLevels);
         MOBILEGL_ASSERT(ok, "PreserveTextureContentsOnRecreate: failed to prepare source image");
 
         Vector<VkImageCopy> copyRegions;
@@ -344,8 +342,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         ok = VkTextureManager::TransitionImageLayout(
             commandBuffer, newResource.image, newResource.layout, oldResource.layout,
             VK_PIPELINE_STAGE_TRANSFER_BIT, dstStageMask,
-            VK_ACCESS_TRANSFER_WRITE_BIT, dstAccessMask, newResource.aspect, 0, newResource.mipLevels,
-            newResource.arrayLayers);
+            VK_ACCESS_TRANSFER_WRITE_BIT, dstAccessMask, newResource.aspect, 0, newResource.mipLevels);
         MOBILEGL_ASSERT(ok, "PreserveTextureContentsOnRecreate: failed to restore destination layout");
 
         VK_VERIFY(vkEndCommandBuffer(commandBuffer), "vkEndCommandBuffer(texture preserve)");
@@ -950,7 +947,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         const TextureFormatInfo formatInfo = ResolveTextureFormatInfo(texture.GetFormat());
         const VkComponentMapping sampledComponents = ResolveSampledViewComponents(texture, formatInfo);
-        const VkImageAspectFlags sampledAspect = ResolveSampledImageViewAspectMask(resource->aspect);
+        const VkImageAspectFlags sampledAspect =
+            ResolveSampledImageViewAspectMask(resource->aspect, texture.GetDepthStencilTextureMode());
         perMipSampledView = CreateImageView(resource->image, resource->format, sampledAspect, resource->viewType,
                                             mipLevel, 1, 0, resource->arrayLayers, &sampledComponents);
         if (perMipSampledView == VK_NULL_HANDLE) {
@@ -974,13 +972,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return resource->sampledView;
         }
         if (!AreSampledImageViewFormatsCompatible(resource->format, format)) {
-            MGLOG_E("%s: incompatible sampled image view format=%d for textureId=%d imageFormat=%d",
+            MGLOG_E_ONCE("%s: incompatible sampled image view format=%d for textureId=%d imageFormat=%d",
                     __func__, static_cast<Int>(format), texture.GetExternalIndex(),
                     static_cast<Int>(resource->format));
             return VK_NULL_HANDLE;
         }
         if ((resource->imageCreateFlags & VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT) == 0) {
-            MGLOG_E("%s: textureId=%d needs mutable image format=%d for sampled view format=%d",
+            MGLOG_E_ONCE("%s: textureId=%d needs mutable image format=%d for sampled view format=%d",
                     __func__, texture.GetExternalIndex(), static_cast<Int>(resource->format),
                     static_cast<Int>(format));
             return VK_NULL_HANDLE;
@@ -1000,7 +998,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkFormatProperties formatProperties{};
         vkGetPhysicalDeviceFormatProperties(m_physicalDevice, format, &formatProperties);
         if ((formatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT) == 0) {
-            MGLOG_E("%s: sampled image view format=%d lacks VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT "
+            MGLOG_E_ONCE("%s: sampled image view format=%d lacks VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT "
                     "for textureId=%d (available=0x%x)",
                     __func__, static_cast<Int>(format), texture.GetExternalIndex(),
                     static_cast<Uint32>(formatProperties.optimalTilingFeatures));
@@ -1014,7 +1012,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             resource->sampledBaseMipLevel, resource->sampledLevelCount, 0, resource->arrayLayers,
             &sampledComponents, VK_IMAGE_USAGE_SAMPLED_BIT);
         if (view == VK_NULL_HANDLE) {
-            MGLOG_E("%s: failed to create sampled image view textureId=%d imageFormat=%d viewFormat=%d",
+            MGLOG_E_ONCE("%s: failed to create sampled image view textureId=%d imageFormat=%d viewFormat=%d",
                     __func__, texture.GetExternalIndex(), static_cast<Int>(resource->format),
                     static_cast<Int>(format));
             return VK_NULL_HANDLE;
@@ -1042,14 +1040,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             format = resource->format;
         }
         if (!AreStorageImageViewFormatsCompatible(resource->format, format)) {
-            MGLOG_E("%s: incompatible storage image view format=%d for textureId=%d imageFormat=%d",
+            MGLOG_E_ONCE("%s: incompatible storage image view format=%d for textureId=%d imageFormat=%d",
                     __func__, static_cast<Int>(format), texture.GetExternalIndex(),
                     static_cast<Int>(resource->format));
             return VK_NULL_HANDLE;
         }
         if (format != resource->format &&
             (resource->imageCreateFlags & VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT) == 0) {
-            MGLOG_E("%s: textureId=%d needs mutable image format=%d for storage view format=%d",
+            MGLOG_E_ONCE("%s: textureId=%d needs mutable image format=%d for storage view format=%d",
                     __func__, texture.GetExternalIndex(), static_cast<Int>(resource->format),
                     static_cast<Int>(format));
             return VK_NULL_HANDLE;
@@ -1069,7 +1067,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 viewType = VK_IMAGE_VIEW_TYPE_2D;
                 break;
             case VK_IMAGE_VIEW_TYPE_3D:
-                MGLOG_E("%s: non-layered 3D storage views are unsupported for textureId=%d",
+                MGLOG_E_ONCE("%s: non-layered 3D storage views are unsupported for textureId=%d",
                         __func__, texture.GetExternalIndex());
                 return VK_NULL_HANDLE;
             default:
@@ -1078,7 +1076,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
             if (viewType != resource->viewType) {
                 if (layer < 0 || static_cast<Uint32>(layer) >= resource->arrayLayers) {
-                    MGLOG_E("%s: storage image layer=%d is out of range for textureId=%d arrayLayers=%u",
+                    MGLOG_E_ONCE("%s: storage image layer=%d is out of range for textureId=%d arrayLayers=%u",
                             __func__, layer, texture.GetExternalIndex(), resource->arrayLayers);
                     return VK_NULL_HANDLE;
                 }
@@ -1113,7 +1111,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkFormatProperties formatProperties{};
         vkGetPhysicalDeviceFormatProperties(m_physicalDevice, format, &formatProperties);
         if ((formatProperties.optimalTilingFeatures & requiredFormatFeatures) != requiredFormatFeatures) {
-            MGLOG_E("%s: storage image view format=%d lacks required features=0x%x for textureId=%d "
+            MGLOG_E_ONCE("%s: storage image view format=%d lacks required features=0x%x for textureId=%d "
                     "(available=0x%x)",
                     __func__, static_cast<Int>(format), static_cast<Uint32>(requiredFormatFeatures),
                     texture.GetExternalIndex(), static_cast<Uint32>(formatProperties.optimalTilingFeatures));
@@ -1124,7 +1122,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                                  mipLevel, 1, baseArrayLayer, layerCount, nullptr,
                                                  VK_IMAGE_USAGE_STORAGE_BIT);
         if (view == VK_NULL_HANDLE) {
-            MGLOG_E("%s: failed to create storage image view for textureId=%d mip=%u imageFormat=%d viewFormat=%d",
+            MGLOG_E_ONCE("%s: failed to create storage image view for textureId=%d mip=%u imageFormat=%d viewFormat=%d",
                     __func__, texture.GetExternalIndex(), mipLevel, static_cast<Int>(resource->format),
                     static_cast<Int>(format));
             return VK_NULL_HANDLE;
@@ -1190,7 +1188,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 const Bool lowerTransitioned = TransitionImageLayout(
                     commandBuffer, resource.image, lowerMipLayout, newLayout,
                     srcStageMask, dstStageMask, srcAccessMask, dstAccessMask,
-                    resource.aspect, 0, writtenMipLevel, resource.arrayLayers);
+                    resource.aspect, 0, writtenMipLevel);
                 MOBILEGL_ASSERT(lowerTransitioned,
                                 "UpdateTrackedImageLayoutAfterAttachmentWrite: failed to transition lower mip levels for textureId=%d",
                                 texture->GetExternalIndex());
@@ -1202,8 +1200,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 const Bool upperTransitioned = TransitionImageLayout(
                     commandBuffer, resource.image, upperMipLayout, newLayout,
                     srcStageMask, dstStageMask, srcAccessMask, dstAccessMask,
-                    resource.aspect, upperBaseMipLevel, resource.mipLevels - upperBaseMipLevel,
-                    resource.arrayLayers);
+                    resource.aspect, upperBaseMipLevel, resource.mipLevels - upperBaseMipLevel);
                 MOBILEGL_ASSERT(upperTransitioned,
                                 "UpdateTrackedImageLayoutAfterAttachmentWrite: failed to transition upper mip levels for textureId=%d",
                                 texture->GetExternalIndex());
@@ -1222,7 +1219,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return true;
         }
         if (resource->layout == VK_IMAGE_LAYOUT_UNDEFINED) {
-            MGLOG_W("TransitionTextureForSampling: textureId=%d is still in VK_IMAGE_LAYOUT_UNDEFINED before sampling",
+            MGLOG_W_ONCE("TransitionTextureForSampling: textureId=%d is still in VK_IMAGE_LAYOUT_UNDEFINED before sampling",
                     texture.GetExternalIndex());
         }
 
@@ -1256,8 +1253,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         const Bool ok = TransitionImageLayout(commandBuffer, resource->image, resource->layout, targetLayout, srcStageMask,
                                               s_sampledReadStages, srcAccessMask,
-                                              VK_ACCESS_SHADER_READ_BIT, resource->aspect, 0, resource->mipLevels,
-                                              resource->arrayLayers);
+                                              VK_ACCESS_SHADER_READ_BIT, resource->aspect, 0, resource->mipLevels);
         MOBILEGL_ASSERT(ok, "TransitionTextureForSampling: transition failed for textureId=%d", texture.GetExternalIndex());
         // Pre-pass stream bookkeeping: a command referencing the image was recorded.
         StampResourceRecordingUse(*resource);
@@ -1287,12 +1283,164 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                               VK_IMAGE_LAYOUT_GENERAL, srcStageMask,
                                               VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, srcAccessMask,
                                               VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
-                                              resource->aspect, 0, resource->mipLevels, resource->arrayLayers);
+                                              resource->aspect, 0, resource->mipLevels);
         MOBILEGL_ASSERT(ok, "TransitionTextureForStorageImage: transition failed for textureId=%d",
                         texture.GetExternalIndex());
         // Pre-pass stream bookkeeping: a command referencing the image was recorded.
         StampResourceRecordingUse(*resource);
         return ok;
+    }
+
+    Bool VkTextureManager::SnapshotTextureForSampling(VkCommandBuffer commandBuffer,
+                                                      MG_State::GLState::ITextureObject& texture,
+                                                      SamplerNumericDomain numericDomain,
+                                                      VkPipelineStageFlags consumerShaderStageMask,
+                                                      SampledTextureSnapshot& outSnapshot) {
+        outSnapshot = {};
+        TextureResource* source = SyncTextureAndGetDescriptor(texture);
+        if (source == nullptr || source->image == VK_NULL_HANDLE || source->sampleCount != VK_SAMPLE_COUNT_1_BIT ||
+            source->sampledLevelCount == 0) {
+            return false;
+        }
+
+        const VkFormat sampledFormat = ResolveSampledImageViewFormat(source->format, numericDomain);
+        if (sampledFormat == VK_FORMAT_UNDEFINED ||
+            !AreSampledImageViewFormatsCompatible(source->format, sampledFormat)) {
+            MGLOG_E_ONCE("SnapshotTextureForSampling: textureId=%d cannot create sampled view format=%d from image format=%d",
+                         texture.GetExternalIndex(), static_cast<Int>(sampledFormat), static_cast<Int>(source->format));
+            return false;
+        }
+        if (sampledFormat != source->format &&
+            (source->imageCreateFlags & VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT) == 0) {
+            MGLOG_E_ONCE("SnapshotTextureForSampling: textureId=%d needs unavailable mutable image format=%d for sampled view=%d",
+                         texture.GetExternalIndex(), static_cast<Int>(source->format), static_cast<Int>(sampledFormat));
+            return false;
+        }
+
+        VkImageType imageType = VK_IMAGE_TYPE_2D;
+        switch (source->viewType) {
+        case VK_IMAGE_VIEW_TYPE_1D:
+        case VK_IMAGE_VIEW_TYPE_1D_ARRAY:
+            imageType = VK_IMAGE_TYPE_1D;
+            break;
+        case VK_IMAGE_VIEW_TYPE_3D:
+            imageType = VK_IMAGE_TYPE_3D;
+            break;
+        default:
+            break;
+        }
+
+        TextureResource snapshot{};
+        VkImageCreateInfo imageInfo{};
+        imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        imageInfo.flags = source->imageCreateFlags;
+        imageInfo.imageType = imageType;
+        imageInfo.extent = {source->extent.width, source->extent.height, source->depth};
+        imageInfo.mipLevels = source->mipLevels;
+        imageInfo.arrayLayers = source->arrayLayers;
+        imageInfo.format = source->format;
+        imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+        imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+        imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+        // Keep the temporary's view-format list just as narrow as the source's sampler use. This
+        // has no storage-image usage, so unlike an app image binding the exact list is knowable.
+        Vector<VkFormat> viewFormats;
+        VkImageFormatListCreateInfo formatListInfo{};
+        if (m_imageFormatListSupported && (imageInfo.flags & VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT) != 0) {
+            viewFormats.push_back(source->format);
+            if (sampledFormat != source->format) {
+                viewFormats.push_back(sampledFormat);
+            }
+            formatListInfo.sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO;
+            formatListInfo.viewFormatCount = static_cast<Uint32>(viewFormats.size());
+            formatListInfo.pViewFormats = viewFormats.data();
+            imageInfo.pNext = &formatListInfo;
+        }
+
+        VmaAllocationCreateInfo allocationInfo{};
+        allocationInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+        allocationInfo.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+        const VkResult createResult =
+            vmaCreateImage(m_allocator, &imageInfo, &allocationInfo, &snapshot.image, &snapshot.allocation, nullptr);
+        if (createResult != VK_SUCCESS) {
+            MGLOG_E_ONCE("SnapshotTextureForSampling: vmaCreateImage failed result=%d textureId=%d", createResult,
+                         texture.GetExternalIndex());
+            return false;
+        }
+
+        snapshot.extent = source->extent;
+        snapshot.depth = source->depth;
+        snapshot.arrayLayers = source->arrayLayers;
+        snapshot.mipLevels = source->mipLevels;
+        snapshot.sampledBaseMipLevel = source->sampledBaseMipLevel;
+        snapshot.sampledLevelCount = source->sampledLevelCount;
+        snapshot.format = source->format;
+        snapshot.aspect = source->aspect;
+        snapshot.viewType = source->viewType;
+        snapshot.sampleCount = VK_SAMPLE_COUNT_1_BIT;
+        snapshot.imageCreateFlags = imageInfo.flags;
+        snapshot.usageFlags = imageInfo.usage;
+
+        const TextureFormatInfo formatInfo = ResolveTextureFormatInfo(texture.GetFormat());
+        const VkComponentMapping sampledComponents = ResolveSampledViewComponents(texture, formatInfo);
+        const VkImageAspectFlags sampledAspect =
+            ResolveSampledImageViewAspectMask(snapshot.aspect, texture.GetDepthStencilTextureMode());
+        snapshot.sampledView = CreateImageView(snapshot.image, sampledFormat, sampledAspect, snapshot.viewType,
+                                               snapshot.sampledBaseMipLevel, snapshot.sampledLevelCount, 0,
+                                               snapshot.arrayLayers, &sampledComponents);
+        if (snapshot.sampledView == VK_NULL_HANDLE) {
+            MGLOG_E_ONCE("SnapshotTextureForSampling: failed to create sampled view textureId=%d", texture.GetExternalIndex());
+            return false;
+        }
+
+        VkPipelineStageFlags sourceStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        VkAccessFlags sourceAccessMask = 0;
+        const VkImageLayout sourceLayout = source->layout;
+        GetImageTransitionSourceState(sourceLayout, sourceStageMask, sourceAccessMask);
+        if (!TransitionImageLayout(commandBuffer, source->image, source->layout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                   sourceStageMask, VK_PIPELINE_STAGE_TRANSFER_BIT, sourceAccessMask,
+                                   VK_ACCESS_TRANSFER_READ_BIT, source->aspect, 0, source->mipLevels) ||
+            !TransitionImageLayout(commandBuffer, snapshot.image, snapshot.layout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                   VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+                                   VK_ACCESS_TRANSFER_WRITE_BIT, snapshot.aspect, snapshot.sampledBaseMipLevel,
+                                   snapshot.sampledLevelCount)) {
+            return false;
+        }
+
+        Vector<VkImageCopy> copyRegions;
+        copyRegions.reserve(snapshot.sampledLevelCount);
+        for (Uint32 level = snapshot.sampledBaseMipLevel;
+             level < snapshot.sampledBaseMipLevel + snapshot.sampledLevelCount; ++level) {
+            VkImageCopy copy{};
+            copy.srcSubresource = {source->aspect, level, 0, source->arrayLayers};
+            copy.dstSubresource = {snapshot.aspect, level, 0, snapshot.arrayLayers};
+            copy.extent = {std::max(source->extent.width >> level, 1u),
+                           std::max(source->extent.height >> level, 1u),
+                           std::max(source->depth >> level, 1u)};
+            copyRegions.push_back(copy);
+        }
+        vkCmdCopyImage(commandBuffer, source->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, snapshot.image,
+                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, static_cast<Uint32>(copyRegions.size()), copyRegions.data());
+
+        if (!TransitionImageLayout(commandBuffer, snapshot.image, snapshot.layout,
+                                   ResolveSampledReadOnlyLayout(snapshot.aspect), VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                   consumerShaderStageMask, VK_ACCESS_TRANSFER_WRITE_BIT,
+                                   VK_ACCESS_SHADER_READ_BIT, snapshot.aspect, snapshot.sampledBaseMipLevel,
+                                   snapshot.sampledLevelCount) ||
+            !TransitionImageLayout(commandBuffer, source->image, source->layout, sourceLayout,
+                                   VK_PIPELINE_STAGE_TRANSFER_BIT, consumerShaderStageMask,
+                                   VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
+                                   source->aspect, 0, source->mipLevels)) {
+            return false;
+        }
+
+        StampResourceRecordingUse(*source);
+        outSnapshot = {.imageView = snapshot.sampledView, .layout = snapshot.layout};
+        DeferResourceRelease(Move(snapshot));
+        return true;
     }
 
     void VkTextureManager::MarkStorageImageTexture(MG_State::GLState::ITextureObject& texture) {
@@ -1346,6 +1494,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         const auto* mipTexture = MG_State::GLState::AsMipmapTexture(&texture);
         const Uint32 mipLevelCount = mipTexture != nullptr ? mipTexture->GetMipmapLevelCount() : 0u;
         return resource.syncedContentVersion != texture.GetContentVersion() ||
+               resource.syncedShapeVersion != texture.GetShapeVersion() ||
                resource.syncedTextureParamsVersion != texture.GetTextureParamsVersion() ||
                resource.syncedMipLevelCount != mipLevelCount;
     }
@@ -1354,8 +1503,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                                  VkImageLayout& trackedLayout, VkImageLayout newLayout,
                                                  VkPipelineStageFlags srcStageMask, VkPipelineStageFlags dstStageMask,
                                                  VkAccessFlags srcAccessMask, VkAccessFlags dstAccessMask,
-                                                 VkImageAspectFlags aspectMask, Uint32 baseMipLevel, Uint32 levelCount,
-                                                 Uint32 layerCount) {
+                                                 VkImageAspectFlags aspectMask, Uint32 baseMipLevel,
+                                                 Uint32 levelCount) {
         MOBILEGL_ASSERT(image != VK_NULL_HANDLE, "TransitionImageLayout: m_image == VK_NULL_HANDLE");
         MOBILEGL_ASSERT(!((dstAccessMask & VK_ACCESS_TRANSFER_READ_BIT) != 0 &&
                           (dstStageMask & VK_PIPELINE_STAGE_TRANSFER_BIT) == 0),
@@ -1380,7 +1529,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         barrier.subresourceRange.baseMipLevel = baseMipLevel;
         barrier.subresourceRange.levelCount = levelCount;
         barrier.subresourceRange.baseArrayLayer = 0;
-        barrier.subresourceRange.layerCount = layerCount;
+        // Every layer, always - see the declaration for why layout tracking leaves no other
+        // correct answer. VK_REMAINING_ARRAY_LAYERS rather than the image's own `arrayLayers`
+        // because those are not the same number for a 3D image: MobileGL creates 3D images
+        // 2D_ARRAY_COMPATIBLE and their arrayLayers is 1, which today Vulkan reads as "all depth
+        // slices" but will read as "depth slice 0" once VK_KHR_maintenance9 is enabled. The
+        // validation layer warns about that literal 1 by name.
+        barrier.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
         vkCmdPipelineBarrier(commandBuffer, srcStageMask, dstStageMask, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 
         trackedLayout = newLayout;
@@ -1439,11 +1594,16 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     Bool VkTextureManager::SyncTexture(MG_State::GLState::ITextureObject &texture,
                                        TextureResource &outResource) {
         // Cross-draw fast path: if the resource is already built and neither the texture's
-        // pixel content (bumped in MarkStorageDirty) nor its params changed since the last
-        // sync, there is nothing to re-check or re-upload - skip CheckMipmapCompleteness,
-        // SyncTextureResource, SyncTextureViews and the per-level dirty scan. Layout is
-        // maintained separately by the transition path, so the resource still reflects truth.
+        // pixel content (bumped in MarkStorageDirty), its SHAPE (bumped in BumpShapeVersion)
+        // nor its params changed since the last sync, there is nothing to re-check or
+        // re-upload - skip CheckMipmapCompleteness, SyncTextureResource, SyncTextureViews and
+        // the per-level dirty scan. Layout is maintained separately by the transition path, so
+        // the resource still reflects truth. The shape version is NOT redundant with the
+        // content one: glTexImage2D(..., nullptr) re-specifies a level's size or format
+        // without dirtying a texel, which is exactly how a re-specified image-unit texture used
+        // to keep reporting its old imageSize().
         const Uint64 syncingContentVersion = texture.GetContentVersion();
+        const Uint64 syncingShapeVersion = texture.GetShapeVersion();
         const auto* syncingMipTexture = MG_State::GLState::AsMipmapTexture(&texture);
         const Uint32 syncingMipLevelCount =
             syncingMipTexture != nullptr ? syncingMipTexture->GetMipmapLevelCount() : 0u;
@@ -1455,6 +1615,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             m_storageImageTextures.find(MakeTextureIdentity(&texture)) != m_storageImageTextures.end();
         if (outResource.image != VK_NULL_HANDLE && !storageUpgradePending &&
             outResource.syncedContentVersion == syncingContentVersion &&
+            outResource.syncedShapeVersion == syncingShapeVersion &&
             outResource.syncedTextureParamsVersion == texture.GetTextureParamsVersion() &&
             outResource.syncedMipLevelCount == syncingMipLevelCount) {
             return true;
@@ -1474,6 +1635,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             MGLOG_D("%s: not TextureObjectMipmap", __func__);
             return false;
         }
+
+        // From here down the size is VULKAN geometry, not GL's: a 1D array's layer count moves
+        // out of the height it occupies GL-side and into z, which is the slot
+        // TryResolveTextureShapeInfo reads arrayLayers from and the only one that leaves
+        // extent.height at the 1 a VK_IMAGE_TYPE_1D image is required to have.
+        texelSize = ToVulkanLevelExtent(texture.GetTarget(), texelSize);
 
         if (!SyncTextureResource(texture, uploadTarget, texelSize, byteSize, mipLevelCount, outResource)) {
             MGLOG_D("%s: SyncTextureResource failed", __func__);
@@ -1506,6 +1673,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         if (!hasDirtyMipLevel) {
             outResource.syncedContentVersion = syncingContentVersion;
             outResource.syncedMipLevelCount = syncingMipLevelCount;
+            outResource.syncedShapeVersion = syncingShapeVersion;
             return true;
         }
 
@@ -1515,6 +1683,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
         outResource.syncedContentVersion = syncingContentVersion;
         outResource.syncedMipLevelCount = syncingMipLevelCount;
+        outResource.syncedShapeVersion = syncingShapeVersion;
         return true;
     }
 
@@ -1573,7 +1742,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             // targets this manager has no Vulkan image shape for yet (cube map arrays above all).
             // Declining the sync leaves the texture unbacked - wrong, but recoverable - where an
             // assertion would take the whole process down instead.
-            MGLOG_W("SyncTextureResource: unsupported uploadTarget=%s textureTarget=%s textureId=%d size=(%d,%d,%d) "
+            MGLOG_W_ONCE("SyncTextureResource: unsupported uploadTarget=%s textureTarget=%s textureId=%d size=(%d,%d,%d) "
                     "mipLevels=%u vkViewType=%d",
                     MG_Util::ConvertTextureUploadTargetToString(uploadTarget).c_str(),
                     MG_Util::ConvertTextureTargetToString(texture.GetTarget()).c_str(), texture.GetExternalIndex(),
@@ -1694,6 +1863,19 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                         }
                     }
                 }
+                if (rounded == 0 && (supported & VK_SAMPLE_COUNT_1_BIT) != 0) {
+                    // Nothing at two samples or above. Reachable because the frontend validates
+                    // multisample allocations against the count MobileGL ADVERTISES (GL requires
+                    // GL_MAX_SAMPLES >= 4) rather than against the device's per-format support, so
+                    // a format this device cannot multisample at all now gets here instead of
+                    // being refused up front. Keeping the unsupported count would hand
+                    // vkCreateImage an invalid VkImageCreateInfo; one sample is at least a legal
+                    // image, and the samples-08726 hazard above is the lesser of the two.
+                    MGLOG_W_ONCE("Multisample texture format %d supports no count above one on this device; "
+                                 "backing it with a single sample",
+                                 static_cast<Int>(format));
+                    rounded = static_cast<Uint32>(VK_SAMPLE_COUNT_1_BIT);
+                }
                 if (rounded != 0) {
                     resolvedSampleCount = static_cast<VkSampleCountFlagBits>(rounded);
                 }
@@ -1802,7 +1984,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 // Losing reinterpreted views only degrades the formatless-image feature for
                 // this texture; failing creation would lose the texture entirely, so retry
                 // as a plain immutable-format image.
-                MGLOG_W("%s: mutable image format=%d is unsupported for textureId=%d; creating "
+                MGLOG_W_ONCE("%s: mutable image format=%d is unsupported for textureId=%d; creating "
                         "without VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT (format reinterpretation "
                         "will be unavailable for it)",
                         __func__, static_cast<Int>(format), texture.GetExternalIndex());
@@ -1820,7 +2002,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 // Losing 2D-array compatibility only costs per-slice framebuffer attachment for this
                 // format; failing creation would lose the texture entirely. Remembered so later syncs
                 // neither reprobe nor flag-mismatch against this image and recreate it.
-                MGLOG_W("%s: VK_IMAGE_CREATE_2D_ARRAY_COMPATIBLE_BIT is unsupported for format=%d "
+                MGLOG_W_ONCE("%s: VK_IMAGE_CREATE_2D_ARRAY_COMPATIBLE_BIT is unsupported for format=%d "
                         "textureId=%d; creating without it (per-slice framebuffer attachment will be "
                         "unavailable for it)",
                         __func__, static_cast<Int>(format), texture.GetExternalIndex());
@@ -1839,6 +2021,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                         texture.GetExternalIndex(),
                         MG_Util::ConvertTextureUploadTargetToString(uploadTarget).c_str(),
                         static_cast<Int>(format), static_cast<Uint32>(imageInfo.usage));
+                // The preserved image was written by GPU work that may still be in flight
+                // (preserve requires layout != UNDEFINED); park it on the deferred ring
+                // like every other destruction path instead of letting the unique_ptr
+                // destroy it synchronously under the GPU.
+                if (preservedResource) {
+                    DeferResourceRelease(Move(*preservedResource));
+                }
                 return false;
             }
         }
@@ -1852,13 +2041,21 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         const VkResult createImageResult =
             vmaCreateImage(m_allocator, &imageInfo, &allocationInfo, &resource.image, &resource.allocation, nullptr);
         if (createImageResult != VK_SUCCESS) {
-            MGLOG_F("SyncTextureResource: vmaCreateImage failed (%d) textureId=%d extent=%ux%u depth=%u layers=%u "
+            // E_ONCE, not F: the comment above says it - this is a soft failure the caller
+            // recovers from, and it re-fires on every sync of every texture the driver refuses.
+            MGLOG_E_ONCE("SyncTextureResource: vmaCreateImage failed (%d) textureId=%d extent=%ux%u depth=%u layers=%u "
                     "mips=%u samples=%d format=%d",
                     createImageResult, texture.GetExternalIndex(), imageInfo.extent.width, imageInfo.extent.height,
                     imageInfo.extent.depth, imageInfo.arrayLayers, imageInfo.mipLevels,
                     static_cast<Int>(imageInfo.samples), static_cast<Int>(imageInfo.format));
             resource.image = VK_NULL_HANDLE;
             resource.allocation = nullptr;
+            // Same as the probe failure above: the preserved live image must go through
+            // the deferred ring, never a synchronous destructor while frames that
+            // reference it are still in flight.
+            if (preservedResource) {
+                DeferResourceRelease(Move(*preservedResource));
+            }
             return false;
         }
         ++m_textureImageEpoch; // a new attachment image invalidates cached render passes
@@ -2238,7 +2435,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         if (resource.fullView == VK_NULL_HANDLE) {
             return false;
         }
-        const VkImageAspectFlags sampledAspect = ResolveSampledImageViewAspectMask(resource.aspect);
+        const VkImageAspectFlags sampledAspect =
+            ResolveSampledImageViewAspectMask(resource.aspect, texture.GetDepthStencilTextureMode());
         resource.sampledView = CreateImageView(resource.image, resource.format, sampledAspect, resource.viewType,
                                                baseMipLevel, levelCount, 0, resource.arrayLayers, &sampledComponents);
         if (resource.sampledView == VK_NULL_HANDLE) {
@@ -2353,7 +2551,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 uploadItem.target = target;
                 uploadItem.level = level;
                 uploadItem.baseArrayLayer = ResolveUploadArrayLayer(target);
-                uploadItem.texelSize = texelSize;
+                // Vulkan geometry, like the image this stages into (see SyncTexture): a 1D
+                // array's layers move from y to z, where the copy loop's depthSelectsArrayLayer
+                // branch turns them into layerCount. The shadow needs no repacking to follow -
+                // one layer of a 1D array IS one row of `width` texels, so the tight-packed
+                // per-layer copy the swapped size describes reads the same bytes in the same
+                // order as the row-major level it replaces.
+                uploadItem.texelSize = ToVulkanLevelExtent(mipmapTexture.GetTarget(), texelSize);
                 uploadItem.source = source;
                 uploadItem.offset = stagingSize;
                 uploadItem.uploadByteSize = byteSize;
@@ -2391,6 +2595,23 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                             }
                             uploadItem.uploadByteSize = rectTexels * uploadItem.texelBytes;
                         }
+                        // The boxes came out of the shadow in GL coordinates, where a 1D
+                        // array's layer is the y. They have to follow texelSize across to z or
+                        // they would address rows of an image that now has exactly one, and
+                        // the staging walk would read the wrong bytes for them. Every byte
+                        // count computed above is a product of the three extents, so moving
+                        // the axes leaves all of them alone - and an OFFSET lands on a zero y,
+                        // not on the extent's one, which is why this is spelled out rather than
+                        // handed to ToVulkanLevelExtent.
+                        if (mipmapTexture.GetTarget() == TextureTarget::Texture1DArray) {
+                            uploadItem.regionLo = {uploadItem.regionLo.x(), 0, uploadItem.regionLo.y()};
+                            uploadItem.regionSize = {uploadItem.regionSize.x(), 1,
+                                                     uploadItem.regionSize.y()};
+                            for (auto& rect : uploadItem.rects) {
+                                rect.lo = {rect.lo.x(), 0, rect.lo.y()};
+                                rect.hi = {rect.hi.x(), 1, rect.hi.y()};
+                            }
+                        }
                     }
                 }
                 if (formatInfo.expandRgbToRgba) {
@@ -2424,7 +2645,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             const Bool srcIsD24S8 = outResource.format == VK_FORMAT_D24_UNORM_S8_UINT;
             const Bool srcIsD32FS8 = outResource.format == VK_FORMAT_D32_SFLOAT_S8_UINT;
             if (!srcIsD24S8 && !srcIsD32FS8) {
-                MGLOG_E("UploadDirtyMipLevels: unsupported combined depth-stencil format %d for textureId=%d",
+                MGLOG_E_ONCE("UploadDirtyMipLevels: unsupported combined depth-stencil format %d for textureId=%d",
                         static_cast<Int>(outResource.format), mipmapTexture.GetExternalIndex());
                 for (const auto& item : uploadItems) {
                     mipmapTexture.MarkStorageDirty(item.target, item.level, false);
@@ -2601,7 +2822,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                         VK_PIPELINE_STAGE_TRANSFER_BIT,
                                         uploadSrcAccessMask,
                                         VK_ACCESS_TRANSFER_WRITE_BIT,
-                                        aspectMask, 0, outResource.mipLevels, outResource.arrayLayers);
+                                        aspectMask, 0, outResource.mipLevels);
         MOBILEGL_ASSERT(ok, "TransitionImageLayout to VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL failed");
 
         // Array textures keep their GL "depth" in VkImage array layers, so the
@@ -2705,7 +2926,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                    s_sampledReadStages,
                                    VK_ACCESS_TRANSFER_WRITE_BIT,
                                    VK_ACCESS_SHADER_READ_BIT,
-                                   aspectMask, 0, outResource.mipLevels, outResource.arrayLayers);
+                                   aspectMask, 0, outResource.mipLevels);
         MOBILEGL_ASSERT(ok, "TransitionImageLayout to sampled read-only layout failed");
         outResource.layout = finalLayout;
 
@@ -2860,9 +3081,18 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
     }
 
-    VkImageAspectFlags VkTextureManager::ResolveSampledImageViewAspectMask(VkImageAspectFlags imageAspect) {
+    VkImageAspectFlags VkTextureManager::ResolveSampledImageViewAspectMask(VkImageAspectFlags imageAspect,
+                                                                           GLenum depthStencilTextureMode) {
         if ((imageAspect & VK_IMAGE_ASPECT_COLOR_BIT) != 0) {
             return VK_IMAGE_ASPECT_COLOR_BIT;
+        }
+        // A sampled view of a combined depth/stencil image may name exactly one aspect
+        // (VUID-VkDescriptorImageInfo-imageView-01976), and GL_DEPTH_STENCIL_TEXTURE_MODE is
+        // what picks it - the whole content of GL_ARB_stencil_texturing. Depth stays the
+        // default, so nothing that never sets the mode changes shape. The texture's params
+        // version moves with the mode, which is what makes the cached views be rebuilt.
+        if (depthStencilTextureMode == GL_STENCIL_INDEX && (imageAspect & VK_IMAGE_ASPECT_STENCIL_BIT) != 0) {
+            return VK_IMAGE_ASPECT_STENCIL_BIT;
         }
         if ((imageAspect & VK_IMAGE_ASPECT_DEPTH_BIT) != 0) {
             return VK_IMAGE_ASPECT_DEPTH_BIT;

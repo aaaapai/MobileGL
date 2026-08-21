@@ -11,6 +11,8 @@ The bundled fixtures cover:
   ![Minecraft 1.21.4 startup golden](fixtures/minecraft-1.21.4-startup.0000092195.png)
 - minecraft-1.21.4-main-menu: captured from Minecraft 1.21.4's main menu.
   ![Minecraft 1.21.4 main menu golden](fixtures/minecraft-1.21.4-main-menu.0000481787.png)
+- minecraft-1.21.11-main-menu: captured from Minecraft 1.21.11's main menu on a Pixel 8 Pro through FCL MobileGL.
+  ![Minecraft 1.21.11 main menu golden](fixtures/minecraft-1.21.11-main-menu.0000205347.png)
 - minecraft-1.17-main-menu-854: captured from Minecraft 1.17's 854x480 main menu through FCL MobileGL capture.
   ![Minecraft 1.17 854x480 main menu golden](fixtures/minecraft-1.17-main-menu-854.0000117757.png)
 - minecraft-1.21.4-in-world: captured from Minecraft 1.21.4 after entering a singleplayer world.
@@ -18,8 +20,6 @@ The bundled fixtures cover:
 - minecraft-1.21.4-fabric-sodium-in-world: captured from Minecraft 1.21.4 Fabric with Sodium after entering a
   singleplayer world with Fancy graphics.
   ![Minecraft 1.21.4 Fabric Sodium in-world golden](fixtures/minecraft-1.21.4-fabric-sodium-in-world.0000923340.png)
-- minecraft-26.2-main-menu: captured from Minecraft 26.2's main menu.
-  ![Minecraft 26.2 main menu golden](fixtures/minecraft-26.2-main-menu.0000101926.png)
 - improved-transparency-minecraft-26.3: captured from the Minecraft 26.3 improved-transparency scene.
   ![Minecraft 26.3 improved-transparency golden](fixtures/improved-transparency-minecraft-26.3.0002667619.png)
 - minecraft-1.21.4-fabric-common-mods-in-world: captured from Minecraft 1.21.4 Fabric with Sodium, Iris, REI,
@@ -275,7 +275,10 @@ default; pass `--ez use_pbuffer true` to use the offscreen pbuffer path. Always
 process-local. For cases registered with `coherent_as_flush` (Flywheel-style
 unflushed persistent maps, e.g. the Create fixtures), pass
 `--ez coherent_as_flush true` so the replay runs with
-`MOBILEGL_COHERENT_AS_FLUSH=1`.
+`MOBILEGL_COHERENT_AS_FLUSH=1`. For cases registered with
+`avoid_angle_llvmpipe_explicit_lod_bias` (DirectGLES on ANGLE llvmpipe, e.g. the
+sundial-lite fixture), pass `--ez avoid_angle_llvmpipe_explicit_lod_bias true` so
+the replay runs with `MOBILEGL_AVOID_EXPLICIT_LOD_BIAS=1`.
 
 ## Reproducing the Android DirectGLES lane on Linux (ANGLE on lavapipe)
 

@@ -9,7 +9,9 @@
 #include "BackendObject_DirectVulkan.h"
 #include "MG_Backend/BackendObject.h"
 #include "DirectVulkan.h"
+#include "SubgroupSupportPolicy.h"
 #include "MG_State/GLState/FramebufferState/FramebufferObject.h"
+#include "MG_State/GLState/Core.h"
 #include "MG_State/GLState/TextureState/TextureState.h"
 #include "MG_Util/Classifiers/TextureEnumClassifier.h"
 #include "MG_Util/Converters/MGToGL/TextureEnumConverter.h"
@@ -383,6 +385,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
         UpdateDynamicBackendParameters();
         UpdateAdvertisedExtensions();
+        if (MG_State::pGLContext) {
+            MG_State::pGLContext->InvalidateCompileEnv();
+        }
         PopulateFormatCapabilities(physicalDevice.handle, vkGetPhysicalDeviceFormatProperties, m_vulkanCaps,
                                    MutableFormatCapabilities());
         PrintFormatCapabilities(GetFormatCapabilities());
@@ -497,30 +502,48 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             .ExtraVendor = Nullopt,
             .RendererGLInfo = {.TargetGLVersion = {4, 0, 0},
                                .TargetGLSLVersion = {4, 6, 0},
-                               // Baseline advertisement (no shader subgroup, no timer queries); a
-                               // live backend reconciles its copy in UpdateAdvertisedExtensions.
-                               .Extensions = BuildAdvertisedExtensions(false, false, false),
+                               // Baseline advertisement (no runtime-gated capabilities); a live
+                               // backend reconciles its copy in UpdateAdvertisedExtensions.
+                               .Extensions = BuildAdvertisedExtensions(false, false, false, false),
                                .IsCompatibilityProfile = false},
             .StaticBackendCapability = {.AllowVSOnlyPrograms = false}};
         return rendererInfo;
     }
 
     Vector<GLExtension> BuildAdvertisedExtensions(Bool shaderSubgroupSupported, Bool timerQueriesSupported,
-                                                  Bool anisotropicFilteringSupported) {
+                                                  Bool anisotropicFilteringSupported,
+                                                  Bool nonZeroIndirectBaseInstanceSupported) {
         Vector<GLExtension> extensions = {
             V_OpenGL30, V_OpenGL31, V_OpenGL32, V_OpenGL33, V_OpenGL40, E_GL_ARB_draw_buffers_blend,
             E_GL_ARB_compute_shader, E_GL_ARB_shader_storage_buffer_object, E_GL_ARB_shader_image_load_store,
-            E_GL_ARB_program_interface_query, E_GL_ARB_framebuffer_object, E_GL_ARB_multi_draw_indirect,
+            E_GL_ARB_clear_buffer_object, E_GL_ARB_program_interface_query, E_GL_ARB_framebuffer_object, E_GL_ARB_draw_indirect,
+            E_GL_ARB_multi_draw_indirect,
             E_GL_ARB_indirect_parameters, E_GL_EXT_framebuffer_object, E_GL_ARB_depth_texture, E_GL_ARB_buffer_storage,
             E_GL_ARB_texture_storage, E_GL_ARB_texture_storage_multisample, E_GL_ARB_texture_multisample,
             E_GL_ARB_clear_texture, E_GL_ARB_direct_state_access, E_GL_ARB_shader_draw_parameters,
             E_GL_ARB_gpu_shader_int64, E_GL_KHR_debug, E_GL_ARB_gpu_shader5, E_GL_ARB_multi_bind,
             E_GL_ARB_shading_language_420pack, E_GL_ARB_vertex_attrib_binding, E_GL_ARB_shader_image_size,
             E_GL_ARB_explicit_attrib_location,
+            // Core since GL 3.1 and implemented for every version advertised here. The string
+            // matters because applications gate the ENTRY POINTS on it rather than on the
+            // version: a caller that finds the extension missing never resolves
+            // glGetUniformBlockIndex / glUniformBlockBinding, and one that then uses uniform
+            // blocks anyway calls through a null pointer.
+            E_GL_ARB_uniform_buffer_object,
+            // Sampling the stencil aspect through DEPTH_STENCIL_TEXTURE_MODE. Core from 4.3,
+            // so on a 4.0 context the string is the only way to reach it.
+            E_GL_ARB_stencil_texturing,
             // Advertised with GL_NUM_PROGRAM_BINARY_FORMATS = 0, which the
             // extension explicitly permits. It is also the only thing that
             // exposes glProgramParameteri before GL 4.1.
             E_GL_ARB_get_program_binary};
+        // Vulkan's drawIndirectFirstInstance feature is optional. Direct base-instance calls work
+        // without it, but ARB_base_instance also promises non-zero firstInstance in GPU indirect
+        // commands; the renderer supplies true only when that word is legal and gl_InstanceID can
+        // be rebased to OpenGL's zero-based semantics.
+        if (nonZeroIndirectBaseInstanceSupported) {
+            extensions.push_back(E_GL_ARB_base_instance);
+        }
         if (shaderSubgroupSupported && !MG_Config::Features.DisableSubgroup) {
             extensions.push_back(E_GL_KHR_shader_subgroup);
         }
@@ -538,6 +561,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         // change as well as the threading, or the kill switch would only be half a switch.
         if (MG_Util::Async::AsyncShaderCompileEnabled()) {
             extensions.push_back(E_GL_KHR_parallel_shader_compile);
+        }
+        // GL_ARB_gpu_shader_fp64 is opt-in (MOBILEGL_ADVERTISE_FP64). Every `double` in a
+        // shader compiles and runs already - it is narrowed to 32 bits before the module
+        // reaches this backend - so an application that simply uses doubles needs nothing
+        // advertised. What the extension additionally promises is 64-bit PRECISION, which no
+        // mobile GPU has and the narrowing cannot fake, so advertising it by default would
+        // make an application that checks the string take a path MobileGL cannot honour.
+        if (MG_Config::Features.AdvertiseFp64) {
+            extensions.push_back(E_GL_ARB_gpu_shader_fp64);
         }
         // GL_ARB_timer_query gates MC's F3 GPU% (LWJGL checks the extension string);
         // only advertised when the device actually supports timestamp queries and the
@@ -660,6 +692,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_vulkanCaps = capabilities;
         UpdateDynamicBackendParameters();
         UpdateAdvertisedExtensions();
+        if (MG_State::pGLContext) {
+            MG_State::pGLContext->InvalidateCompileEnv();
+        }
         MutableFormatCapabilities().Clear();
     }
 
@@ -670,9 +705,16 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         // real device timestamp support. ApplyVulkanCapabilitiesForTesting may
         // run without a renderer; no timer query is advertised then. Rebuilding
         // the whole list keeps re-runs idempotent.
+        // The opt-in emulated compute path (SubgroupSupportPolicy.h) carries the
+        // extension by itself on devices with no native subgroup support at all; a
+        // device with native subgroups always advertises - and uses - those.
+        const Bool subgroupSupportAdvertised =
+            m_vulkanCaps.SupportsShaderSubgroup ||
+            ShouldEmulateSubgroups(m_vulkanCaps.SupportsShaderSubgroup);
         m_rendererInfo.RendererGLInfo.Extensions = BuildAdvertisedExtensions(
-            m_vulkanCaps.SupportsShaderSubgroup, pVulkanRenderer && pVulkanRenderer->IsTimerQuerySupported(),
-            pVulkanRenderer && pVulkanRenderer->IsSamplerAnisotropySupported());
+            subgroupSupportAdvertised, pVulkanRenderer && pVulkanRenderer->IsTimerQuerySupported(),
+            pVulkanRenderer && pVulkanRenderer->IsSamplerAnisotropySupported(),
+            pVulkanRenderer && pVulkanRenderer->IsNonZeroIndirectBaseInstanceSupported());
     }
 
     void BackendObject_DirectVulkan::UpdateDynamicBackendParameters() {
@@ -805,6 +847,38 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_dynamicParameters.MaxShaderStorageBufferBindings =
             clampLimit("GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS", m_vulkanCaps.MaxShaderStorageBufferBindings,
                        kMaxAdvertisedBufferBlocks);
+        // Per-stage GL_MAX_*_SHADER_STORAGE_BLOCKS. Vulkan has one descriptor limit for every
+        // stage (maxPerStageDescriptorStorageBuffers, which is what MaxComputeShaderStorageBlocks
+        // carries), so the stage limits differ only by whether the stage can have blocks at all.
+        //
+        // Deliberately NOT gated on vertexPipelineStoresAndAtomics, unlike the per-stage image
+        // uniforms below. That gate reads as the obvious one and is wrong here in practice: a
+        // Mali-G925-Immortalis reports vertexPipelineStoresAndAtomics=false (supported AND
+        // enabled) and yet runs all 433 KHR-GL43.constant_expressions.*_tess_* cases correctly
+        // through this backend - those write their result through a storage block declared in a
+        // tessellation stage. Gating would report 0 and turn 433 passing cases into
+        // "unsupported", removing function that demonstrably works.
+        //
+        // The asymmetry with DirectGLES is real and is the point. There, 0 prevents a program
+        // the driver refuses outright at link time; the honest limit converts a silent
+        // wrong-render into a capability an application can route around. Here there is no such
+        // failure to prevent, so the limit stays at what the device can address. If a Vulkan
+        // device is ever found that genuinely rejects such a pipeline, the gate belongs at
+        // pipeline creation where the rejection is observable, not on a feature bit this driver
+        // reports inaccurately.
+        {
+            const Int maxPerStageStorageBlocks =
+                std::min(std::max(m_dynamicParameters.MaxComputeShaderStorageBlocks, 0),
+                         std::min(std::max(m_dynamicParameters.MaxCombinedShaderStorageBlocks, 0),
+                                  std::max(m_dynamicParameters.MaxShaderStorageBufferBindings, 0)));
+            m_dynamicParameters.MaxVertexShaderStorageBlocks = maxPerStageStorageBlocks;
+            m_dynamicParameters.MaxTessControlShaderStorageBlocks = maxPerStageStorageBlocks;
+            m_dynamicParameters.MaxTessEvaluationShaderStorageBlocks = maxPerStageStorageBlocks;
+            // The one hard capability in the set: no geometry stage means no blocks in it.
+            m_dynamicParameters.MaxGeometryShaderStorageBlocks =
+                m_vulkanCaps.SupportsGeometryShader ? maxPerStageStorageBlocks : 0;
+            m_dynamicParameters.MaxFragmentShaderStorageBlocks = maxPerStageStorageBlocks;
+        }
         m_dynamicParameters.MaxTextureBufferSize = clampLimit(
             "GL_MAX_TEXTURE_BUFFER_SIZE", m_vulkanCaps.MaxTextureBufferSize, kMaxAdvertisedTextureBufferSize);
         m_dynamicParameters.TextureBufferOffsetAlignment = m_vulkanCaps.TextureBufferOffsetAlignment;
@@ -831,8 +905,22 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         const Int maxSupportedDrawBuffers = static_cast<Int>(MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS);
         m_dynamicParameters.MaxDrawBuffers = std::min(m_vulkanCaps.MaxDrawBuffers, maxSupportedDrawBuffers);
         m_dynamicParameters.MaxColorAttachments = std::min(m_vulkanCaps.MaxColorAttachments, maxSupportedDrawBuffers);
-        m_dynamicParameters.MaxClipDistances = m_vulkanCaps.MaxClipDistances;
+        // Same shape as the image-uniform limits three lines above: maxClipDistances is reported
+        // by every device, but declaring ClipDistance in a module needs the shaderClipDistance
+        // FEATURE, which VulkanRenderer enables exactly where the physical device has it. Without
+        // it the limit describes a capacity no shader may use, so report none.
+        m_dynamicParameters.MaxClipDistances =
+            m_vulkanCaps.SupportsShaderClipDistance ? std::max(m_vulkanCaps.MaxClipDistances, 0) : 0;
         m_dynamicParameters.MaxViewports = m_vulkanCaps.MaxViewports;
+        // Assigned explicitly rather than left to the struct's defaults, like every other
+        // parameter here, so a second fill cannot inherit a stale value. GL_UNDEFINED_VERTEX is
+        // the truthful answer for DirectVulkan and a legal one (GL 4.6 table 23.65): which vertex
+        // provokes is chosen per pipeline by VulkanRenderer::SelectProvokingVertexMode out of
+        // VK_EXT_provoking_vertex, provokingVertexModePerPipeline and the topology, so there is no
+        // one convention to name. Vulkan's own default is FIRST, which is the opposite of the
+        // GL_LAST_VERTEX_CONVENTION this used to claim unconditionally.
+        m_dynamicParameters.LayerProvokingVertex = GL_UNDEFINED_VERTEX;
+        m_dynamicParameters.ViewportIndexProvokingVertex = GL_UNDEFINED_VERTEX;
         m_dynamicParameters.MaxViewportWidth = m_vulkanCaps.MaxViewportWidth;
         m_dynamicParameters.MaxViewportHeight = m_vulkanCaps.MaxViewportHeight;
         m_dynamicParameters.ViewportBoundsRangeMin = m_vulkanCaps.ViewportBoundsRangeMin;
@@ -877,7 +965,27 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                     DynParams::PerLayerFramebufferAttachmentBit(TextureTarget::TextureCubeMapArray);
             }
         }
-        m_dynamicParameters.SupportsFloat64VertexAttributes = m_vulkanCaps.SupportsShaderFloat64;
+        // Never, on any device, and no longer for the reason it used to be. It used to track
+        // shaderFloat64 because a `dvec3` input needed the Float64 capability to exist in the
+        // module at all; a 64-bit vertex FETCH was already impossible (VK_FORMAT_R64*_SFLOAT is
+        // optional and lavapipe reports zero bufferFeatures for all four), so the attribute
+        // arrived as its 32-bit word pair and PackDoubleVertexInputsPass bitcast it back.
+        //
+        // The shader half of that is gone: every 64-bit float is narrowed before any module
+        // reaches a backend (ShaderTranspiler::DemoteFloat64Pass), so there is no `double` input
+        // left to bitcast INTO, and feeding a UINT-formatted attribute to what is now a `float`
+        // input would be silent garbage. Reconstructing the value would mean decoding the
+        // IEEE-754 double bit pattern in the shader - software fp64, which is precisely what the
+        // demotion exists to avoid - and on Espryt it would additionally need the ES driver to
+        // fetch 2N uint components where the application declared N doubles, which a dvec3 or
+        // dvec4 cannot even express within one attribute location.
+        //
+        // So glVertexAttribLFormat / glVertexAttribLPointer are declined here exactly as they
+        // already were on Espryt and on every real mobile device (Adreno and Mali both report
+        // shaderFloat64 == VK_FALSE), and for the same visible reason. A `dvec3` INPUT still
+        // compiles and draws - it is a `vec3` after demotion - as long as the application feeds
+        // it with glVertexAttribPointer(GL_FLOAT) rather than 64-bit data.
+        m_dynamicParameters.SupportsFloat64VertexAttributes = false;
         m_dynamicParameters.MaxShaderStorageBlockSize =
             std::min(m_vulkanCaps.MaxShaderStorageBlockSize, kMaxAdvertisedShaderStorageBlockSize);
         if (m_vulkanCaps.SupportsShaderSubgroup) {
@@ -886,6 +994,18 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             m_dynamicParameters.SubgroupSupportedFeatures =
                 mapSubgroupFeatures(m_vulkanCaps.SubgroupSupportedOperations);
             m_dynamicParameters.SubgroupQuadOperationsInAllStages = m_vulkanCaps.SubgroupQuadOperationsInAllStages;
+        } else if (ShouldEmulateSubgroups(m_vulkanCaps.SupportsShaderSubgroup)) {
+            // MOBILEGL_MAGMA_EMULATE_SUBGROUP on a device with no native subgroups: the
+            // advertised values describe the 32-lane virtual subgroup the compute
+            // lowering implements (SubgroupSupportPolicy.h / EmulateSubgroupsPass).
+            // GL requires the advertisement and the execution to agree, and on this
+            // path the emulation is what executes; only the compute stage is offered.
+            m_dynamicParameters.SubgroupSize = kEmulatedSubgroupSize;
+            m_dynamicParameters.SubgroupSupportedStages = kEmulatedSubgroupStages;
+            m_dynamicParameters.SubgroupSupportedFeatures = kEmulatedSubgroupFeatures;
+            m_dynamicParameters.SubgroupQuadOperationsInAllStages = false;
+            MGLOG_I("DirectVulkan: emulating 32-lane compute subgroups "
+                    "(MOBILEGL_MAGMA_EMULATE_SUBGROUP, no native subgroup support)");
         } else {
             m_dynamicParameters.SubgroupSize = 0;
             m_dynamicParameters.SubgroupSupportedStages = 0;

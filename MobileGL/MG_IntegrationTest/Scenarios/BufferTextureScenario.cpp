@@ -33,6 +33,7 @@
 // branch on. The driver POST's "Buffer textures" row is where that verdict is stated.
 
 #include <cstdint>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -73,7 +74,60 @@ out vec4 o_color;
 void main() { o_color = vec4(float(vFace) / 255.0, 0.0, 0.0, 1.0); }
 )";
 
-        class BufferTextureScenario : public ScenarioTest {};
+        // A buffer texture bound as a WRITABLE image: the shader reads one texel and writes
+        // another, so a single dispatch proves the read direction (which already worked) and
+        // the write direction (which is what this exists for) apart from each other.
+        constexpr const char* kImageBufferCS = R"(#version 430 core
+layout(local_size_x = 1) in;
+layout(binding = 0, rgba8) uniform imageBuffer uImage;
+void main() {
+    vec4 read = imageLoad(uImage, 1);
+    imageStore(uImage, 0, vec4(0.0, 1.0, 0.0, 1.0));
+    imageStore(uImage, 2, read);
+}
+)";
+
+        class BufferTextureScenario : public ScenarioTest {
+        protected:
+            bool ComputeImagesAreUsable() const {
+                GLint maxImageUnits = 0;
+                GLint maxComputeImageUniforms = 0;
+                glGetIntegerv(GL_MAX_IMAGE_UNITS, &maxImageUnits);
+                glGetIntegerv(GL_MAX_COMPUTE_IMAGE_UNIFORMS, &maxComputeImageUniforms);
+                while (glGetError() != GL_NO_ERROR) {
+                }
+                return maxImageUnits >= 1 && maxComputeImageUniforms >= 1;
+            }
+
+            unsigned int MakeComputeProgram(const char* source) {
+                const GLuint shader = glCreateShader(GL_COMPUTE_SHADER);
+                glShaderSource(shader, 1, &source, nullptr);
+                glCompileShader(shader);
+                GLint compiled = GL_FALSE;
+                glGetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
+                if (compiled == GL_FALSE) {
+                    char log[4096] = {};
+                    glGetShaderInfoLog(shader, sizeof(log) - 1, nullptr, log);
+                    ADD_FAILURE() << "the compute shader did not compile: " << log;
+                    glDeleteShader(shader);
+                    return 0;
+                }
+                const GLuint program = glCreateProgram();
+                glAttachShader(program, shader);
+                glLinkProgram(program);
+                glDeleteShader(shader);
+                GLint linked = GL_FALSE;
+                glGetProgramiv(program, GL_LINK_STATUS, &linked);
+                if (linked == GL_FALSE) {
+                    char log[4096] = {};
+                    glGetProgramInfoLog(program, sizeof(log) - 1, nullptr, log);
+                    ADD_FAILURE() << "the compute program did not link: " << log;
+                    glDeleteProgram(program);
+                    return 0;
+                }
+                return program;
+            }
+        };
 
         // Draws the full-viewport quad and returns the red byte every fragment was painted with,
         // or -1 if the quad did not come out uniform (which would mean the flat varying, not the
@@ -168,6 +222,175 @@ void main() { o_color = vec4(float(vFace) / 255.0, 0.0, 0.0, 1.0); }
         glDeleteTextures(1, &texture);
         glDeleteBuffers(1, &buffer);
         glViewport(0, 0, gl.Width(), gl.Height());
+        EXPECT_EQ(FirstGLError(), 0u);
+    }
+
+    // A shader may WRITE a buffer texture too, through an image unit, and the bytes it writes
+    // land in the backend's buffer - not in the frontend's CPU shadow, which is what MapBuffer
+    // and GetBufferSubData hand back. A storage-block write is flagged for exactly this reason
+    // and the shadow is refreshed on the next read; a buffer reached through an image unit is
+    // the same write through a different binding, and Espryt used to flag only the first, so
+    // an imageStore into a buffer texture was invisible to every CPU read that followed it -
+    // silently, with the correct value sitting in the driver's buffer the whole time.
+    //
+    // The read direction is asserted in the same dispatch (texel 2 is a copy of texel 1) so a
+    // failure here cannot be blamed on the image binding not working at all.
+    TEST_F(BufferTextureScenario, AnImageStoreIntoABufferTextureIsVisibleToTheCpu) {
+        if (!Ready()) return;
+        if (!ComputeImagesAreUsable()) GTEST_SKIP() << "no compute image units on this host";
+
+        constexpr GLuint kRed = 0x000000ffu;   // RGBA8 little-endian: r = 255
+        constexpr GLuint kGreen = 0xff00ff00u; // what the shader stores: (0, 1, 0, 1)
+        constexpr int kTexels = 16;
+
+        FirstGLError();
+
+        const unsigned int program = MakeComputeProgram(kImageBufferCS);
+        ASSERT_NE(program, 0u);
+
+        const std::vector<GLuint> texels(kTexels, kRed);
+        GLuint buffer = 0;
+        glGenBuffers(1, &buffer);
+        glBindBuffer(GL_TEXTURE_BUFFER, buffer);
+        glBufferData(GL_TEXTURE_BUFFER, static_cast<GLsizeiptr>(texels.size() * sizeof(GLuint)), texels.data(),
+                     GL_DYNAMIC_COPY);
+
+        GLuint texture = 0;
+        glGenTextures(1, &texture);
+        glBindTexture(GL_TEXTURE_BUFFER, texture);
+        glTexBuffer(GL_TEXTURE_BUFFER, GL_RGBA8, buffer);
+        EXPECT_EQ(FirstGLError(), 0u) << "glTexBuffer(GL_RGBA8) was refused";
+
+        glBindImageTexture(0, texture, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA8);
+        EXPECT_EQ(FirstGLError(), 0u) << "glBindImageTexture on a buffer texture was refused";
+
+        glUseProgram(program);
+        glDispatchCompute(1, 1, 1);
+        glMemoryBarrier(GL_ALL_BARRIER_BITS);
+
+        // Both CPU read paths, because they are two entry points onto the same refresh and a
+        // fix that reaches only one of them is not a fix. Everything below is EXPECT rather than
+        // ASSERT so that a failure still reaches the cleanup at the end: the harness shares one
+        // context across every scenario in the process, and a leaked buffer or image binding
+        // here would surface as a failure somewhere else entirely.
+        std::vector<GLuint> readBack(kTexels, 0u);
+        glBindBuffer(GL_TEXTURE_BUFFER, buffer);
+        glGetBufferSubData(GL_TEXTURE_BUFFER, 0, static_cast<GLsizeiptr>(readBack.size() * sizeof(GLuint)),
+                           readBack.data());
+        EXPECT_EQ(readBack[0], kGreen) << "glGetBufferSubData did not see the imageStore";
+        EXPECT_EQ(readBack[2], kRed) << "the imageLoad side of the same dispatch read the wrong texel";
+
+        const void* mapped = glMapBuffer(GL_TEXTURE_BUFFER, GL_READ_ONLY);
+        EXPECT_NE(mapped, nullptr) << "glMapBuffer(GL_READ_ONLY) on the texture's buffer failed";
+        if (mapped != nullptr) {
+            GLuint mappedTexel0 = 0;
+            std::memcpy(&mappedTexel0, mapped, sizeof(mappedTexel0));
+            EXPECT_EQ(mappedTexel0, kGreen) << "glMapBuffer did not see the imageStore";
+            glUnmapBuffer(GL_TEXTURE_BUFFER);
+        }
+
+        glBindImageTexture(0, 0, 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA8);
+        glBindBuffer(GL_TEXTURE_BUFFER, 0);
+        glBindTexture(GL_TEXTURE_BUFFER, 0);
+        glUseProgram(0);
+        glDeleteProgram(program);
+        glDeleteTextures(1, &texture);
+        glDeleteBuffers(1, &buffer);
+        EXPECT_EQ(FirstGLError(), 0u);
+    }
+
+    // glGetTexLevelParameter used to refuse EVERY pname on a buffer texture: WIDTH/HEIGHT/DEPTH
+    // fell out of a mipmap-only switch as GL_INVALID_OPERATION, and GL_TEXTURE_BUFFER_SIZE /
+    // GL_TEXTURE_BUFFER_OFFSET were not in the switch at all, so they came back GL_INVALID_ENUM.
+    // KHR-GL43.texture_buffer wraps both queries in GLU_EXPECT_NO_ERROR, so the error alone fails
+    // the case before any value is compared.
+    //
+    // The two halves report DIFFERENT units and only one of them is clamped, which is the thing
+    // easiest to get backwards: WIDTH is a TEXEL count clamped to GL_MAX_TEXTURE_BUFFER_SIZE,
+    // BUFFER_SIZE is the range in basic machine units exactly as it was given.
+    TEST_F(BufferTextureScenario, LevelQueriesDescribeTheAttachedBufferRange) {
+        if (!Ready()) return;
+        FirstGLError();
+
+        GLint offsetAlignment = 1;
+        glGetIntegerv(GL_TEXTURE_BUFFER_OFFSET_ALIGNMENT, &offsetAlignment);
+        if (offsetAlignment < 1) offsetAlignment = 1;
+        GLint maxTexels = 0;
+        glGetIntegerv(GL_MAX_TEXTURE_BUFFER_SIZE, &maxTexels);
+        ASSERT_EQ(FirstGLError(), 0u);
+        ASSERT_GT(maxTexels, 0) << "an OpenGL 4.x context may not advertise a zero buffer-texture limit";
+
+        constexpr GLint kTexelBytes = 4; // GL_RGBA8
+        const GLsizeiptr rangeOffset = static_cast<GLsizeiptr>(offsetAlignment);
+        const GLsizeiptr rangeBytes = 32 * kTexelBytes;
+        // Deliberately bigger than the range, so a getter that answered out of the BUFFER rather
+        // than out of the texture's window would be caught.
+        const GLsizeiptr bufferBytes = rangeOffset + rangeBytes + 16 * kTexelBytes;
+
+        const std::vector<GLubyte> zeros(static_cast<size_t>(bufferBytes), 0);
+        GLuint buffer = 0;
+        glGenBuffers(1, &buffer);
+        glBindBuffer(GL_TEXTURE_BUFFER, buffer);
+        glBufferData(GL_TEXTURE_BUFFER, bufferBytes, zeros.data(), GL_STATIC_DRAW);
+
+        GLuint texture = 0;
+        glGenTextures(1, &texture);
+        glBindTexture(GL_TEXTURE_BUFFER, texture);
+        glTexBufferRange(GL_TEXTURE_BUFFER, GL_RGBA8, buffer, rangeOffset, rangeBytes);
+        ASSERT_EQ(FirstGLError(), 0u) << "glTexBufferRange(GL_RGBA8) was refused";
+
+        const auto levelQuery = [](GLenum pname) {
+            GLint value = -1;
+            glGetTexLevelParameteriv(GL_TEXTURE_BUFFER, 0, pname, &value);
+            return value;
+        };
+        const auto levelQueryF = [](GLenum pname) {
+            GLfloat value = -1.0f;
+            glGetTexLevelParameterfv(GL_TEXTURE_BUFFER, 0, pname, &value);
+            return value;
+        };
+
+        EXPECT_EQ(levelQuery(GL_TEXTURE_WIDTH), static_cast<GLint>(rangeBytes / kTexelBytes))
+            << "GL_TEXTURE_WIDTH is a texel count over the attached RANGE";
+        EXPECT_EQ(levelQuery(GL_TEXTURE_HEIGHT), 1);
+        EXPECT_EQ(levelQuery(GL_TEXTURE_DEPTH), 1);
+        EXPECT_EQ(levelQuery(GL_TEXTURE_BUFFER_SIZE), static_cast<GLint>(rangeBytes))
+            << "GL_TEXTURE_BUFFER_SIZE reports basic machine units, not texels";
+        EXPECT_EQ(levelQuery(GL_TEXTURE_BUFFER_OFFSET), static_cast<GLint>(rangeOffset));
+        EXPECT_EQ(FirstGLError(), 0u) << "a buffer-texture level query raised an error";
+        EXPECT_LE(levelQuery(GL_TEXTURE_WIDTH), maxTexels)
+            << "GL_TEXTURE_WIDTH must stay clamped to GL_MAX_TEXTURE_BUFFER_SIZE";
+
+        // The float getter is a separate switch and has drifted from the integer one before.
+        EXPECT_FLOAT_EQ(levelQueryF(GL_TEXTURE_WIDTH), static_cast<GLfloat>(rangeBytes / kTexelBytes));
+        EXPECT_FLOAT_EQ(levelQueryF(GL_TEXTURE_HEIGHT), 1.0f);
+        EXPECT_FLOAT_EQ(levelQueryF(GL_TEXTURE_BUFFER_SIZE), static_cast<GLfloat>(rangeBytes));
+        EXPECT_EQ(FirstGLError(), 0u) << "the float form of a buffer-texture level query raised an error";
+
+        // The whole-buffer form follows the buffer's current size instead of freezing a window.
+        glTexBuffer(GL_TEXTURE_BUFFER, GL_RGBA8, buffer);
+        EXPECT_EQ(levelQuery(GL_TEXTURE_BUFFER_OFFSET), 0);
+        EXPECT_EQ(levelQuery(GL_TEXTURE_BUFFER_SIZE), static_cast<GLint>(bufferBytes));
+        EXPECT_EQ(levelQuery(GL_TEXTURE_WIDTH), static_cast<GLint>(bufferBytes / kTexelBytes));
+        EXPECT_EQ(FirstGLError(), 0u);
+
+        // Both buffer pnames belong to buffer textures alone; anything else is INVALID_OPERATION,
+        // the same shape GL_TEXTURE_COMPRESSED_IMAGE_SIZE uses for an uncompressed image.
+        GLuint plainTexture = 0;
+        glGenTextures(1, &plainTexture);
+        glBindTexture(GL_TEXTURE_2D, plainTexture);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 4, 4, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        EXPECT_EQ(FirstGLError(), 0u);
+        GLint unused = -1;
+        glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_BUFFER_SIZE, &unused);
+        EXPECT_EQ(FirstGLError(), static_cast<unsigned int>(GL_INVALID_OPERATION));
+
+        glBindTexture(GL_TEXTURE_2D, 0);
+        glBindTexture(GL_TEXTURE_BUFFER, 0);
+        glBindBuffer(GL_TEXTURE_BUFFER, 0);
+        glDeleteTextures(1, &plainTexture);
+        glDeleteTextures(1, &texture);
+        glDeleteBuffers(1, &buffer);
         EXPECT_EQ(FirstGLError(), 0u);
     }
 

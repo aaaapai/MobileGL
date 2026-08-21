@@ -15,6 +15,16 @@
 #include <ostream>
 #include <sstream>
 
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#elif defined(__ANDROID__)
+#include <android/hardware_buffer.h>
+#include <android/native_window.h>
+#include <media/NdkImage.h>
+#include <media/NdkImageReader.h>
+#endif
+
 // MobileGL's own headers, in the order MobileGL/Includes.h uses them: GL/gl.h
 // first, then glcorearb.h for the 3.x+ entry points. This binary links
 // MobileGL_s, so every gl*/egl* below binds to MobileGL's implementation, not
@@ -32,7 +42,7 @@
 // the only construction that is actually predictive here: MobileGL ABORTS
 // (MOBILEGL_ASSERT -> SIGTRAP) rather than returning an error on an unusable
 // platform, so nothing the parent can call in-process is allowed to be wrong.
-#if !defined(_WIN32) && !defined(__APPLE__) && __has_include(<sys/wait.h>)
+#if !defined(_WIN32) && !defined(__APPLE__) && !defined(__ANDROID__) && __has_include(<sys/wait.h>)
 #define MGITEST_HAVE_FORK_PREFLIGHT 1
 #include <csignal>
 #include <ctime>
@@ -52,6 +62,83 @@ namespace MGITest {
         // bug cannot hide behind a square.
         constexpr int kSurfaceWidth = 128;
         constexpr int kSurfaceHeight = 96;
+
+#if defined(_WIN32)
+        HWND g_testWindow = nullptr;
+
+        HWND CreateTestWindow() {
+            static const wchar_t* const kClassName = L"MobileGLIntegrationTestWindow";
+            static bool registered = false;
+            if (!registered) {
+                WNDCLASSW windowClass{};
+                windowClass.lpfnWndProc = DefWindowProcW;
+                windowClass.hInstance = GetModuleHandleW(nullptr);
+                windowClass.lpszClassName = kClassName;
+                if (RegisterClassW(&windowClass) == 0 && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
+                    return nullptr;
+                }
+                registered = true;
+            }
+            return CreateWindowExW(0, kClassName, L"MobileGL Integration Test", WS_OVERLAPPEDWINDOW,
+                                   CW_USEDEFAULT, CW_USEDEFAULT, kSurfaceWidth, kSurfaceHeight, nullptr, nullptr,
+                                   GetModuleHandleW(nullptr), nullptr);
+        }
+#elif defined(__ANDROID__)
+        AImageReader* g_imageReader = nullptr;
+        ANativeWindow* g_imageReaderWindow = nullptr;
+
+        void DrainImageReader(void*, AImageReader* reader) {
+            AImage* image = nullptr;
+            if (AImageReader_acquireNextImage(reader, &image) == AMEDIA_OK && image != nullptr) {
+                AImage_delete(image);
+            }
+        }
+
+        bool CreateImageReaderWindow() {
+            if (g_imageReaderWindow != nullptr) return true;
+            constexpr int kMaxImages = 4;
+            const media_status_t status = AImageReader_newWithUsage(
+                kSurfaceWidth, kSurfaceHeight, AIMAGE_FORMAT_RGBA_8888,
+                AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE | AHARDWAREBUFFER_USAGE_GPU_COLOR_OUTPUT,
+                kMaxImages, &g_imageReader);
+            if (status != AMEDIA_OK || g_imageReader == nullptr) return false;
+
+            AImageReader_ImageListener listener = {nullptr, DrainImageReader};
+            AImageReader_setImageListener(g_imageReader, &listener);
+            if (AImageReader_getWindow(g_imageReader, &g_imageReaderWindow) != AMEDIA_OK ||
+                g_imageReaderWindow == nullptr) {
+                AImageReader_setImageListener(g_imageReader, nullptr);
+                AImageReader_delete(g_imageReader);
+                g_imageReader = nullptr;
+                return false;
+            }
+            ANativeWindow_acquire(g_imageReaderWindow);
+            return true;
+        }
+
+        void DestroyImageReaderWindow() {
+            if (g_imageReaderWindow != nullptr) {
+                ANativeWindow_release(g_imageReaderWindow);
+                g_imageReaderWindow = nullptr;
+            }
+            if (g_imageReader != nullptr) {
+                AImageReader_setImageListener(g_imageReader, nullptr);
+                AImageReader_delete(g_imageReader);
+                g_imageReader = nullptr;
+            }
+        }
+#endif
+
+        bool UseWindowSurface() {
+#if defined(_WIN32)
+            const char* value = std::getenv("MOBILEGL_ITEST_WINDOW_SURFACE");
+            return value != nullptr && value[0] != '\0' && std::strcmp(value, "0") != 0;
+#elif defined(__ANDROID__)
+            return true;
+#else
+            return false;
+#endif
+        }
 
         std::string EnvOr(const char* name, const char* fallback) {
             const char* value = std::getenv(name);
@@ -87,10 +174,10 @@ namespace MGITest {
         // callers). surfaceless is the platform with no window-system dependency at
         // all; the surface this file then creates is still a pbuffer, which every
         // platform supports and which the amendment to this rule requires as the
-        // fallback shape. DISPLAY/WAYLAND_DISPLAY are cleared as well so that a
+        // fallback shape on desktop. Android instead supplies an AImageReader
+        // ANativeWindow. DISPLAY/WAYLAND_DISPLAY are cleared as well so that a
         // driver that consults them directly cannot reintroduce the dependency
-        // behind EGL's back. Desktop-only file: MG_IntegrationTest never builds
-        // for Android, so no device path is affected.
+        // behind EGL's back.
         void EnsureHeadlessPlatform() {
 #if defined(__linux__) && !defined(__ANDROID__)
             static bool done = false;
@@ -134,8 +221,9 @@ namespace MGITest {
                 return 3;
             }
 
+            const bool useWindowSurface = UseWindowSurface();
             const EGLint configAttribs[] = {EGL_SURFACE_TYPE,
-                                            EGL_PBUFFER_BIT,
+                                            useWindowSurface ? EGL_WINDOW_BIT : EGL_PBUFFER_BIT,
                                             EGL_RED_SIZE,
                                             8,
                                             EGL_GREEN_SIZE,
@@ -152,7 +240,9 @@ namespace MGITest {
             EGLConfig config = nullptr;
             EGLint configCount = 0;
             if (eglChooseConfig(display, configAttribs, &config, 1, &configCount) != EGL_TRUE || configCount < 1) {
-                outReason = WithEglError("eglChooseConfig found no pbuffer-capable RGBA8/D24 config");
+                outReason = WithEglError(useWindowSurface
+                                             ? "eglChooseConfig found no window-capable RGBA8/D24 config"
+                                             : "eglChooseConfig found no pbuffer-capable RGBA8/D24 config");
                 return 4;
             }
 
@@ -166,10 +256,32 @@ namespace MGITest {
                 return 5;
             }
 
-            const EGLint pbufferAttribs[] = {EGL_WIDTH, kSurfaceWidth, EGL_HEIGHT, kSurfaceHeight, EGL_NONE};
-            EGLSurface surface = eglCreatePbufferSurface(display, config, pbufferAttribs);
+            EGLSurface surface = EGL_NO_SURFACE;
+            if (useWindowSurface) {
+#if defined(_WIN32)
+                if (g_testWindow == nullptr) g_testWindow = CreateTestWindow();
+                if (g_testWindow == nullptr) {
+                    outReason = "failed to create the Windows integration-test window";
+                    return 6;
+                }
+                surface = eglCreateWindowSurface(display, config, g_testWindow, nullptr);
+#elif defined(__ANDROID__)
+                if (!CreateImageReaderWindow()) {
+                    outReason = "failed to create the Android AImageReader integration-test window";
+                    return 6;
+                }
+                surface = eglCreateWindowSurface(display, config, g_imageReaderWindow, nullptr);
+#endif
+            } else {
+                const EGLint pbufferAttribs[] = {EGL_WIDTH, kSurfaceWidth, EGL_HEIGHT, kSurfaceHeight, EGL_NONE};
+                surface = eglCreatePbufferSurface(display, config, pbufferAttribs);
+            }
             if (surface == EGL_NO_SURFACE) {
-                outReason = WithEglError("eglCreatePbufferSurface failed");
+#if defined(__ANDROID__)
+                DestroyImageReaderWindow();
+#endif
+                outReason = WithEglError(useWindowSurface ? "eglCreateWindowSurface failed"
+                                                         : "eglCreatePbufferSurface failed");
                 return 6;
             }
             // The step that brings the whole backend up (DirectVulkan creates its
@@ -491,6 +603,14 @@ namespace MGITest {
         if (m_context != nullptr) eglDestroyContext(display, static_cast<EGLContext>(m_context));
         if (m_surface != nullptr) eglDestroySurface(display, static_cast<EGLSurface>(m_surface));
         eglTerminate(display);
+#if defined(_WIN32)
+        if (g_testWindow != nullptr) {
+            DestroyWindow(g_testWindow);
+            g_testWindow = nullptr;
+        }
+#elif defined(__ANDROID__)
+        DestroyImageReaderWindow();
+#endif
         m_context = nullptr;
         m_surface = nullptr;
         m_display = nullptr;

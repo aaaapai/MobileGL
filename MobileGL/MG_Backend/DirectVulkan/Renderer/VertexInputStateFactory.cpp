@@ -8,6 +8,7 @@
 
 #include "VertexInputStateFactory.h"
 #include "MG_Util/Converters/MGToStr/DataTypeConverter.h"
+#include <MG_Backend/BackendObjects.h>
 #include <utility>
 
 namespace MobileGL::MG_Backend::DirectVulkan {
@@ -110,7 +111,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             const VkFormat sourceVkFormat =
                 ToVkVertexFormat(attr.Type, attr.Size, attr.Normalized, attr.IsInteger, attr.IsBgra, attr.IsLong);
             if (sourceVkFormat == VK_FORMAT_UNDEFINED) {
-                MGLOG_E("Unsupported vertex attribute layout (location=%u, type=%s, size=%d): the array is "
+                MGLOG_E_ONCE("Unsupported vertex attribute layout (location=%u, type=%s, size=%d): the array is "
                         "enabled but cannot be mapped to a VkFormat",
                         location, MG_Util::ConvertDataTypeToString(attr.Type).c_str(), attr.Size);
                 unsupportedAttribMask |= (1u << location);
@@ -125,7 +126,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                     if (fallbackFormat != VK_FORMAT_UNDEFINED && SupportsVertexBufferFormat(fallbackFormat)) {
                         vkFormat = fallbackFormat;
                         conversion = VertexStreamConversion::ScaledIntegerToFloat32;
-                        MGLOG_W("Vertex attribute location=%u format=%d lacks "
+                        MGLOG_W_ONCE("Vertex attribute location=%u format=%d lacks "
                                 "VK_FORMAT_FEATURE_VERTEX_BUFFER_BIT; using float32 stream format=%d "
                                 "(type=%s size=%d normalized=%s integer=%s)",
                                 location, static_cast<Int>(sourceVkFormat), static_cast<Int>(vkFormat),
@@ -135,7 +136,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 }
 
                 if (conversion == VertexStreamConversion::None) {
-                    MGLOG_E("Unsupported Vulkan vertex format (location=%u, format=%d, type=%s, size=%d): "
+                    MGLOG_E_ONCE("Unsupported Vulkan vertex format (location=%u, format=%d, type=%s, size=%d): "
                             "VK_FORMAT_FEATURE_VERTEX_BUFFER_BIT is unavailable and no semantic fallback exists",
                             location, static_cast<Int>(sourceVkFormat),
                             MG_Util::ConvertDataTypeToString(attr.Type).c_str(), attr.Size);
@@ -146,15 +147,21 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
             const SizeT attribByteSize = GetAttributeByteSize(attr.Type, attr.Size, attr.IsBgra);
             if (attribByteSize == 0) {
-                MGLOG_E("Vertex attribute with unknown component size (location=%u, type=%s): the array is "
+                MGLOG_E_ONCE("Vertex attribute with unknown component size (location=%u, type=%s): the array is "
                         "enabled but cannot be sized",
                         location, MG_Util::ConvertDataTypeToString(attr.Type).c_str());
                 unsupportedAttribMask |= (1u << location);
                 continue;
             }
 
-            const Uint32 sourceStride =
-                attr.Stride > 0 ? static_cast<Uint32>(attr.Stride) : static_cast<Uint32>(attribByteSize);
+            // Verbatim, zero included. The frontend already resolved a pointer call's
+            // "tightly packed" stride 0 into the element size (see VertexAttribute::Stride),
+            // so a zero here is the binding model's stride 0 - every vertex reads the same
+            // element - which is exactly what a zero VkVertexInputBindingDescription::stride
+            // means. Substituting the element size fetched a fresh element per vertex and ran
+            // off the end of the buffer (KHR-GL43.vertex_attrib_binding.basic-input-case7/8).
+            // Client-memory arrays cannot reach zero: they only exist on the pointer path.
+            const Uint32 sourceStride = static_cast<Uint32>(attr.Stride);
             const Bool packedAttribute = attr.Type == DataType::Int2101010Rev ||
                                          attr.Type == DataType::Uint2101010Rev;
             const SizeT requiredAlignment = packedAttribute ? attribByteSize : GetComponentSize(attr.Type);
@@ -169,16 +176,22 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 // unless VK_EXT_legacy_vertex_attributes is available, so deinterleave this one
                 // attribute into a tightly packed transient stream without changing its format.
                 conversion = VertexStreamConversion::Repack;
-                MGLOG_W("Vertex attribute location=%u uses Vulkan-incompatible alignment "
+                MGLOG_W_ONCE("Vertex attribute location=%u uses Vulkan-incompatible alignment "
                         "(offset=%zu stride=%u required=%zu); using a tightly packed stream",
                         location, attr.Offset, sourceStride, requiredAlignment);
             }
 
             Uint32 stride = sourceStride;
-            if (conversion == VertexStreamConversion::Repack) {
-                stride = static_cast<Uint32>(attribByteSize);
-            } else if (conversion == VertexStreamConversion::ScaledIntegerToFloat32) {
-                stride = static_cast<Uint32>(attr.Size * static_cast<Int>(sizeof(Float)));
+            // A converted stream is tightly packed, so its stride is the converted element
+            // size - unless the source stride is zero, which does not describe a packing at
+            // all but "never advance". That survives the conversion unchanged: the draw path
+            // converts exactly one element and every vertex reads it.
+            if (sourceStride != 0) {
+                if (conversion == VertexStreamConversion::Repack) {
+                    stride = static_cast<Uint32>(attribByteSize);
+                } else if (conversion == VertexStreamConversion::ScaledIntegerToFloat32) {
+                    stride = static_cast<Uint32>(attr.Size * static_cast<Int>(sizeof(Float)));
+                }
             }
             const VkVertexInputRate inputRate =
                 (attr.Divisor == 0) ? VK_VERTEX_INPUT_RATE_VERTEX : VK_VERTEX_INPUT_RATE_INSTANCE;
@@ -275,8 +288,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             if (m_frameBoundaryCounter - it->second->lastUsedFrameBoundary > kRetireAgeBoundaries) {
                 it = m_cache.erase(it);
                 // Invalidate every VAO's state-pointer memo: the erased node's
-                // address may be reused by a future insert.
-                ++m_evictionEpoch;
+                // address may be reused by a future insert. Advance through the
+                // process-wide source so the value stays unique across factory
+                // instances (see the member comment).
+                m_evictionEpoch = ++s_evictionEpochSource;
             } else {
                 ++it;
             }
@@ -316,6 +331,20 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             // for every R64 float format, so a native 64-bit vertex fetch is simply unavailable there
             // while shaderFloat64 is not. Both halves key off nothing but the attribute being long,
             // so they always agree without extra plumbing.
+            //
+            // ... as long as the shader half still runs. It does not when the backend has declared
+            // no 64-bit vertex attribute support: DemoteFloat64Pass has already narrowed every
+            // `dvec` input to a `vec` by then, so PackDoubleVertexInputsPass finds nothing to pack
+            // and a UINT-formatted attribute would be fed to a float input - garbage with no
+            // diagnostic anywhere. Declining here drops the array instead (the caller skips
+            // UNDEFINED attributes and reports them through unsupportedAttribMask), which is what
+            // DirectGLES does for the same state. The frontend RECORDS the format either way, so
+            // this gate is the only thing standing between a legal glVertexAttribLFormat and a
+            // mismatched pipeline.
+            if (MG_Backend::pActiveBackendObject == nullptr ||
+                !MG_Backend::pActiveBackendObject->GetDynamicParameters().SupportsFloat64VertexAttributes) {
+                return VK_FORMAT_UNDEFINED;
+            }
             if (!isLong || isInteger || normalized) return VK_FORMAT_UNDEFINED;
             switch (size) {
             case 1: return VK_FORMAT_R32G32_UINT;

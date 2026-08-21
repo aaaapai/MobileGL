@@ -115,6 +115,16 @@ namespace MobileGL::MG_Backend::DirectGLES {
         Bool StoreWideRowsToClient(const Uint8* wide, GLenum wideType, GLsizei width, GLsizei sliceHeight,
                                    GLsizei sliceCount, const ReadbackChannelMapping& mapping, GLenum type,
                                    void* pixels, Bool applyPackImageParams);
+
+        // Stores packed 32-bit source words verbatim, with the same destination addressing, PACK
+        // parameters and pixel-pack-buffer handling as StoreWideRowsToClient. For the sources whose
+        // storage word already IS the client word (MG_Util::IsRawPackedPixelTransfer): routing those
+        // through the wide float intermediate re-encodes them, and the RGB9_E5 encoder canonicalizes
+        // the shared exponent, so glGetTexImage would answer with different bits than were stored.
+        // `srcWords` holds sliceHeight * sliceCount tightly stacked rows of `width` 32-bit words.
+        // False when `type` is not a 4-byte packed type.
+        Bool StorePackedWordsToClient(const Uint8* srcWords, GLsizei width, GLsizei sliceHeight, GLsizei sliceCount,
+                                      GLenum type, void* pixels, Bool applyPackImageParams);
     } // namespace ReadbackImpl
 
     namespace PrgramImpl {
@@ -137,6 +147,36 @@ namespace MobileGL::MG_Backend::DirectGLES {
         // ES 3.2 needs no directive at all and an EXT driver already has the right one.
         String RetargetTextureBufferExtension(String glslCode,
                                               MG_External::GLESCapabilities::TextureBufferTier tier);
+        // Adds `#extension GL_NV_image_formats : require` when the shader carries an image
+        // format qualifier GLSL ES has no core spelling for. SPIRV-Cross prints the format and
+        // asks for nothing, so the request has to be made here. `needed` is the caller's answer,
+        // because only it knows which formats are in play AND whether the driver advertises the
+        // extension - requesting an unadvertised extension is itself a compile error, so this is
+        // never emitted speculatively. A no-op when not needed or already present.
+        String RequestExtendedImageFormats(String glslCode, Bool needed);
+        // Adds `#extension GL_OES_viewport_array : require` when the emitted ESSL names
+        // gl_ViewportIndex. SPIRV-Cross prints that identifier and asks for nothing (unlike
+        // gl_Layer, which it backs with GL_NV_viewport_array2 on ES) and ESSL has no core
+        // spelling for it at any version, so the request has to be made here or the stage does
+        // not compile - which loses the whole program, not just the multi-viewport routing.
+        // `needed` is the caller's answer for the same reason as above: only it knows whether the
+        // driver advertises the extension, and requesting an unadvertised one is itself a compile
+        // error, so this is never emitted speculatively. A no-op when not needed or already
+        // present.
+        String RequestViewportArrayExtension(String glslCode, Bool needed);
+        // Writes a format layout qualifier into the image declarations named in
+        // `esslFormatByUniformName` that still have none. The completion half of the image-format
+        // bake, and ONLY that: the SPIR-V pass (BakeImageFormatsPass) is what normally puts the
+        // format in, but SPIRV-Cross throws rather than printing the formats it calls
+        // desktop-only when it targets ESSL - r8ui among them, which is what the stencil half of
+        // KHR-GL4x.packed_depth_stencil.stencil_texturing binds - and a throw loses the whole
+        // stage. So those formats stay out of the module and are spelled here instead, on the
+        // emitted text, where nothing can refuse them.
+        //
+        // Declarations that already carry a format are left exactly as they are, whoever wrote
+        // it. Must run before RemoveLayoutBinding, which is where an image's layout qualifier
+        // stops being safe to edit by hand.
+        String BakeImageFormatQualifiers(String glslCode, const UnorderedMap<String, String>& esslFormatByUniformName);
         String RemoveLayoutBinding(const String& glslCode);
         // Prefix of the writeonly half a read+write image uniform is split into (see
         // SplitReadWriteImageUniforms); the suffix is the image's own name.
@@ -156,11 +196,18 @@ namespace MobileGL::MG_Backend::DirectGLES {
         //  * loaded only            -> add `readonly`
         //  * stored only            -> add `writeonly`
         //  * both                   -> emit TWO declarations on the same binding and of the
-        //                              same type, `readonly <name>` and `writeonly
-        //                              <IMAGE_WRITE_ALIAS_PREFIX><name>`, and point every
-        //                              imageStore at the second one. Several image variables
-        //                              may share an image unit as long as they have the same
-        //                              type and format, which is exactly what the pair is.
+        //                              same type, `coherent readonly <name>` and `coherent
+        //                              writeonly <IMAGE_WRITE_ALIAS_PREFIX><name>`, and point
+        //                              every imageStore at the second one. Several image
+        //                              variables may share an image unit as long as they have
+        //                              the same type and format, which is exactly what the pair
+        //                              is.
+        //
+        // The `coherent` on both halves of the pair is load-bearing, not decoration: GLSL only
+        // guarantees a write through one image variable is visible to a read through a DIFFERENT
+        // one when both are coherent, and the split is what makes a same-variable
+        // read-after-write cross-variable. The single-declaration repairs above do not get it -
+        // nothing aliases them.
         //
         // Budget note: the split DOUBLES the image-uniform count of the stage it fires in, so
         // a driver advertising a tight GL_MAX_{FRAGMENT,VERTEX,...}_IMAGE_UNIFORMS can turn a
@@ -183,7 +230,12 @@ namespace MobileGL::MG_Backend::DirectGLES {
         // the bound texture's (or sampler object's) value into it; a shader whose samplers
         // all have a zero bias is therefore unaffected. Returns the source unchanged when
         // there is nothing to rewrite.
-        String EmulateTextureLodBias(const String& glslCode);
+        //
+        // avoidExplicitLodBias leaves lookups that already carry an explicit LOD untouched,
+        // so their constant level stays constant; only the implicit-LOD forms take the bias.
+        // Off by default and only ever set on ANGLE + llvmpipe, where injecting the uniform
+        // into a constant LOD crashes the driver (MOBILEGL_AVOID_EXPLICIT_LOD_BIAS).
+        String EmulateTextureLodBias(const String& glslCode, Bool avoidExplicitLodBias = false);
     } // namespace PrgramImpl
 
     namespace Utils {

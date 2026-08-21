@@ -39,6 +39,11 @@ namespace MobileGL::MG_State {
             return m_compileEnv;
         }
 
+        void GLContext::InvalidateCompileEnv() {
+            m_compileEnv.reset();
+            m_compileEnvBackend = nullptr;
+        }
+
         // Error
         void GLContext::RecordError(ErrorCode code, UniquePtr<ErrorInfo> info) {
             // Invariant I1, mechanically enforced: the GL error state is GL-thread-owned.
@@ -196,7 +201,7 @@ namespace MobileGL::MG_State {
         // (which expands to nothing outside debug builds).
         void GLContext::SetCurrentVertexAttributeFloat(Uint index, const Array<Float, 4>& value) {
             if (index >= m_currentVertexAttributes.size()) {
-                MGLOG_E("SetCurrentVertexAttributeFloat: index %u is out of range", index);
+                MGLOG_E_ONCE("SetCurrentVertexAttributeFloat: index %u is out of range", index);
                 return;
             }
 
@@ -210,7 +215,7 @@ namespace MobileGL::MG_State {
 
         void GLContext::SetCurrentVertexAttributeInt(Uint index, const Array<Int32, 4>& value) {
             if (index >= m_currentVertexAttributes.size()) {
-                MGLOG_E("SetCurrentVertexAttributeInt: index %u is out of range", index);
+                MGLOG_E_ONCE("SetCurrentVertexAttributeInt: index %u is out of range", index);
                 return;
             }
 
@@ -224,7 +229,7 @@ namespace MobileGL::MG_State {
 
         void GLContext::SetCurrentVertexAttributeUint(Uint index, const Array<Uint32, 4>& value) {
             if (index >= m_currentVertexAttributes.size()) {
-                MGLOG_E("SetCurrentVertexAttributeUint: index %u is out of range", index);
+                MGLOG_E_ONCE("SetCurrentVertexAttributeUint: index %u is out of range", index);
                 return;
             }
 
@@ -239,7 +244,7 @@ namespace MobileGL::MG_State {
         const CurrentVertexAttributeValue& GLContext::GetCurrentVertexAttribute(Uint index) const {
             static const CurrentVertexAttributeValue defaultValue{};
             if (index >= m_currentVertexAttributes.size()) {
-                MGLOG_E("GetCurrentVertexAttribute: index %u is out of range", index);
+                MGLOG_E_ONCE("GetCurrentVertexAttribute: index %u is out of range", index);
                 return defaultValue;
             }
             return m_currentVertexAttributes[index];
@@ -641,9 +646,17 @@ namespace MobileGL::MG_State {
             for (SizeT stage = 0; stage < ProgramPipelineObject::kGraphicsStageCount; ++stage) {
                 const auto& stageProgram = pipeline->GetStageProgram(static_cast<ShaderStage>(stage));
                 if (!stageProgram) continue;
-                for (const auto& shader : stageProgram->GetAttachedShaders()) {
-                    if (!shader || static_cast<SizeT>(shader->GetShaderStage()) != stage) continue;
-                    composite->AttachShader(shader);
+                // The stage program contributes the shaders its LAST LINK consumed, never
+                // its live attach list: per GL 4.6 7.3/7.4 a pipeline stage executes the
+                // stage program as last linked - glAttachShader and glCompileShader take
+                // effect only at the program's next link - and neither of those moves the
+                // link version this cache keys on, so reading live state here would let a
+                // post-link attach or recompile leak into the composite while the signature
+                // still hits. The pinned (source, node) makes the composite's Link()
+                // consume the very inputs that link consumed.
+                for (const auto& ref : stageProgram->GetLinkedShaderSnapshot()) {
+                    if (!ref.shader || static_cast<SizeT>(ref.shader->GetShaderStage()) != stage) continue;
+                    composite->AttachShaderWithPinnedLinkInput(ref);
                     anyStage = true;
                 }
             }
@@ -712,8 +725,16 @@ namespace MobileGL::MG_State {
             m_renderState.SetViewport(viewport);
         }
 
-        const IntVec4& GLContext::GetViewport() const {
+        IntVec4 GLContext::GetViewport() const {
             return m_renderState.GetViewport();
+        }
+
+        void GLContext::SetViewportIndexed(Uint index, FloatVec4 viewport) {
+            m_renderState.SetViewportIndexed(index, viewport);
+        }
+
+        const FloatVec4& GLContext::GetViewportIndexed(Uint index) const {
+            return m_renderState.GetViewportIndexed(index);
         }
 
         void GLContext::SetLineWidth(Float width) {
@@ -953,6 +974,14 @@ namespace MobileGL::MG_State {
             return m_renderState.GetDepthRange();
         }
 
+        void GLContext::SetDepthRangeIndexed(Uint index, FloatVec2 range) {
+            m_renderState.SetDepthRangeIndexed(index, range);
+        }
+
+        const FloatVec2& GLContext::GetDepthRangeIndexed(Uint index) const {
+            return m_renderState.GetDepthRangeIndexed(index);
+        }
+
         void GLContext::SetSampleCoverage(Float value, Bool invert) {
             m_renderState.SetSampleCoverage(value, invert);
         }
@@ -1015,6 +1044,14 @@ namespace MobileGL::MG_State {
 
         const IntVec4& GLContext::GetScissorBox() const {
             return m_renderState.GetScissorBox();
+        }
+
+        void GLContext::SetScissorBoxIndexed(Uint index, IntVec4 box) {
+            m_renderState.SetScissorBoxIndexed(index, box);
+        }
+
+        const IntVec4& GLContext::GetScissorBoxIndexed(Uint index) const {
+            return m_renderState.GetScissorBoxIndexed(index);
         }
 
         // Framebuffer

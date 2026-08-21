@@ -18,6 +18,11 @@
 //     errors that guard a parameter-buffer draw.
 //   * KHR-GL43.compute_shader.api-indirect / .api-program.
 //   * KHR-GLxx.texture_storage.compressed_data - compressed formats on TEXTURE_3D.
+//   * KHR-GL32.api.coverage - glFenceSync's condition/flags and glWaitSync's flags/timeout.
+//   * KHR-GL31.api.coverage - a draw's mode INVALID_ENUM has to outrank MobileGL's own
+//     no-current-program guard.
+//   * KHR-GL30.api.coverage - glBlitFramebuffer's mask bits, filter enum and the LINEAR-with-
+//     depth/stencil rule.
 // Plus the indexed-getter parity RC-7b is about: glGetBooleani_v / glGetInteger64i_v /
 // glGetFloati_v / glGetDoublei_v must answer every pname glGetIntegeri_v answers.
 //
@@ -33,10 +38,12 @@
 #include "Init.h"
 #include <MG_Impl/GLImpl/Buffer/GL_Buffer.h>
 #include <MG_Impl/GLImpl/Drawing/GL_Drawing.h>
+#include <MG_Impl/GLImpl/Framebuffer/GL_Framebuffer.h>
 #include <MG_Impl/GLImpl/Getter/GL_Getter.h>
 #include <MG_Impl/GLImpl/Program/GL_Program.h>
 #include <MG_Impl/GLImpl/RenderState/GL_RenderState.h>
 #include <MG_Impl/GLImpl/Sampler/GL_Sampler.h>
+#include <MG_Impl/GLImpl/Sync/GL_Sync.h>
 #include <MG_Impl/GLImpl/Texture/GL_Texture.h>
 #include <MG_Impl/GLImpl/VertexArray/GL_VertexArray.h>
 #include <MG_State/GLState/Core.h>
@@ -128,6 +135,134 @@ namespace {
         DrainErrors();
     }
 
+    // KHR-GL44.multi_bind.errors_bind_textures / .errors_bind_image_textures / .errors_bind_samplers.
+    // Both entry points were silent no-op stubs, so every row here answered GL_NO_ERROR.
+    // errors_bind_samplers is in the list because that case checks the invalid-name rule by calling
+    // glBindTextures with a sampler-name array - a name from the wrong namespace is simply not an
+    // existing texture.
+    TEST_F(NegativeApiErrorsTest, MultiBindTexturesRejectsBadRangesAndNames) {
+        GLint maxUnits = 0;
+        GetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, &maxUnits);
+        ASSERT_GT(maxUnits, 0);
+        GLint maxImageUnits = 0;
+        GetIntegerv(GL_MAX_IMAGE_UNITS, &maxImageUnits);
+
+        GLuint texture = 0;
+        GenTextures(1, &texture);
+        BindTexture(GL_TEXTURE_2D, texture);
+        TexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, 4, 4);
+
+        // Reserved by glGenTextures but never bound: not an object yet, so the multi-bind entry
+        // points must refuse it instead of creating it the way glBindTexture would.
+        GLuint reservedOnly = 0;
+        GenTextures(1, &reservedOnly);
+        ASSERT_NE(reservedOnly, 0u);
+        ASSERT_EQ(IsTexture(reservedOnly), GL_FALSE);
+        DrainErrors();
+
+        const GLuint good[1] = {texture};
+        const GLuint mixed[2] = {texture, reservedOnly};
+
+        std::vector<Row> rows = {
+            {"glBindTextures with negative count", [&] { BindTextures(0, -1, good); }, GL_INVALID_VALUE},
+            {"glBindTextures with first + count past the last unit",
+             [&] { BindTextures(static_cast<GLuint>(maxUnits), 1, good); }, GL_INVALID_OPERATION},
+            {"glBindTextures with a reserved-but-uncreated name", [&] { BindTextures(0, 2, mixed); },
+             GL_INVALID_OPERATION},
+            {"glBindImageTextures with negative count", [&] { BindImageTextures(0, -1, good); }, GL_INVALID_VALUE},
+        };
+        if (maxImageUnits > 0) {
+            rows.push_back({"glBindImageTextures with first + count past the last image unit",
+                            [&] { BindImageTextures(static_cast<GLuint>(maxImageUnits), 1, good); },
+                            GL_INVALID_OPERATION});
+            rows.push_back({"glBindImageTextures with a reserved-but-uncreated name",
+                            [&] { BindImageTextures(0, 2, mixed); }, GL_INVALID_OPERATION});
+        }
+        RunRows(rows);
+
+        // The loop semantics again: the good element at index 0 binds, the bad one does not.
+        GLint bound = -1;
+        GetIntegeri_v(GL_TEXTURE_BINDING_2D, 0, &bound);
+        EXPECT_EQ(static_cast<GLuint>(bound), texture) << "a rejected element must not take the valid ones with it";
+        GetIntegeri_v(GL_TEXTURE_BINDING_2D, 1, &bound);
+        EXPECT_EQ(bound, 0) << "the rejected element must not have bound anything";
+        DrainErrors();
+    }
+
+    // KHR-GL44.multi_bind.functional_bind_textures / .functional_bind_image_textures: the binding
+    // has to land on the texture's OWN target - glBindTextures takes no target parameter - and
+    // element zero has to unbind every target of its unit.
+    TEST_F(NegativeApiErrorsTest, MultiBindTexturesBindsToTheTexturesOwnTarget) {
+        GLuint textures[2] = {0, 0};
+        GenTextures(2, textures);
+        BindTexture(GL_TEXTURE_1D, textures[0]);
+        TexStorage1D(GL_TEXTURE_1D, 1, GL_RGBA8, 4);
+        BindTexture(GL_TEXTURE_3D, textures[1]);
+        TexStorage3D(GL_TEXTURE_3D, 1, GL_RGBA8, 4, 4, 4);
+        // Leave the active unit's slots clean so only the multi-bind result is under test.
+        BindTexture(GL_TEXTURE_1D, 0);
+        BindTexture(GL_TEXTURE_3D, 0);
+        DrainErrors();
+
+        BindTextures(0, 2, textures);
+        EXPECT_EQ(GetError(), GL_NO_ERROR);
+
+        GLint bound = -1;
+        GetIntegeri_v(GL_TEXTURE_BINDING_1D, 0, &bound);
+        EXPECT_EQ(static_cast<GLuint>(bound), textures[0]) << "a 1D texture must land on the unit's 1D slot";
+        GetIntegeri_v(GL_TEXTURE_BINDING_3D, 0, &bound);
+        EXPECT_EQ(bound, 0) << "no other target of the unit may be touched";
+        GetIntegeri_v(GL_TEXTURE_BINDING_3D, 1, &bound);
+        EXPECT_EQ(static_cast<GLuint>(bound), textures[1]) << "a 3D texture must land on the unit's 3D slot";
+
+        // A zero element - and a NULL array - unbind EVERY target of the unit, not just one.
+        const GLuint zeros[1] = {0};
+        BindTextures(0, 1, zeros);
+        GetIntegeri_v(GL_TEXTURE_BINDING_1D, 0, &bound);
+        EXPECT_EQ(bound, 0);
+        BindTextures(1, 1, nullptr);
+        GetIntegeri_v(GL_TEXTURE_BINDING_3D, 1, &bound);
+        EXPECT_EQ(bound, 0) << "a NULL <textures> unbinds the range";
+        EXPECT_EQ(GetError(), GL_NO_ERROR);
+
+        GLint maxImageUnits = 0;
+        GetIntegerv(GL_MAX_IMAGE_UNITS, &maxImageUnits);
+        if (maxImageUnits > 0) {
+            // ARB_multi_bind fixes every glBindImageTexture parameter but the unit and the name:
+            // level 0, layered, layer 0, READ_WRITE, and the texture's own internal format.
+            BindImageTextures(0, 1, &textures[1]);
+            EXPECT_EQ(GetError(), GL_NO_ERROR);
+            GetIntegeri_v(GL_IMAGE_BINDING_NAME, 0, &bound);
+            EXPECT_EQ(static_cast<GLuint>(bound), textures[1]);
+            GetIntegeri_v(GL_IMAGE_BINDING_LEVEL, 0, &bound);
+            EXPECT_EQ(bound, 0);
+            GetIntegeri_v(GL_IMAGE_BINDING_LAYERED, 0, &bound);
+            EXPECT_EQ(bound, GL_TRUE);
+            GetIntegeri_v(GL_IMAGE_BINDING_ACCESS, 0, &bound);
+            EXPECT_EQ(bound, GL_READ_WRITE);
+            GetIntegeri_v(GL_IMAGE_BINDING_FORMAT, 0, &bound);
+            EXPECT_EQ(bound, GL_RGBA8);
+
+            BindImageTextures(0, 1, nullptr);
+            GetIntegeri_v(GL_IMAGE_BINDING_NAME, 0, &bound);
+            EXPECT_EQ(bound, 0) << "a NULL <textures> resets the image unit";
+        }
+
+        // Through the EXPORTED entry points, not just the GLImpl functions: both of these were
+        // declared with the stub macro, so a working implementation that is never wired into
+        // Definitions.cpp still answers GL_NO_ERROR and binds nothing.
+        ::glBindTextures(0, 1, &textures[0]);
+        GetIntegeri_v(GL_TEXTURE_BINDING_1D, 0, &bound);
+        EXPECT_EQ(static_cast<GLuint>(bound), textures[0]) << "glBindTextures is still exported as a no-op stub";
+        if (maxImageUnits > 0) {
+            ::glBindImageTextures(0, 1, &textures[1]);
+            GetIntegeri_v(GL_IMAGE_BINDING_NAME, 0, &bound);
+            EXPECT_EQ(static_cast<GLuint>(bound), textures[1])
+                << "glBindImageTextures is still exported as a no-op stub";
+        }
+        DrainErrors();
+    }
+
     TEST_F(NegativeApiErrorsTest, BufferRangeOffsetAlignmentAppliesToTheBindingPoint) {
         GLint ssboAlignment = 0;
         GetIntegerv(GL_SHADER_STORAGE_BUFFER_OFFSET_ALIGNMENT, &ssboAlignment);
@@ -193,6 +328,47 @@ namespace {
              GL_INVALID_OPERATION},
         });
         static_cast<void>(parameterBuffer);
+    }
+
+    // A transform feedback name has two different truths and glDrawTransformFeedback used to ask
+    // for the wrong one. glGenTransformFeedbacks only RESERVES a name; the first
+    // glBindTransformFeedback is what creates the object (GL 4.6 core 13.2.1), and
+    // glIsTransformFeedback reports exactly that distinction. glDrawTransformFeedback's
+    // "id is not the name of a transform feedback object" INVALID_VALUE has to agree with
+    // glIsTransformFeedback, or a caller that picks an unused name the way
+    // KHR-GL4x.transform_feedback.api_errors_test does - increment until glIsTransformFeedback
+    // says false - gets a name the draw then accepts, and the draw falls through to a different
+    // error entirely (INVALID_OPERATION, "glEndTransformFeedback has never been called").
+    //
+    // The draw path itself needs a backend and a linked program before it reaches the name, which
+    // this GPU-free suite has neither of, so what is pinned here is the predicate pair the fix
+    // turns on: the two must not collapse back into one.
+    TEST_F(NegativeApiErrorsTest, ReservedTransformFeedbackNameIsNotYetAnObject) {
+        GLuint name = 0;
+        GenTransformFeedbacks(1, &name);
+        ASSERT_NE(name, 0u);
+        DrainErrors();
+
+        // Reserved, so it is a legal argument to glBindTransformFeedback...
+        EXPECT_TRUE(MG_State::pGLContext->ValidateTransformFeedbackName(name));
+        // ...but not an object yet, which is what a draw must key off.
+        EXPECT_FALSE(MG_State::pGLContext->IsTransformFeedbackObject(name));
+        EXPECT_EQ(IsTransformFeedback(name), GL_FALSE);
+
+        BindTransformFeedback(GL_TRANSFORM_FEEDBACK, name);
+        EXPECT_EQ(GetError(), GL_NO_ERROR);
+
+        EXPECT_TRUE(MG_State::pGLContext->ValidateTransformFeedbackName(name));
+        EXPECT_TRUE(MG_State::pGLContext->IsTransformFeedbackObject(name));
+        EXPECT_EQ(IsTransformFeedback(name), GL_TRUE);
+
+        // The default object is never "an object" by this predicate and is always drawable, so
+        // the draw path has to special-case it rather than reuse the answer directly.
+        EXPECT_FALSE(MG_State::pGLContext->IsTransformFeedbackObject(0));
+        EXPECT_TRUE(MG_State::pGLContext->ValidateTransformFeedbackName(0));
+
+        BindTransformFeedback(GL_TRANSFORM_FEEDBACK, 0);
+        DrainErrors();
     }
 
     TEST_F(NegativeApiErrorsTest, TexStorage3DRejectsCompressedFormatsOnTexture3D) {
@@ -300,5 +476,115 @@ void main() { g_color = vec4(1); }
         GetInteger64i_v(GL_VERTEX_BINDING_OFFSET, 0, &offset);
         EXPECT_EQ(offset, 2048);
         EXPECT_EQ(GetError(), GL_NO_ERROR);
+    }
+
+    // KHR-GL32.api.coverage: glFenceSync and glWaitSync took every argument they were handed and
+    // reported GL_NO_ERROR for the two calls GL 4.6 core 4.1.2 requires to fail. A rejected
+    // glFenceSync must also hand back 0 rather than a live handle.
+    TEST_F(NegativeApiErrorsTest, SyncEntryPointsRejectTheirIllegalArguments) {
+        DrainErrors();
+
+        RunRows({
+            {"glFenceSync with a condition other than GL_SYNC_GPU_COMMANDS_COMPLETE",
+             [] { EXPECT_EQ(FenceSync(GL_SYNC_FENCE, 0), nullptr); }, GL_INVALID_ENUM},
+            {"glFenceSync with nonzero flags", [] { EXPECT_EQ(FenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 1), nullptr); },
+             GL_INVALID_VALUE},
+        });
+
+        // The legal fence still works, and with no backend function table it is the always-signaled
+        // fallback - which is all this GPU-free suite needs to reach glWaitSync's own checks.
+        const GLsync sync = FenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+        ASSERT_NE(sync, nullptr);
+        EXPECT_EQ(GetError(), GL_NO_ERROR);
+        EXPECT_EQ(IsSync(sync), GL_TRUE);
+
+        RunRows({
+            {"glWaitSync with nonzero flags", [&] { WaitSync(sync, GL_SYNC_FLUSH_COMMANDS_BIT, GL_TIMEOUT_IGNORED); },
+             GL_INVALID_VALUE},
+            {"glWaitSync with a finite timeout", [&] { WaitSync(sync, 0, 1000000000ull); }, GL_INVALID_VALUE},
+            {"glWaitSync with the only legal argument pair", [&] { WaitSync(sync, 0, GL_TIMEOUT_IGNORED); },
+             GL_NO_ERROR},
+        });
+
+        DeleteSync(sync);
+        EXPECT_EQ(GetError(), GL_NO_ERROR);
+    }
+
+    // KHR-GL31.api.coverage's first two calls are glDrawArraysInstanced / glDrawElementsInstanced
+    // with mode GL_POINTS-1 against a context that has no program and no VAO bound, and they must
+    // answer GL_INVALID_ENUM. MobileGL's own "there is no current program" guard - which the spec
+    // does not list as a draw error at all - used to run first and shadowed the enum check with
+    // GL_INVALID_OPERATION. Nothing here reaches a backend: the mode is rejected before the guard.
+    TEST_F(NegativeApiErrorsTest, BadPrimitiveModeOutranksTheNoProgramGuard) {
+        DrainErrors();
+        // Exactly what the coverage test passes: GL_POINTS is 0, so this is 0xFFFFFFFF.
+        constexpr GLenum kBadMode = static_cast<GLenum>(GL_POINTS - 1);
+
+        RunRows({
+            {"glDrawArraysInstanced with an unaccepted mode", [] { DrawArraysInstanced(kBadMode, 0, 3, 4); },
+             GL_INVALID_ENUM},
+            {"glDrawElementsInstanced with an unaccepted mode",
+             [] { DrawElementsInstanced(kBadMode, 3, GL_UNSIGNED_INT, nullptr, 4); }, GL_INVALID_ENUM},
+            {"glDrawArrays with an unaccepted mode", [] { DrawArrays(kBadMode, 0, 3); }, GL_INVALID_ENUM},
+            {"glDrawElements with an unaccepted mode",
+             [] { DrawElements(kBadMode, 3, GL_UNSIGNED_INT, nullptr); }, GL_INVALID_ENUM},
+            {"glMultiDrawArrays with an unaccepted mode",
+             [] { MultiDrawArrays(kBadMode, nullptr, nullptr, 0); }, GL_INVALID_ENUM},
+            {"glDrawRangeElements with an unaccepted mode",
+             [] { DrawRangeElements(kBadMode, 0, 2, 3, GL_UNSIGNED_INT, nullptr); }, GL_INVALID_ENUM},
+            {"glDrawElementsIndirect with an unaccepted mode",
+             [] { DrawElementsIndirect(kBadMode, GL_UNSIGNED_INT, nullptr); }, GL_INVALID_ENUM},
+            {"glDrawArraysIndirect with an unaccepted mode", [] { DrawArraysIndirect(kBadMode, nullptr); },
+             GL_INVALID_ENUM},
+            // A mode the enum check accepts falls through to the guard, so the INVALID_OPERATION
+            // that used to win is still raised for the calls it is actually about.
+            {"glDrawArrays with a legal mode and no program bound", [] { DrawArrays(GL_TRIANGLES, 0, 3); },
+             GL_INVALID_OPERATION},
+        });
+    }
+
+    // KHR-GL30.api.coverage's glBlitFramebuffer sub-check. The frontend passed mask and filter
+    // straight through, and DirectGLES drains the driver's error queue around the blit so the ES
+    // rejection never surfaced either - both illegal calls reported GL_NO_ERROR. Every row here
+    // is rejected before the backend function pointer is reached, which is what lets this
+    // GPU-free suite run them at all.
+    TEST_F(NegativeApiErrorsTest, BlitFramebufferRejectsBadMasksAndFilters) {
+        DrainErrors();
+        // The bit the coverage test smuggles in: a legal glMapBufferRange flag, not a blit one.
+        constexpr GLbitfield kForeignBit = GL_MAP_INVALIDATE_BUFFER_BIT;
+
+        RunRows({
+            {"glBlitFramebuffer with a mask bit outside COLOR|DEPTH|STENCIL",
+             [] {
+                 BlitFramebuffer(0, 0, 16, 16, 0, 0, 16, 16, GL_COLOR_BUFFER_BIT | kForeignBit, GL_NEAREST);
+             },
+             GL_INVALID_VALUE},
+            {"glBlitFramebuffer with a filter that is neither GL_NEAREST nor GL_LINEAR",
+             [] { BlitFramebuffer(0, 0, 16, 16, 0, 0, 16, 16, GL_COLOR_BUFFER_BIT, GL_NONE); }, GL_INVALID_ENUM},
+            {"glBlitFramebuffer of colour+stencil with GL_LINEAR",
+             [] {
+                 BlitFramebuffer(0, 0, 16, 16, 0, 0, 16, 16, GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT, GL_LINEAR);
+             },
+             GL_INVALID_OPERATION},
+            {"glBlitFramebuffer of depth with GL_LINEAR",
+             [] { BlitFramebuffer(0, 0, 16, 16, 0, 0, 16, 16, GL_DEPTH_BUFFER_BIT, GL_LINEAR); },
+             GL_INVALID_OPERATION},
+            // The DSA form has to answer identically.
+            {"glBlitNamedFramebuffer with a mask bit outside COLOR|DEPTH|STENCIL",
+             [] {
+                 BlitNamedFramebuffer(0, 0, 0, 0, 16, 16, 0, 0, 16, 16, GL_COLOR_BUFFER_BIT | kForeignBit,
+                                      GL_NEAREST);
+             },
+             GL_INVALID_VALUE},
+            {"glBlitNamedFramebuffer with a bad filter",
+             [] { BlitNamedFramebuffer(0, 0, 0, 0, 16, 16, 0, 0, 16, 16, GL_COLOR_BUFFER_BIT, GL_NONE); },
+             GL_INVALID_ENUM},
+            {"glBlitNamedFramebuffer of depth+stencil with GL_LINEAR",
+             [] {
+                 BlitNamedFramebuffer(0, 0, 0, 0, 16, 16, 0, 0, 16, 16,
+                                      GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT, GL_LINEAR);
+             },
+             GL_INVALID_OPERATION},
+        });
     }
 } // namespace

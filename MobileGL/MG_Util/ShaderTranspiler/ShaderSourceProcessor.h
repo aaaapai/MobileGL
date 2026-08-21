@@ -30,18 +30,6 @@ namespace MobileGL {
             // tests and diagnostics that drive the preprocessor standalone.
             void PreprocessShaderSource(ShaderStage stage, String& source);
 
-            // Some desktop-captured compute shaders build a workgroup-wide linear prefix scan
-            // from subgroupInclusiveAdd plus a shared array of subgroup totals. Qualcomm's
-            // Vulkan driver miscompiles that exact float InclusiveScan path for native subgroups
-            // wider than the capture's 32 lanes. For the narrowly recognized, uniform-control-
-            // flow template, replace the subgroup-local scan with a shared-memory, strict
-            // left-fold over virtual 32-lane segments. Returns true only when the complete safe
-            // template was recognized and rewritten. PreprocessShaderSource reaches this through
-            // its device-quirk registry: by default only on detected Qualcomm Vulkan devices,
-            // overridable either way with MOBILEGL_QUIRK_SUBGROUP_PREFIX_SCAN=1/0. The explicit
-            // entry point exists for deterministic tests.
-            Bool RewriteLinearSubgroupPrefixScanForVulkan(ShaderStage stage, Uint32 nativeSubgroupSize, String& source);
-
             // Rewrites a "#version 330 core" directive that PreprocessShaderSource normalized down
             // from a legacy desktop version back up to "#version 460 core". Returns false (leaving
             // the source untouched) for anything else: ES, compatibility, or an already-modern
@@ -76,6 +64,17 @@ namespace MobileGL {
             // mapIO can capture them, so they are recovered lexically (same narrow
             // grammar discipline as ExtractExplicitUniformLocations).
             UnorderedMap<String, Uint> ExtractExplicitOpaqueBindings(const String& source);
+
+            // A shader storage block whose layout(binding = N) reaches or passes
+            // GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS is a compile-time error in GL 4.3 core 4.4.5,
+            // and an arrayed block instance takes CONSECUTIVE points, so the last element is what
+            // has to fit. glslang cannot raise it for MobileGL: every shader is parsed as a Vulkan
+            // client under relaxed rules, where the GL ceilings do not apply, and TBuiltInResource
+            // has no storage-buffer binding field to check against in the first place. Returns the
+            // compile-error text for the first violation, or nullopt for a clean source.
+            // `maxBindings` is what glGetIntegerv answers for that pname; a non-positive value
+            // means "nothing to check against" and every declaration passes.
+            std::optional<String> FindShaderStorageBindingViolation(const String& source, Int maxBindings);
         } // namespace ShaderTranspiler
     } // namespace MG_Util
 } // namespace MobileGL

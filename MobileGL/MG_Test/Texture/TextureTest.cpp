@@ -16,6 +16,7 @@
 #include <MG_Backend/BackendObjects.h>
 #include <MG_Backend/DirectGLES/Managers.h>
 #include <MG_Backend/DirectGLES/Utils.h>
+#include <MG_Impl/GLImpl/Buffer/GL_Buffer.h>
 #include <MG_Impl/GLImpl/Framebuffer/GL_Framebuffer.h>
 #include <MG_Impl/GLImpl/Getter/GL_Getter.h>
 #include <MG_Impl/GLImpl/RenderState/GL_RenderState.h>
@@ -374,6 +375,40 @@ TEST_F(TextureTest, ClearTexImageErrorContracts) {
     // An invalid pixel-transfer format is INVALID_ENUM from the shared validators.
     MG_Impl::GLImpl::ClearTexImage(texture, 0, GL_NONE, GL_UNSIGNED_BYTE, nullptr);
     EXPECT_EQ(MG_Impl::GLImpl::GetError(), static_cast<GLenum>(GL_INVALID_ENUM));
+}
+
+// GL 4.6 core 8.19: a compressed internal format is INVALID_OPERATION for both clear entry points.
+// The generic GL_COMPRESSED_* enums are the half that needs its own tag - MobileGL answers them
+// with uncompressed storage on purpose, so by the time the clear runs the level looks like any
+// other RGBA8 image unless the REQUEST was recorded alongside it.
+TEST_F(TextureTest, ClearTexImageRejectsCompressedTextures) {
+    GLuint genericTexture = 0;
+    MG_Impl::GLImpl::GenTextures(1, &genericTexture);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, genericTexture);
+    MG_Impl::GLImpl::TexImage2D(GL_TEXTURE_2D, 0, GL_COMPRESSED_RGBA, 4, 4, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    MG_Impl::GLImpl::ClearTexImage(genericTexture, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    ExpectSingleGlError(GL_INVALID_OPERATION);
+    MG_Impl::GLImpl::ClearTexSubImage(genericTexture, 0, 0, 0, 0, 4, 4, 1, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    ExpectSingleGlError(GL_INVALID_OPERATION);
+
+    // A specific compressed internalformat is refused through the tag the level already carried...
+    GLuint specificTexture = 0;
+    MG_Impl::GLImpl::GenTextures(1, &specificTexture);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, specificTexture);
+    MG_Impl::GLImpl::TexImage2D(GL_TEXTURE_2D, 0, GL_COMPRESSED_RED_RGTC1, 8, 8, 0, GL_RED, GL_UNSIGNED_BYTE,
+                                nullptr);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    MG_Impl::GLImpl::ClearTexImage(specificTexture, 0, GL_RED, GL_UNSIGNED_BYTE, nullptr);
+    ExpectSingleGlError(GL_INVALID_OPERATION);
+
+    // ...and respecifying the level with an uncompressed format makes it clearable again, because
+    // AllocateStorage clears both tags.
+    MG_Impl::GLImpl::TexImage2D(GL_TEXTURE_2D, 0, GL_R8, 8, 8, 0, GL_RED, GL_UNSIGNED_BYTE, nullptr);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    MG_Impl::GLImpl::ClearTexImage(specificTexture, 0, GL_RED, GL_UNSIGNED_BYTE, nullptr);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
 }
 
 // GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT is float state that must answer every numeric query: GetFloatv
@@ -1022,6 +1057,32 @@ TEST_F(TextureTest, TexImage2DAcceptsSpecCompliantFormatCombinations) {
     EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
 }
 
+// GL_STENCIL_INDEX is the unsized base format for stencil-only storage, and refusing it as an
+// internal format killed the ARB_clear_texture stencil case in its own setup - before it could
+// reach the calls it actually tests. The stencil-only transfer format stays paired with
+// stencil-only storage in both directions, which is what keeps those clears erroring.
+TEST_F(TextureTest, StencilIndexIsATextureInternalFormatPairedOnlyWithStencilStorage) {
+    GLuint texture = 0;
+    MG_Impl::GLImpl::GenTextures(1, &texture);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, texture);
+    MG_Impl::GLImpl::TexImage2D(GL_TEXTURE_2D, 0, GL_STENCIL_INDEX, 4, 4, 0, GL_STENCIL_INDEX, GL_UNSIGNED_BYTE,
+                                nullptr);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    const auto textureObject = MG_State::pGLContext->GetTextureObject(texture);
+    ASSERT_NE(textureObject, nullptr);
+    EXPECT_EQ(textureObject->GetFormat(), TextureInternalFormat::StencilIndex8);
+
+    // A colour transfer format against stencil storage is still INVALID_OPERATION, so the clear
+    // the conformance case makes next fails the way it is supposed to.
+    MG_Impl::GLImpl::ClearTexImage(texture, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    ExpectSingleGlError(GL_INVALID_OPERATION);
+
+    // ...and the other direction: GL_STENCIL_INDEX against colour storage stays illegal.
+    MG_Impl::GLImpl::TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 4, 4, 0, GL_STENCIL_INDEX, GL_UNSIGNED_BYTE, nullptr);
+    ExpectSingleGlError(GL_INVALID_OPERATION);
+}
+
 // Desktop GL table 3.3 lists GREEN and BLUE as TexImage client formats (GL CTS packed_pixels
 // rgba8_format_green/blue upload with them and verify the readback): the single input component
 // feeds the named channel, the other color channels default to 0 and alpha to 1.
@@ -1316,6 +1377,56 @@ TEST_F(TextureTest, GetTextureImageReadsNamedObjectWithoutBinding) {
     EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
 }
 
+// GL 4.6 core 8.11.4 asks a readback for cube completeness and nothing else, so a mip chain whose
+// levels BELOW the requested one were never defined is still readable at that level - which is
+// exactly the shape ARB_clear_texture's conformance cases build (they define only the level they
+// clear). The whole-chain completeness gate used to answer INVALID_OPERATION here.
+TEST_F(TextureTest, GetTexImageReadsALevelWhoseLowerLevelsWereNeverDefined) {
+    GLuint texture = 0;
+    MG_Impl::GLImpl::GenTextures(1, &texture);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, texture);
+
+    const Uint8 pixels[] = {
+        61, 62, 63, 64,
+        71, 72, 73, 74,
+    };
+    MG_Impl::GLImpl::TexImage2D(GL_TEXTURE_2D, 2, GL_RGBA8, 2, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    Uint8 output[sizeof(pixels)] = {};
+    MG_Impl::GLImpl::GetTexImage(GL_TEXTURE_2D, 2, GL_RGBA, GL_UNSIGNED_BYTE, output);
+
+    EXPECT_EQ(std::memcmp(output, pixels, sizeof(pixels)), 0);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
+// The other half of the same rule: loosening the chain-wide check must not let a level that holds
+// no image at all through. Level 0 exists as a chain slot once level 2 is defined, but nothing ever
+// gave it an image, so it stays INVALID_OPERATION - as does a level past the end of the chain and a
+// texture that was never given any image whatsoever.
+TEST_F(TextureTest, GetTexImageStillRejectsALevelThatHoldsNoImage) {
+    GLuint texture = 0;
+    MG_Impl::GLImpl::GenTextures(1, &texture);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, texture);
+
+    Uint8 output[4] = {};
+
+    // No image at all yet: the chain carries no levels.
+    MG_Impl::GLImpl::GetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, output);
+    ExpectSingleGlError(GL_INVALID_OPERATION);
+
+    MG_Impl::GLImpl::TexImage2D(GL_TEXTURE_2D, 2, GL_RGBA8, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    // Inside the chain, but never defined.
+    MG_Impl::GLImpl::GetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, output);
+    ExpectSingleGlError(GL_INVALID_OPERATION);
+
+    // Past the end of the chain.
+    MG_Impl::GLImpl::GetTexImage(GL_TEXTURE_2D, 3, GL_RGBA, GL_UNSIGNED_BYTE, output);
+    ExpectSingleGlError(GL_INVALID_OPERATION);
+}
+
 TEST_F(TextureTest, GetTextureSubImageReadsFullNamedLevelWithoutBinding) {
     GLuint texture = 0;
     GLuint boundTexture = 0;
@@ -1570,6 +1681,559 @@ TEST_F(TextureTest, CompressedInternalFormatsResolveToTheirUncompressedStorage) 
         EXPECT_EQ(textureObject->GetFormat(), c.expected) << "internalFormat 0x" << std::hex << c.internalFormat;
         EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR) << "internalFormat 0x" << std::hex << c.internalFormat;
     }
+}
+
+// Resolving to uncompressed storage is a storage decision, not a licence to answer the level
+// queries as if the application had asked for an uncompressed format. GL 4.6 core 8.5 lets the
+// implementation choose for the GENERIC formats (GL_COMPRESSED_RED and friends), but a SPECIFIC
+// one commits the level: GL_TEXTURE_COMPRESSED is true, GL_TEXTURE_INTERNAL_FORMAT is the token
+// that was passed, and GL_TEXTURE_COMPRESSED_IMAGE_SIZE answers instead of erroring - which is
+// exactly the three-query sequence KHR-GL44.buffer_storage.map_persistent_texture opens with to
+// size the image it then uploads through glCompressedTexSubImage2D.
+TEST_F(TextureTest, ASpecificCompressedInternalFormatTagsTheLevelCompressed) {
+    GLuint texture = 0;
+    MG_Impl::GLImpl::GenTextures(1, &texture);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, texture);
+    MG_Impl::GLImpl::TexImage2D(GL_TEXTURE_2D, 0, GL_COMPRESSED_RED_RGTC1, 8, 8, 0, GL_RED, GL_UNSIGNED_BYTE, nullptr);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    GLint compressed = GL_FALSE;
+    MG_Impl::GLImpl::GetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_COMPRESSED, &compressed);
+    EXPECT_EQ(compressed, GL_TRUE);
+
+    GLint internalFormat = 0;
+    MG_Impl::GLImpl::GetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_INTERNAL_FORMAT, &internalFormat);
+    EXPECT_EQ(internalFormat, static_cast<GLint>(GL_COMPRESSED_RED_RGTC1));
+
+    // 8x8 in 4x4 blocks of 8 bytes each.
+    GLint imageSize = 0;
+    MG_Impl::GLImpl::GetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_COMPRESSED_IMAGE_SIZE, &imageSize);
+    EXPECT_EQ(imageSize, 32);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    // The texel shadow behind the tag still carries the uncompressed storage the format resolves
+    // to - which is what lets the level sample, and what every size computation downstream
+    // divides by.
+    const auto textureObject = MG_State::pGLContext->GetTextureObject(texture);
+    ASSERT_NE(textureObject, nullptr);
+    EXPECT_EQ(textureObject->GetFormat(), TextureInternalFormat::R8);
+}
+
+// The negative control for the case above, and the reason it cannot simply tag every
+// GL_COMPRESSED_* token: for a generic format the implementation's choice IS the answer, and
+// MobileGL chooses uncompressed - so the level is not compressed and the size query is the
+// INVALID_OPERATION GL 4.6 core 8.11 prescribes for an uncompressed image.
+TEST_F(TextureTest, AGenericCompressedInternalFormatLeavesTheLevelUncompressed) {
+    GLuint texture = 0;
+    MG_Impl::GLImpl::GenTextures(1, &texture);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, texture);
+    MG_Impl::GLImpl::TexImage2D(GL_TEXTURE_2D, 0, GL_COMPRESSED_RED, 8, 8, 0, GL_RED, GL_UNSIGNED_BYTE, nullptr);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    GLint compressed = GL_TRUE;
+    MG_Impl::GLImpl::GetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_COMPRESSED, &compressed);
+    EXPECT_EQ(compressed, GL_FALSE);
+
+    GLint internalFormat = 0;
+    MG_Impl::GLImpl::GetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_INTERNAL_FORMAT, &internalFormat);
+    EXPECT_EQ(internalFormat, static_cast<GLint>(GL_R8));
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    GLint imageSize = 0;
+    MG_Impl::GLImpl::GetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_COMPRESSED_IMAGE_SIZE, &imageSize);
+    ExpectSingleGlError(GL_INVALID_OPERATION);
+}
+
+// A plain glTexImage2D over a level that was tagged compressed has to un-tag it, the same way it
+// does for a level a glCompressedTexImage2D shadowed - otherwise the size query would keep
+// answering for an image that no longer exists.
+TEST_F(TextureTest, AnUncompressedRespecificationClearsTheCompressedTag) {
+    GLuint texture = 0;
+    MG_Impl::GLImpl::GenTextures(1, &texture);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, texture);
+    MG_Impl::GLImpl::TexImage2D(GL_TEXTURE_2D, 0, GL_COMPRESSED_RED_RGTC1, 8, 8, 0, GL_RED, GL_UNSIGNED_BYTE, nullptr);
+    MG_Impl::GLImpl::TexImage2D(GL_TEXTURE_2D, 0, GL_R8, 8, 8, 0, GL_RED, GL_UNSIGNED_BYTE, nullptr);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    GLint compressed = GL_TRUE;
+    MG_Impl::GLImpl::GetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_COMPRESSED, &compressed);
+    EXPECT_EQ(compressed, GL_FALSE);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
+// The same rule for the 3D entry points, which never recorded the tag at all. Besides the two
+// level queries this decides the level's texel BLOCK SIZE, which glCopyImageSubData compares
+// against the other endpoint's - an untagged GL_COMPRESSED_RG_RGTC2 array level measured as the
+// RG8 storage it resolves to, 2 bytes instead of 16.
+TEST_F(TextureTest, TexImage3DAndTexStorage3DTagASpecificCompressedInternalFormat) {
+    GLuint texture = 0;
+    MG_Impl::GLImpl::GenTextures(1, &texture);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D_ARRAY, texture);
+    MG_Impl::GLImpl::TexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_COMPRESSED_RG_RGTC2, 8, 8, 2, 0, GL_RG,
+                                GL_UNSIGNED_BYTE, nullptr);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    GLint compressed = GL_FALSE;
+    MG_Impl::GLImpl::GetTexLevelParameteriv(GL_TEXTURE_2D_ARRAY, 0, GL_TEXTURE_COMPRESSED, &compressed);
+    EXPECT_EQ(compressed, GL_TRUE);
+
+    GLint internalFormat = 0;
+    MG_Impl::GLImpl::GetTexLevelParameteriv(GL_TEXTURE_2D_ARRAY, 0, GL_TEXTURE_INTERNAL_FORMAT, &internalFormat);
+    EXPECT_EQ(internalFormat, static_cast<GLint>(GL_COMPRESSED_RG_RGTC2));
+
+    // 8x8 in 4x4 blocks of 16 bytes each is 64 bytes a layer, and both layers count.
+    GLint imageSize = 0;
+    MG_Impl::GLImpl::GetTexLevelParameteriv(GL_TEXTURE_2D_ARRAY, 0, GL_TEXTURE_COMPRESSED_IMAGE_SIZE, &imageSize);
+    EXPECT_EQ(imageSize, 128);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    // The texel shadow behind the tag keeps the uncompressed storage the format resolves to.
+    const auto textureObject = MG_State::pGLContext->GetTextureObject(texture);
+    ASSERT_NE(textureObject, nullptr);
+    EXPECT_EQ(textureObject->GetFormat(), TextureInternalFormat::RG8);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D_ARRAY, 0);
+
+    // glTexStorage3D has the same gap and the same fix; immutable storage plus
+    // glCompressedTexSubImage3D is the modern way to upload a compressed array texture.
+    GLuint storageTexture = 0;
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_2D_ARRAY, 1, &storageTexture);
+    MG_Impl::GLImpl::TextureStorage3D(storageTexture, 1, GL_COMPRESSED_RG_RGTC2, 8, 8, 2);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D_ARRAY, storageTexture);
+
+    compressed = GL_FALSE;
+    MG_Impl::GLImpl::GetTexLevelParameteriv(GL_TEXTURE_2D_ARRAY, 0, GL_TEXTURE_COMPRESSED, &compressed);
+    EXPECT_EQ(compressed, GL_TRUE);
+    imageSize = 0;
+    MG_Impl::GLImpl::GetTexLevelParameteriv(GL_TEXTURE_2D_ARRAY, 0, GL_TEXTURE_COMPRESSED_IMAGE_SIZE, &imageSize);
+    EXPECT_EQ(imageSize, 128);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D_ARRAY, 0);
+}
+
+namespace {
+    // A 16x16 RGBA8 texture with exactly `levelCount` levels, defined the way
+    // KHR-GL43.copy_image.non_existent_mipmap defines its textures - glTexImage2D per
+    // level, NOT glTexStorage2D, because an immutable allocation defines the whole chain
+    // up front and so cannot express "level 1 does not exist".
+    GLuint MakeCopyImageTexture(int levelCount) {
+        GLuint texture = 0;
+        MG_Impl::GLImpl::GenTextures(1, &texture);
+        MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, texture);
+        for (int level = 0; level < levelCount; ++level) {
+            const GLsizei extent = 16 >> level;
+            MG_Impl::GLImpl::TexImage2D(GL_TEXTURE_2D, level, GL_RGBA8, extent, extent, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                                        nullptr);
+        }
+        return texture;
+    }
+} // namespace
+
+// KHR-GL43.copy_image.non_existent_mipmap. Level 1 of a texture that has only level 0 is
+// not a level: GL 4.6 core 18.3.2 asks for GL_INVALID_VALUE. Until this check existed the
+// level travelled all the way into the backends, and DirectVulkan built a VkImageCopy
+// naming mip 1 of a VkImage created with one mip - which Adreno answered with a SIGSEGV
+// inside vkCmdCopyImage, killing the glcts process in the middle of a negative test.
+TEST_F(TextureTest, CopyImageSubDataRejectsALevelTheTextureDoesNotHave) {
+    const GLuint src = MakeCopyImageTexture(1);
+    const GLuint dst = MakeCopyImageTexture(1);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    MG_Impl::GLImpl::CopyImageSubData(src, GL_TEXTURE_2D, 1, 0, 0, 0, dst, GL_TEXTURE_2D, 0, 0, 0, 0, 1, 1, 1);
+    ExpectSingleGlError(GL_INVALID_VALUE);
+
+    MG_Impl::GLImpl::CopyImageSubData(src, GL_TEXTURE_2D, 0, 0, 0, 0, dst, GL_TEXTURE_2D, 1, 0, 0, 0, 1, 1, 1);
+    ExpectSingleGlError(GL_INVALID_VALUE);
+
+    MG_Impl::GLImpl::CopyImageSubData(src, GL_TEXTURE_2D, 1, 0, 0, 0, dst, GL_TEXTURE_2D, 1, 0, 0, 0, 1, 1, 1);
+    ExpectSingleGlError(GL_INVALID_VALUE);
+}
+
+// The negative control, and the reason the pair below asks for a zero-sized copy: a
+// validator that answered GL_INVALID_VALUE to every non-zero level would satisfy the test
+// above. The two calls here are IDENTICAL except for how many levels the textures have,
+// and a zero extent makes the validator decline the copy without an error just after the
+// level check - so the level count is the only thing either assertion can be reading, and
+// no backend (there is none in this binary) is ever reached.
+TEST_F(TextureTest, CopyImageSubDataAcceptsALevelTheTextureDoesHave) {
+    const GLuint oneLevelSrc = MakeCopyImageTexture(1);
+    const GLuint oneLevelDst = MakeCopyImageTexture(1);
+    const GLuint twoLevelSrc = MakeCopyImageTexture(2);
+    const GLuint twoLevelDst = MakeCopyImageTexture(2);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    MG_Impl::GLImpl::CopyImageSubData(oneLevelSrc, GL_TEXTURE_2D, 1, 0, 0, 0, oneLevelDst, GL_TEXTURE_2D, 1, 0, 0, 0,
+                                      0, 0, 0);
+    ExpectSingleGlError(GL_INVALID_VALUE);
+
+    MG_Impl::GLImpl::CopyImageSubData(twoLevelSrc, GL_TEXTURE_2D, 1, 0, 0, 0, twoLevelDst, GL_TEXTURE_2D, 1, 0, 0, 0,
+                                      0, 0, 0);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR) << "level 1 of a two-level texture is a level";
+
+    // And the boundary from the other side: two levels means 0 and 1, not 2.
+    MG_Impl::GLImpl::CopyImageSubData(twoLevelSrc, GL_TEXTURE_2D, 2, 0, 0, 0, twoLevelDst, GL_TEXTURE_2D, 0, 0, 0, 0,
+                                      0, 0, 0);
+    ExpectSingleGlError(GL_INVALID_VALUE);
+}
+
+// A texture that has never been given an image is a different fault from a level out of
+// range, and the spec spells it differently: an incomplete object named by a copy is
+// GL_INVALID_OPERATION. Worth pinning because the natural implementation of the check
+// above - level >= levelCount - reports INVALID_VALUE for level 0 of a texture whose level
+// count is zero, which is the wrong answer to the wrong question.
+//
+// BOTH textures are imageless on purpose, and that is the whole point rather than symmetry
+// for its own sake. With one imageless and one RGBA8 texture the format comparison further
+// down already rejected the call, so the case proved nothing about this check. With both
+// imageless the formats are Unknown == Unknown, they MATCH, and every validator downstream
+// waves the call through - which is how the second crash in this entry point was found: the
+// call reached DirectVulkan, SyncTextureAndGetDescriptor returned nothing for a texture with
+// no image, and the release build (where the guarding MOBILEGL_ASSERT expands to nothing)
+// dereferenced it. Reproduced deterministically on lavapipe by
+// KHR-GL43.copy_image.functional_src_target_texture_2d_array_..._dst_format_rgb9_e5.
+TEST_F(TextureTest, CopyImageSubDataRejectsTwoTexturesWithNoImageAtAll) {
+    GLuint firstEmpty = 0;
+    GLuint secondEmpty = 0;
+    MG_Impl::GLImpl::GenTextures(1, &firstEmpty);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, firstEmpty);
+    MG_Impl::GLImpl::GenTextures(1, &secondEmpty);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, secondEmpty);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    MG_Impl::GLImpl::CopyImageSubData(firstEmpty, GL_TEXTURE_2D, 0, 0, 0, 0, secondEmpty, GL_TEXTURE_2D, 0, 0, 0, 0,
+                                      1, 1, 1);
+    ExpectSingleGlError(GL_INVALID_OPERATION);
+}
+
+// GL_DEPTH_STENCIL_TEXTURE_MODE used to be a pure frontend shadow: stored, answered by
+// glGetTexParameter, and never shown to a backend. Sampling therefore always read the depth
+// aspect however the mode was set, which is the whole of
+// KHR-GL3x.packed_depth_stencil.stencil_texturing. Both backends pick the aspect up through the
+// texture-params version - DirectGLES re-emits glTexParameteri when it moves, DirectVulkan
+// rebuilds the sampled image view - so the version bump is the load-bearing part, and a
+// no-op write must not spend one (every bump costs DirectVulkan a view recreation).
+TEST_F(TextureTest, DepthStencilTextureModeIsBackendVisibleThroughTheParamsVersion) {
+    GLuint texture = 0;
+    MG_Impl::GLImpl::GenTextures(1, &texture);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, texture);
+    MG_Impl::GLImpl::TexStorage2D(GL_TEXTURE_2D, 1, GL_DEPTH24_STENCIL8, 8, 8);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    const auto textureObject = MG_State::pGLContext->GetTextureObject(texture);
+    ASSERT_NE(textureObject, nullptr);
+    EXPECT_EQ(textureObject->GetDepthStencilTextureMode(), static_cast<GLenum>(GL_DEPTH_COMPONENT));
+
+    const Uint16 initialVersion = textureObject->GetTextureParamsVersion();
+    MG_Impl::GLImpl::TexParameteri(GL_TEXTURE_2D, GL_DEPTH_STENCIL_TEXTURE_MODE, GL_STENCIL_INDEX);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    EXPECT_EQ(textureObject->GetDepthStencilTextureMode(), static_cast<GLenum>(GL_STENCIL_INDEX));
+    EXPECT_NE(textureObject->GetTextureParamsVersion(), initialVersion);
+
+    // Re-writing the value already in force is not a change and must not invalidate anything.
+    const Uint16 settledVersion = textureObject->GetTextureParamsVersion();
+    MG_Impl::GLImpl::TexParameteri(GL_TEXTURE_2D, GL_DEPTH_STENCIL_TEXTURE_MODE, GL_STENCIL_INDEX);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    EXPECT_EQ(textureObject->GetTextureParamsVersion(), settledVersion);
+
+    // ...and going back to the depth aspect is a change again.
+    MG_Impl::GLImpl::TexParameteri(GL_TEXTURE_2D, GL_DEPTH_STENCIL_TEXTURE_MODE, GL_DEPTH_COMPONENT);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    EXPECT_EQ(textureObject->GetDepthStencilTextureMode(), static_cast<GLenum>(GL_DEPTH_COMPONENT));
+    EXPECT_NE(textureObject->GetTextureParamsVersion(), settledVersion);
+}
+
+namespace {
+    // 8x8 RGTC1: 2x2 blocks of 8 bytes, so the stored image is 32 bytes and one block row is 16.
+    constexpr GLsizei kRgtc1Size8x8 = 32;
+
+    GLuint MakeCompressedRgtc1Texture8x8() {
+        GLuint texture = 0;
+        MG_Impl::GLImpl::GenTextures(1, &texture);
+        MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, texture);
+        MG_Impl::GLImpl::CompressedTexImage2D(GL_TEXTURE_2D, 0, GL_COMPRESSED_RED_RGTC1, 8, 8, 0, kRgtc1Size8x8,
+                                              nullptr);
+        return texture;
+    }
+} // namespace
+
+// glCompressedTexSubImage2D was a stub that answered GL_INVALID_ENUM to every call. It replaces a
+// block-aligned rectangle of the stored image, and the arithmetic that places the incoming blocks
+// is what the partial write below pins: a full-width write would pass with the rows concatenated
+// in either order.
+TEST_F(TextureTest, CompressedTexSubImage2DReplacesTheStoredBlocks) {
+    const GLuint texture = MakeCompressedRgtc1Texture8x8();
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    Uint8 whole[kRgtc1Size8x8];
+    for (Int i = 0; i < kRgtc1Size8x8; ++i) whole[i] = static_cast<Uint8>(i + 1);
+    MG_Impl::GLImpl::CompressedTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 8, 8, GL_COMPRESSED_RED_RGTC1, kRgtc1Size8x8,
+                                             whole);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    Uint8 stored[kRgtc1Size8x8] = {};
+    MG_Impl::GLImpl::GetCompressedTexImage(GL_TEXTURE_2D, 0, stored);
+    EXPECT_EQ(std::memcmp(stored, whole, sizeof(whole)), 0);
+
+    // The right-hand block column only: one block wide, two block rows high. Its two blocks land
+    // at byte 8 and byte 24, not at bytes 0 and 8.
+    const Uint8 column[16] = {0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7,
+                              0xB0, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7};
+    MG_Impl::GLImpl::CompressedTexSubImage2D(GL_TEXTURE_2D, 0, 4, 0, 4, 8, GL_COMPRESSED_RED_RGTC1,
+                                             static_cast<GLsizei>(sizeof(column)), column);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    Uint8 expected[kRgtc1Size8x8];
+    std::memcpy(expected, whole, sizeof(expected));
+    std::memcpy(expected + 8, column, 8);
+    std::memcpy(expected + 24, column + 8, 8);
+
+    std::memset(stored, 0, sizeof(stored));
+    MG_Impl::GLImpl::GetCompressedTexImage(GL_TEXTURE_2D, 0, stored);
+    EXPECT_EQ(std::memcmp(stored, expected, sizeof(expected)), 0);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
+// The Y axis of the placement, which the whole-image and single-column cases above cannot see: an
+// implementation that dropped the first-block-row term, or that divided yoffset by the block WIDTH,
+// passes every one of them. The region here starts at block row 1, so its two blocks belong at
+// bytes 16 and 24 and nowhere else.
+TEST_F(TextureTest, CompressedTexSubImage2DPlacesTheFirstBlockRow) {
+    const GLuint texture = MakeCompressedRgtc1Texture8x8();
+    Uint8 whole[kRgtc1Size8x8];
+    for (Int i = 0; i < kRgtc1Size8x8; ++i) whole[i] = static_cast<Uint8>(i + 1);
+    MG_Impl::GLImpl::CompressedTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 8, 8, GL_COMPRESSED_RED_RGTC1, kRgtc1Size8x8,
+                                             whole);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    // The bottom block row only: 8 texels wide, 4 high, starting at y = 4.
+    const Uint8 bottom[16] = {0xC0, 0xC1, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7,
+                              0xD0, 0xD1, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7};
+    MG_Impl::GLImpl::CompressedTexSubImage2D(GL_TEXTURE_2D, 0, 0, 4, 8, 4, GL_COMPRESSED_RED_RGTC1,
+                                             static_cast<GLsizei>(sizeof(bottom)), bottom);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    Uint8 expected[kRgtc1Size8x8];
+    std::memcpy(expected, whole, sizeof(expected));
+    std::memcpy(expected + 16, bottom, sizeof(bottom));
+
+    Uint8 stored[kRgtc1Size8x8] = {};
+    MG_Impl::GLImpl::GetCompressedTexImage(GL_TEXTURE_2D, 0, stored);
+    EXPECT_EQ(std::memcmp(stored, expected, sizeof(expected)), 0);
+
+    // And one block in the far corner, which needs both terms at once.
+    const Uint8 corner[8] = {0xE0, 0xE1, 0xE2, 0xE3, 0xE4, 0xE5, 0xE6, 0xE7};
+    MG_Impl::GLImpl::CompressedTexSubImage2D(GL_TEXTURE_2D, 0, 4, 4, 4, 4, GL_COMPRESSED_RED_RGTC1,
+                                             static_cast<GLsizei>(sizeof(corner)), corner);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    std::memcpy(expected + 24, corner, sizeof(corner));
+    std::memset(stored, 0, sizeof(stored));
+    MG_Impl::GLImpl::GetCompressedTexImage(GL_TEXTURE_2D, 0, stored);
+    EXPECT_EQ(std::memcmp(stored, expected, sizeof(expected)), 0);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    (void)texture;
+}
+
+// A level whose size is neither square nor a multiple of the block size, at a level above the
+// base, in a format with SIXTEEN bytes per block. Between them these pin the row stride (which a
+// square level cannot distinguish from the column count), the rounding-up of a partial edge block,
+// the run-to-the-edge exemption from the whole-blocks rule, and the block size actually coming from
+// the format rather than from a constant.
+TEST_F(TextureTest, CompressedTexSubImage2DHandlesPartialBlocksAndAMipLevel) {
+    GLuint texture = 0;
+    MG_Impl::GLImpl::GenTextures(1, &texture);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, texture);
+    // 6x10 BPTC: 2 block columns x 3 block rows of 16 bytes = 96, one block row = 32.
+    constexpr GLsizei kBptcSize6x10 = 96;
+    MG_Impl::GLImpl::CompressedTexImage2D(GL_TEXTURE_2D, 1, GL_COMPRESSED_RGBA_BPTC_UNORM, 6, 10, 0, kBptcSize6x10,
+                                          nullptr);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    GLint imageSize = 0;
+    MG_Impl::GLImpl::GetTexLevelParameteriv(GL_TEXTURE_2D, 1, GL_TEXTURE_COMPRESSED_IMAGE_SIZE, &imageSize);
+    EXPECT_EQ(imageSize, kBptcSize6x10);
+
+    Uint8 whole[kBptcSize6x10];
+    for (Int i = 0; i < kBptcSize6x10; ++i) whole[i] = static_cast<Uint8>(i + 1);
+    MG_Impl::GLImpl::CompressedTexSubImage2D(GL_TEXTURE_2D, 1, 0, 0, 6, 10, GL_COMPRESSED_RGBA_BPTC_UNORM,
+                                             kBptcSize6x10, whole);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    // The right-hand column (2 texels wide - a partial block that runs to the edge) of the middle
+    // block row: one block, at byte 32 + 16.
+    Uint8 patch[16];
+    for (Int i = 0; i < 16; ++i) patch[i] = static_cast<Uint8>(0xF0 + i);
+    MG_Impl::GLImpl::CompressedTexSubImage2D(GL_TEXTURE_2D, 1, 4, 4, 2, 4, GL_COMPRESSED_RGBA_BPTC_UNORM,
+                                             static_cast<GLsizei>(sizeof(patch)), patch);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    Uint8 expected[kBptcSize6x10];
+    std::memcpy(expected, whole, sizeof(expected));
+    std::memcpy(expected + 48, patch, sizeof(patch));
+
+    Uint8 stored[kBptcSize6x10] = {};
+    MG_Impl::GLImpl::GetCompressedTexImage(GL_TEXTURE_2D, 1, stored);
+    EXPECT_EQ(std::memcmp(stored, expected, sizeof(expected)), 0);
+
+    // The partial edge block is only exempt from the whole-blocks rule AT the edge: the same
+    // 2-texel width one block to the left is not.
+    MG_Impl::GLImpl::CompressedTexSubImage2D(GL_TEXTURE_2D, 1, 0, 4, 2, 4, GL_COMPRESSED_RGBA_BPTC_UNORM,
+                                             static_cast<GLsizei>(sizeof(patch)), patch);
+    ExpectSingleGlError(GL_INVALID_OPERATION);
+}
+
+// The same call sourcing its blocks from a buffer bound to GL_PIXEL_UNPACK_BUFFER, where `data` is
+// an offset into that buffer rather than a client pointer - which is the form
+// KHR-GL44.buffer_storage.map_persistent_texture uses for every one of its operations.
+TEST_F(TextureTest, CompressedTexSubImage2DUnpacksFromAPixelUnpackBuffer) {
+    Uint8 source[256];
+    for (Int i = 0; i < 256; ++i) source[i] = static_cast<Uint8>(i);
+    GLuint buffer = 0;
+    MG_Impl::GLImpl::GenBuffers(1, &buffer);
+    MG_Impl::GLImpl::BindBuffer(GL_PIXEL_UNPACK_BUFFER, buffer);
+    MG_Impl::GLImpl::BufferData(GL_PIXEL_UNPACK_BUFFER, sizeof(source), source, GL_STATIC_DRAW);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    const GLuint texture = MakeCompressedRgtc1Texture8x8();
+    MG_Impl::GLImpl::CompressedTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 8, 8, GL_COMPRESSED_RED_RGTC1, kRgtc1Size8x8,
+                                             reinterpret_cast<const void*>(static_cast<SizeT>(64)));
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    Uint8 stored[kRgtc1Size8x8] = {};
+    MG_Impl::GLImpl::GetCompressedTexImage(GL_TEXTURE_2D, 0, stored);
+    EXPECT_EQ(std::memcmp(stored, source + 64, sizeof(stored)), 0);
+
+    // Reading past the end of the buffer is the unpack-buffer error, not a read out of bounds.
+    MG_Impl::GLImpl::CompressedTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 8, 8, GL_COMPRESSED_RED_RGTC1, kRgtc1Size8x8,
+                                             reinterpret_cast<const void*>(static_cast<SizeT>(sizeof(source) - 8)));
+    ExpectSingleGlError(GL_INVALID_OPERATION);
+
+    MG_Impl::GLImpl::BindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+    (void)texture;
+}
+
+// ARB_buffer_storage's whole point: a PERSISTENTLY mapped buffer stays usable while the map is
+// live, including as the source of a texture upload - which is what
+// KHR-GL44.buffer_storage.map_persistent_texture checks. An ordinary map still disqualifies it.
+// Both compressed entry points share one validator, so both are checked here.
+TEST_F(TextureTest, CompressedUploadsAcceptAPersistentlyMappedUnpackBuffer) {
+    Uint8 source[256];
+    for (Int i = 0; i < 256; ++i) source[i] = static_cast<Uint8>(255 - i);
+    GLuint buffer = 0;
+    MG_Impl::GLImpl::GenBuffers(1, &buffer);
+    MG_Impl::GLImpl::BindBuffer(GL_PIXEL_UNPACK_BUFFER, buffer);
+    MG_Impl::GLImpl::BufferStorage(GL_PIXEL_UNPACK_BUFFER, sizeof(source), source,
+                                   GL_MAP_PERSISTENT_BIT | GL_MAP_READ_BIT | GL_MAP_WRITE_BIT);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    void* mapped = MG_Impl::GLImpl::MapBufferRange(GL_PIXEL_UNPACK_BUFFER, 0, sizeof(source),
+                                                   GL_MAP_PERSISTENT_BIT | GL_MAP_READ_BIT | GL_MAP_WRITE_BIT);
+    ASSERT_NE(mapped, nullptr);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    GLuint texture = 0;
+    MG_Impl::GLImpl::GenTextures(1, &texture);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, texture);
+    // The image call takes offset 0 and the sub-image call offset 128, so the readback can only
+    // match if the SUB-IMAGE call ran: were it refused (or a no-op), the level would still hold
+    // the image call's bytes.
+    MG_Impl::GLImpl::CompressedTexImage2D(GL_TEXTURE_2D, 0, GL_COMPRESSED_RED_RGTC1, 8, 8, 0, kRgtc1Size8x8,
+                                          reinterpret_cast<const void*>(static_cast<SizeT>(0)));
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR) << "glCompressedTexImage2D over a persistent map";
+    MG_Impl::GLImpl::CompressedTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 8, 8, GL_COMPRESSED_RED_RGTC1, kRgtc1Size8x8,
+                                             reinterpret_cast<const void*>(static_cast<SizeT>(128)));
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR) << "glCompressedTexSubImage2D over a persistent map";
+
+    Uint8 stored[kRgtc1Size8x8] = {};
+    MG_Impl::GLImpl::GetCompressedTexImage(GL_TEXTURE_2D, 0, stored);
+    EXPECT_EQ(std::memcmp(stored, source + 128, sizeof(stored)), 0);
+
+    MG_Impl::GLImpl::UnmapBuffer(GL_PIXEL_UNPACK_BUFFER);
+
+    // The negative control: an ORDINARY map is still an error, so the check above is not just
+    // "the mapped test was dropped".
+    GLuint plainBuffer = 0;
+    MG_Impl::GLImpl::GenBuffers(1, &plainBuffer);
+    MG_Impl::GLImpl::BindBuffer(GL_PIXEL_UNPACK_BUFFER, plainBuffer);
+    MG_Impl::GLImpl::BufferData(GL_PIXEL_UNPACK_BUFFER, sizeof(source), source, GL_STATIC_DRAW);
+    ASSERT_NE(MG_Impl::GLImpl::MapBuffer(GL_PIXEL_UNPACK_BUFFER, GL_READ_ONLY), nullptr);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    MG_Impl::GLImpl::CompressedTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 8, 8, GL_COMPRESSED_RED_RGTC1, kRgtc1Size8x8,
+                                             reinterpret_cast<const void*>(static_cast<SizeT>(0)));
+    ExpectSingleGlError(GL_INVALID_OPERATION);
+    MG_Impl::GLImpl::UnmapBuffer(GL_PIXEL_UNPACK_BUFFER);
+    MG_Impl::GLImpl::BindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+}
+
+// glCompressedTextureSubImage2D was an exported no-op that raised no error at all, so an
+// application could not tell the write had not happened. It must reach the NAMED texture and leave
+// the binding it borrowed exactly as it found it.
+TEST_F(TextureTest, CompressedTextureSubImage2DModifiesTheNamedTextureOnly) {
+    const GLuint bound = MakeCompressedRgtc1Texture8x8();
+    Uint8 boundImage[kRgtc1Size8x8];
+    for (Int i = 0; i < kRgtc1Size8x8; ++i) boundImage[i] = 0x11;
+    MG_Impl::GLImpl::CompressedTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 8, 8, GL_COMPRESSED_RED_RGTC1, kRgtc1Size8x8,
+                                             boundImage);
+
+    const GLuint named = MakeCompressedRgtc1Texture8x8();
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, bound); // `named` is NOT the bound texture
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    Uint8 namedImage[kRgtc1Size8x8];
+    for (Int i = 0; i < kRgtc1Size8x8; ++i) namedImage[i] = 0x22;
+    MG_Impl::GLImpl::CompressedTextureSubImage2D(named, 0, 0, 0, 8, 8, GL_COMPRESSED_RED_RGTC1, kRgtc1Size8x8,
+                                                 namedImage);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    // The borrowed binding is back, and it kept its own image.
+    Uint8 stored[kRgtc1Size8x8] = {};
+    MG_Impl::GLImpl::GetCompressedTexImage(GL_TEXTURE_2D, 0, stored);
+    EXPECT_EQ(std::memcmp(stored, boundImage, sizeof(stored)), 0);
+
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, named);
+    std::memset(stored, 0, sizeof(stored));
+    MG_Impl::GLImpl::GetCompressedTexImage(GL_TEXTURE_2D, 0, stored);
+    EXPECT_EQ(std::memcmp(stored, namedImage, sizeof(stored)), 0);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
+TEST_F(TextureTest, CompressedTexSubImage2DRejectsTheRegionsGLForbids) {
+    const GLuint texture = MakeCompressedRgtc1Texture8x8();
+    Uint8 blocks[kRgtc1Size8x8] = {};
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    // A format that is not the one the image is stored in.
+    MG_Impl::GLImpl::CompressedTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 8, 8, GL_COMPRESSED_RG_RGTC2, 64, blocks);
+    ExpectSingleGlError(GL_INVALID_OPERATION);
+
+    // A start that is not on a block boundary.
+    MG_Impl::GLImpl::CompressedTexSubImage2D(GL_TEXTURE_2D, 0, 2, 0, 4, 8, GL_COMPRESSED_RED_RGTC1, 16, blocks);
+    ExpectSingleGlError(GL_INVALID_OPERATION);
+
+    // A width that is neither a whole number of blocks nor a run to the image's edge.
+    MG_Impl::GLImpl::CompressedTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 2, 8, GL_COMPRESSED_RED_RGTC1, 16, blocks);
+    ExpectSingleGlError(GL_INVALID_OPERATION);
+
+    // A region that runs off the image.
+    MG_Impl::GLImpl::CompressedTexSubImage2D(GL_TEXTURE_2D, 0, 4, 0, 8, 8, GL_COMPRESSED_RED_RGTC1, 32, blocks);
+    ExpectSingleGlError(GL_INVALID_VALUE);
+
+    // An imageSize that does not match the region.
+    MG_Impl::GLImpl::CompressedTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 8, 8, GL_COMPRESSED_RED_RGTC1, 16, blocks);
+    ExpectSingleGlError(GL_INVALID_VALUE);
+
+    // A format with no defined block layout here.
+    MG_Impl::GLImpl::CompressedTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 8, 8, GL_RGBA8, 32, blocks);
+    ExpectSingleGlError(GL_INVALID_ENUM);
+
+    // An uncompressed image has nothing for it to replace.
+    GLuint plain = 0;
+    MG_Impl::GLImpl::GenTextures(1, &plain);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, plain);
+    MG_Impl::GLImpl::TexImage2D(GL_TEXTURE_2D, 0, GL_R8, 8, 8, 0, GL_RED, GL_UNSIGNED_BYTE, nullptr);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    MG_Impl::GLImpl::CompressedTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 8, 8, GL_COMPRESSED_RED_RGTC1, kRgtc1Size8x8,
+                                             blocks);
+    ExpectSingleGlError(GL_INVALID_OPERATION);
+    (void)texture;
 }
 
 // RGTC compresses 4x4 blocks of a 2D image and has no 3D form, so glTexImage3D must reject it even
@@ -2471,6 +3135,58 @@ TEST_F(TextureTest, CtsStyleStateResetOnDefaultTexturesLeavesNoError) {
     EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR) << "GL_TEXTURE_2D_MULTISAMPLE_ARRAY reset failed";
 }
 
+// Clean is not enough: per GL 4.6 core 8.8 that zero-sized reset has to DEALLOCATE the image,
+// not define an empty one. gluStateReset runs it on both default multisample textures on every
+// texture unit of a 3.2+ context, and a default texture left 'defined' afterwards stops being
+// skipped by IsUndefinedDefaultTexture - it then joins the per-draw sync and bind passes on
+// every unit the reset touched and reaches an ES glTexStorage*Multisample(..., 0, 0), which ES
+// 3.1 8.19 rejects on every driver.
+TEST_F(TextureTest, ZeroSizedMultisampleTexImageDeallocatesTheImage) {
+    MG_Impl::GLImpl::ActiveTexture(GL_TEXTURE0);
+
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D_MULTISAMPLE, 0);
+    const auto& defaultMultisample = MG_State::pGLContext->GetTextureUnitObject(0)
+                                         .GetBindingSlot(TextureTarget::Texture2DMultisample)
+                                         .GetBoundObject();
+    MG_Impl::GLImpl::TexImage2DMultisample(GL_TEXTURE_2D_MULTISAMPLE, 1, GL_RGBA8, 4, 4, GL_TRUE);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    ASSERT_FALSE(MG_State::GLState::IsUndefinedDefaultTexture(defaultMultisample.get()));
+
+    MG_Impl::GLImpl::TexImage2DMultisample(GL_TEXTURE_2D_MULTISAMPLE, 1, GL_RGBA8, 0, 0, GL_TRUE);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    EXPECT_TRUE(MG_State::GLState::IsUndefinedDefaultTexture(defaultMultisample.get()));
+
+    // The array target's reset also passes zero LAYERS, which deallocates just the same.
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D_MULTISAMPLE_ARRAY, 0);
+    const auto& defaultMultisampleArray = MG_State::pGLContext->GetTextureUnitObject(0)
+                                              .GetBindingSlot(TextureTarget::Texture2DMultisampleArray)
+                                              .GetBoundObject();
+    MG_Impl::GLImpl::TexImage3DMultisample(GL_TEXTURE_2D_MULTISAMPLE_ARRAY, 1, GL_RGBA8, 4, 4, 2, GL_TRUE);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    ASSERT_FALSE(MG_State::GLState::IsUndefinedDefaultTexture(defaultMultisampleArray.get()));
+
+    MG_Impl::GLImpl::TexImage3DMultisample(GL_TEXTURE_2D_MULTISAMPLE_ARRAY, 1, GL_RGBA8, 4, 4, 0, GL_TRUE);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    EXPECT_TRUE(MG_State::GLState::IsUndefinedDefaultTexture(defaultMultisampleArray.get()));
+
+    // The immutable forms do NOT share that leniency: GL 4.6 core 8.19 makes a size below 1
+    // INVALID_VALUE, and freezing an imageless texture as immutable would be unrecoverable.
+    GLuint texture = 0;
+    MG_Impl::GLImpl::GenTextures(1, &texture);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D_MULTISAMPLE, texture);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    MG_Impl::GLImpl::TexStorage2DMultisample(GL_TEXTURE_2D_MULTISAMPLE, 1, GL_RGBA8, 0, 0, GL_TRUE);
+    ExpectSingleGlError(GL_INVALID_VALUE);
+    EXPECT_FALSE(MG_State::pGLContext->GetTextureUnitObject(0)
+                     .GetBindingSlot(TextureTarget::Texture2DMultisample)
+                     .GetBoundObject()
+                     ->IsImmutable());
+
+    MG_Impl::GLImpl::DeleteTextures(1, &texture);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D_MULTISAMPLE, 0);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
 // ---- GL CTS packed_pixels / texture_swizzle readback root-cause regressions --------------------
 
 TEST_F(TextureTest, NormalizeLegacySizedFormatsMapToCanonicalShadowLayouts) {
@@ -2481,11 +3197,19 @@ TEST_F(TextureTest, NormalizeLegacySizedFormatsMapToCanonicalShadowLayouts) {
         GLenum type;
     };
     const Case cases[] = {
-        // Legacy <=8-bit-per-channel formats store as UNorm8 component arrays.
-        {GL_R3_G3_B2, GL_RGB565, GL_RGB, GL_UNSIGNED_BYTE},
-        {GL_RGB4, GL_RGB565, GL_RGB, GL_UNSIGNED_BYTE},
-        {GL_RGB5, GL_RGB565, GL_RGB, GL_UNSIGNED_BYTE},
-        {GL_RGBA2, GL_RGBA4, GL_RGBA, GL_UNSIGNED_BYTE},
+        // Legacy <=8-bit-per-channel DESKTOP-ONLY formats store as UNorm8 component arrays, in the
+        // 8-bit-per-channel ES format that layout already is. Storing them in the narrower
+        // GL_RGB565/GL_RGBA4 they nominally fit in made the driver requantize the shadow bytes on
+        // every upload, which is not lossless: 5-bit 2 -> UNorm8 16 -> 16/255*31 = 1.945, which a
+        // truncating driver reads back as 1 (KHR-GL43.copy_image rgb4->rgb4, 12/12 failing on Mali).
+        {GL_R3_G3_B2, GL_RGB8, GL_RGB, GL_UNSIGNED_BYTE},
+        {GL_RGB4, GL_RGB8, GL_RGB, GL_UNSIGNED_BYTE},
+        {GL_RGB5, GL_RGB8, GL_RGB, GL_UNSIGNED_BYTE},
+        {GL_RGBA2, GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE},
+        // The two that are ES formats in their own right keep their native storage: an application
+        // that asks for GL_RGBA4 or GL_RGB5_A1 is asking for the smaller image, and the same
+        // normalization also picks the storage for glRenderbufferStorage, where those two are
+        // ordinary ES render targets rather than a desktop-compatibility shim.
         {GL_RGBA4, GL_RGBA4, GL_RGBA, GL_UNSIGNED_BYTE},
         {GL_RGB5_A1, GL_RGB5_A1, GL_RGBA, GL_UNSIGNED_BYTE},
         // 10/12-bit channels store as UNorm16 component arrays.
@@ -2673,6 +3397,216 @@ TEST_F(TextureTest, DecodeShadowDataToWideRGBACoversComponentAndPackedLayouts) {
         EXPECT_EQ(rgba[2], 255u);
         EXPECT_EQ(rgba[3], 2u);
     }
+}
+
+// ---- GL_RGB9_E5 raw-preserving transfer --------------------------------------------------------
+// RGB9_E5 packs three 9-bit mantissas against one shared 5-bit exponent, so a value has several
+// legal encodings (shift the exponent up, shift every mantissa down). The spec's encode algorithm
+// (GL 4.6 8.5.2) always emits the canonical one, which makes decode-to-float / re-encode
+// value-preserving but NOT bit-preserving. glTexImage followed by glGetTexImage has to hand the
+// application its own bits back, so a client (format, type) whose word already IS the storage word
+// must move verbatim. GL CTS KHR-GL43.copy_image caught the round trip turning the uploaded
+// 0xf8fc0000 into 0xe7e00000 ("CopyImageSubData modified contents of source image") and a copied-in
+// 0x60000000 into 0x00000000 ("CopyImageSubData stored invalid data in copied region").
+
+namespace {
+    Uint32 RoundTripSharedExponentWord(Uint32 word) {
+        Float rgb[3];
+        MG_Util::DecodeSharedExponentRGB9E5(word, rgb);
+        return MG_Util::EncodeSharedExponentRGB9E5(rgb);
+    }
+} // namespace
+
+TEST(SharedExponentRGB9E5Test, EncodeReproducesCanonicalWordsExactly) {
+    // Canonical encodings - the ones the spec algorithm emits - must survive a decode/encode round
+    // trip untouched, or every conversion INTO RGB9_E5 would be off as well.
+    const Uint32 canonical[] = {
+        0x00000000u, // all zero
+        0x0FFFFFFFu, // exponent 1, every mantissa saturated (smallest normalized exponent in use)
+        0x000003FFu, // exponent 0: the denormal range, mantissas 511 / 1 / 0
+        0x81010100u, // (1.0, 0.5, 0.25)
+        0xE7E00000u, // (0, 0, 8064) - what the CTS round trip produced
+        0xFFFFFFFFu, // exponent 31 with saturated mantissas = the largest representable texel
+    };
+    for (const Uint32 word : canonical) {
+        EXPECT_EQ(RoundTripSharedExponentWord(word), word) << "word 0x" << std::hex << word;
+        // Encoding is idempotent: a second pass may not drift either.
+        EXPECT_EQ(RoundTripSharedExponentWord(RoundTripSharedExponentWord(word)), word);
+    }
+}
+
+TEST(SharedExponentRGB9E5Test, EncodeCanonicalizesRedundantWords) {
+    // The exact QPA signatures. Both pairs hold the same value, so the encoder is not wrong - which
+    // is why the fix has to be a raw path rather than an encoder change.
+    Float observed[3];
+    MG_Util::DecodeSharedExponentRGB9E5(0xF8FC0000u, observed);
+    Float canonical[3];
+    MG_Util::DecodeSharedExponentRGB9E5(0xE7E00000u, canonical);
+    EXPECT_EQ(observed[2], 8064.0f);
+    EXPECT_EQ(canonical[2], 8064.0f);
+    EXPECT_EQ(RoundTripSharedExponentWord(0xF8FC0000u), 0xE7E00000u);
+
+    // Exponent 12 with all-zero mantissas is still the value zero, and canonicalizes to the
+    // all-zero word.
+    EXPECT_EQ(RoundTripSharedExponentWord(0x60000000u), 0x00000000u);
+    // Mantissa 1 at exponent 1 renormalizes down into the denormal range.
+    EXPECT_EQ(RoundTripSharedExponentWord(0x08000001u), 0x00000002u);
+}
+
+TEST(SharedExponentRGB9E5Test, RawPackedPixelTransferCoversOnlyIdenticalLayouts) {
+    using MG_Util::PixelStoreProcessor::IsRawPackedPixelTransfer;
+
+    // The four pairs whose client word is bit-identical to the packed storage word.
+    EXPECT_TRUE(IsRawPackedPixelTransfer(TextureInternalFormat::RGB9E5, TextureInputFormat::RGB,
+                                         TexturePixelDataType::UnsignedInt5999Rev));
+    EXPECT_TRUE(IsRawPackedPixelTransfer(TextureInternalFormat::R11FG11FB10F, TextureInputFormat::RGB,
+                                         TexturePixelDataType::UnsignedInt101111Rev));
+    EXPECT_TRUE(IsRawPackedPixelTransfer(TextureInternalFormat::RGB10A2, TextureInputFormat::RGBA,
+                                         TexturePixelDataType::UnsignedInt2101010Rev));
+    EXPECT_TRUE(IsRawPackedPixelTransfer(TextureInternalFormat::RGB10A2UI, TextureInputFormat::RGBAInteger,
+                                         TexturePixelDataType::UnsignedInt2101010Rev));
+
+    // A different packed float layout of the same width is still a conversion.
+    EXPECT_FALSE(IsRawPackedPixelTransfer(TextureInternalFormat::RGB9E5, TextureInputFormat::RGB,
+                                          TexturePixelDataType::UnsignedInt101111Rev));
+    EXPECT_FALSE(IsRawPackedPixelTransfer(TextureInternalFormat::R11FG11FB10F, TextureInputFormat::RGB,
+                                          TexturePixelDataType::UnsignedInt5999Rev));
+    // So is a component client type, or the same word against a component internal format.
+    EXPECT_FALSE(IsRawPackedPixelTransfer(TextureInternalFormat::RGB9E5, TextureInputFormat::RGB,
+                                          TexturePixelDataType::Float));
+    EXPECT_FALSE(IsRawPackedPixelTransfer(TextureInternalFormat::RGB8, TextureInputFormat::RGB,
+                                          TexturePixelDataType::UnsignedInt5999Rev));
+    EXPECT_FALSE(IsRawPackedPixelTransfer(TextureInternalFormat::RGBA32F, TextureInputFormat::RGBA,
+                                          TexturePixelDataType::UnsignedInt2101010Rev));
+    // Integerness has to line up too: the normalized and integer 10/10/10/2 words are not the
+    // same client layout even though they are the same bit field.
+    EXPECT_FALSE(IsRawPackedPixelTransfer(TextureInternalFormat::RGB10A2, TextureInputFormat::RGBAInteger,
+                                          TexturePixelDataType::UnsignedInt2101010Rev));
+    EXPECT_FALSE(IsRawPackedPixelTransfer(TextureInternalFormat::RGB10A2UI, TextureInputFormat::RGBA,
+                                          TexturePixelDataType::UnsignedInt2101010Rev));
+    EXPECT_FALSE(IsRawPackedPixelTransfer(TextureInternalFormat::Unknown, TextureInputFormat::RGB,
+                                          TexturePixelDataType::UnsignedInt5999Rev));
+}
+
+TEST(SharedExponentRGB9E5Test, RedundantPackedEncodingIsRGB9E5Only) {
+    using MG_Util::PixelStoreProcessor::HasRedundantPackedEncoding;
+
+    // This is the predicate that decides whether the CPU shadow has to answer glGetTexImage
+    // instead of a GPU readback, so it must be as narrow as the defect: only the shared exponent
+    // has several legal encodings of one value.
+    EXPECT_TRUE(HasRedundantPackedEncoding(TextureInternalFormat::RGB9E5));
+
+    // The other three packed 32-bit layouts round-trip through float32 bit-exactly (each field is
+    // either an integer or a unique float encoding), so a GPU readback still serves them - which
+    // matters because RGB10_A2 and R11F_G11F_B10F ARE colour-renderable and their shadow can
+    // legitimately be stale.
+    EXPECT_FALSE(HasRedundantPackedEncoding(TextureInternalFormat::RGB10A2));
+    EXPECT_FALSE(HasRedundantPackedEncoding(TextureInternalFormat::RGB10A2UI));
+    EXPECT_FALSE(HasRedundantPackedEncoding(TextureInternalFormat::R11FG11FB10F));
+
+    // Nothing unpacked qualifies, and neither does an unknown format.
+    EXPECT_FALSE(HasRedundantPackedEncoding(TextureInternalFormat::RGBA8));
+    EXPECT_FALSE(HasRedundantPackedEncoding(TextureInternalFormat::RGBA32F));
+    EXPECT_FALSE(HasRedundantPackedEncoding(TextureInternalFormat::RGB8));
+    EXPECT_FALSE(HasRedundantPackedEncoding(TextureInternalFormat::Unknown));
+}
+
+TEST_F(TextureTest, TexImage2DRGB9E5KeepsNonCanonicalClientWords) {
+    // Upload direction: GL_RGB / GL_UNSIGNED_INT_5_9_9_9_REV into GL_RGB9_E5 stores the client
+    // words untouched, including the redundant encodings the CTS generates.
+    GLuint texture = 0;
+    MG_Impl::GLImpl::GenTextures(1, &texture);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, texture);
+
+    const Uint32 words[] = {0xF8FC0000u, 0x60000000u, 0x08000001u, 0x0FFFFFFFu};
+    MG_Impl::GLImpl::PixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    MG_Impl::GLImpl::TexImage2D(GL_TEXTURE_2D, 0, GL_RGB9_E5, 4, 1, 0, GL_RGB, GL_UNSIGNED_INT_5_9_9_9_REV, words);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    const auto* stored = GetBoundTexture2DLevelBytes(texture);
+    ASSERT_NE(stored, nullptr);
+    Uint32 readBack[4] = {};
+    std::memcpy(readBack, stored, sizeof(readBack));
+    for (Int i = 0; i < 4; ++i) {
+        EXPECT_EQ(readBack[i], words[i]) << "texel " << i;
+    }
+
+    MG_Impl::GLImpl::PixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, 0);
+}
+
+TEST_F(TextureTest, TexImage2DRGB9E5FromOtherPackedFloatTypeStillConverts) {
+    // Negative control for the raw path: a genuinely different client layout keeps the
+    // decode-to-float / re-encode conversion.
+    GLuint texture = 0;
+    MG_Impl::GLImpl::GenTextures(1, &texture);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, texture);
+
+    // 10F_11F_11F_REV word holding (1.0, 0.5, 0.25) - see the packed readback encode tests.
+    const Uint32 packedFloatWord = 0x681C03C0u;
+    MG_Impl::GLImpl::PixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    MG_Impl::GLImpl::TexImage2D(GL_TEXTURE_2D, 0, GL_RGB9_E5, 1, 1, 0, GL_RGB, GL_UNSIGNED_INT_10F_11F_11F_REV,
+                                &packedFloatWord);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    const auto* stored = GetBoundTexture2DLevelBytes(texture);
+    ASSERT_NE(stored, nullptr);
+    Uint32 word = 0;
+    std::memcpy(&word, stored, sizeof(word));
+    const Float rgb[3] = {1.0f, 0.5f, 0.25f};
+    EXPECT_EQ(word, MG_Util::EncodeSharedExponentRGB9E5(rgb));
+    EXPECT_NE(word, packedFloatWord) << "the raw path must not swallow a real conversion";
+
+    MG_Impl::GLImpl::PixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, 0);
+}
+
+TEST_F(TextureTest, StorePackedWordsToClientCopiesWordsVerbatimUnderPackParams) {
+    // Readback direction: the raw store copies the words bit-for-bit while still honoring the
+    // client-side PACK addressing (alignment, skip rows/pixels) and GL_PACK_SWAP_BYTES.
+    namespace ReadbackImpl = MG_Backend::DirectGLES::ReadbackImpl;
+
+    const Uint32 source[] = {0xF8FC0000u, 0x60000000u, 0x08000001u,  // row 0
+                             0x0FFFFFFFu, 0xFFFFFFFFu, 0x00000000u}; // row 1
+    constexpr Uint32 kFill = 0xDEADBEEFu;
+    Uint32 destination[16];
+    std::fill(std::begin(destination), std::end(destination), kFill);
+
+    MG_Impl::GLImpl::PixelStorei(GL_PACK_ALIGNMENT, 8); // rows of 3 words (12 B) pad to 16 B
+    MG_Impl::GLImpl::PixelStorei(GL_PACK_SKIP_ROWS, 1);
+    MG_Impl::GLImpl::PixelStorei(GL_PACK_SKIP_PIXELS, 1);
+    ASSERT_TRUE(ReadbackImpl::StorePackedWordsToClient(reinterpret_cast<const Uint8*>(source), /*width=*/3,
+                                                       /*sliceHeight=*/2, /*sliceCount=*/1,
+                                                       GL_UNSIGNED_INT_5_9_9_9_REV, destination,
+                                                       /*applyPackImageParams=*/false));
+    // Row 0 lands at SKIP_ROWS * 16 + SKIP_PIXELS * 4 = 20 bytes = word 5; row 1 one 16-byte
+    // stride further along, at word 9.
+    for (Int i = 0; i < 3; ++i) {
+        EXPECT_EQ(destination[5 + i], source[i]) << "row 0 texel " << i;
+        EXPECT_EQ(destination[9 + i], source[3 + i]) << "row 1 texel " << i;
+    }
+    // The skipped region and the row padding stay untouched.
+    EXPECT_EQ(destination[0], kFill);
+    EXPECT_EQ(destination[4], kFill);
+    EXPECT_EQ(destination[8], kFill);
+    EXPECT_EQ(destination[12], kFill);
+
+    // GL_PACK_SWAP_BYTES reverses each 4-byte word.
+    std::fill(std::begin(destination), std::end(destination), kFill);
+    MG_Impl::GLImpl::PixelStorei(GL_PACK_SKIP_ROWS, 0);
+    MG_Impl::GLImpl::PixelStorei(GL_PACK_SKIP_PIXELS, 0);
+    MG_Impl::GLImpl::PixelStorei(GL_PACK_ALIGNMENT, 1);
+    MG_Impl::GLImpl::PixelStorei(GL_PACK_SWAP_BYTES, GL_TRUE);
+    ASSERT_TRUE(ReadbackImpl::StorePackedWordsToClient(reinterpret_cast<const Uint8*>(source), /*width=*/3,
+                                                       /*sliceHeight=*/1, /*sliceCount=*/1,
+                                                       GL_UNSIGNED_INT_5_9_9_9_REV, destination,
+                                                       /*applyPackImageParams=*/false));
+    EXPECT_EQ(destination[0], 0x0000FCF8u); // byte-reversed 0xF8FC0000
+    EXPECT_EQ(destination[1], 0x00000060u);
+
+    MG_Impl::GLImpl::PixelStorei(GL_PACK_SWAP_BYTES, GL_FALSE);
+    MG_Impl::GLImpl::PixelStorei(GL_PACK_ALIGNMENT, 4);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
 }
 
 // GL 4.6 core table 23.18: GL_TEXTURE_COMPARE_FUNC takes the whole eight-function depth-compare
@@ -2934,6 +3868,131 @@ TEST_F(TextureTest, ColorAttachableTargetsRequestTheThreeChannelWidening) {
                 PixelFormatNormalizeOptionBit::NoSnorm16RenderTarget);
     EXPECT_FALSE(GetRenderTargetNormalizeOptions(capabilities, texture2DIndex) &
                  PixelFormatNormalizeOptionBit::NoSnorm16RenderTarget);
+
+    // ...and neither can an 8-bit one. That half of the answer used to be missing entirely, which
+    // is why an R8_SNORM / RG8_SNORM colour attachment got no substitute at all on a driver
+    // without EXT_render_snorm.
+    EXPECT_TRUE(GetRenderTargetNormalizeOptions(noSnormCapabilities, texture2DIndex) &
+                PixelFormatNormalizeOptionBit::NoSnorm8RenderTarget);
+    EXPECT_FALSE(GetRenderTargetNormalizeOptions(capabilities, texture2DIndex) &
+                 PixelFormatNormalizeOptionBit::NoSnorm8RenderTarget);
+    EXPECT_FALSE(GetRenderTargetNormalizeOptions(noSnormCapabilities, bufferIndex) &
+                 PixelFormatNormalizeOptionBit::NoSnorm8RenderTarget);
+
+    // 8-bit signed-normalized storage is core ES, so only EXT_render_snorm gates the 8-bit bit;
+    // the 16-bit one also needs EXT_texture_norm16 for the encoding to exist at all.
+    MG_External::GLESCapabilities noNorm16Capabilities{};
+    noNorm16Capabilities.SupportsRenderSnorm = true;
+    noNorm16Capabilities.SupportsNorm16Texture = false;
+    EXPECT_TRUE(GetRenderTargetNormalizeOptions(noNorm16Capabilities, texture2DIndex) &
+                PixelFormatNormalizeOptionBit::NoSnorm16RenderTarget);
+    EXPECT_FALSE(GetRenderTargetNormalizeOptions(noNorm16Capabilities, texture2DIndex) &
+                 PixelFormatNormalizeOptionBit::NoSnorm8RenderTarget);
+}
+
+// ---- Signed-normalized colour-renderable substitution (KHR-GL4x.texture_swizzle on Mali) -------
+//
+// A driver without GL_EXT_render_snorm treats every signed-normalized format as texture-only, so a
+// colour attachment in one of them leaves the ES framebuffer incomplete: the draw lands nowhere and
+// the readback falls through to the CPU shadow, which for a glTexImage2D(..., nullptr) output
+// texture is all zeroes. The render-target bits used to reach GL_RGB16_SNORM alone, so five of the
+// eight SNORM formats - and in particular the single-channel GL_R8_SNORM / GL_R16_SNORM that
+// KHR-GL4x.texture_swizzle renders into for EVERY SNORM source format - had no fallback at all.
+
+TEST_F(TextureTest, SnormRenderTargetOptionsApplyToEverySignedNormalizedFormat) {
+    using MG_Util::TextureFormatProcessor::GetApplicablePixelFormatNormalizeOptions;
+    const Flags<PixelFormatNormalizeOptionBit> requested =
+        PixelFormatNormalizeOptionBit::NoSnorm8RenderTarget | PixelFormatNormalizeOptionBit::NoSnorm16RenderTarget;
+
+    for (const GLenum internalFormat : {GL_R8_SNORM, GL_RG8_SNORM, GL_RGB8_SNORM, GL_RGBA8_SNORM}) {
+        const auto applicable = GetApplicablePixelFormatNormalizeOptions(internalFormat, requested);
+        EXPECT_TRUE(applicable & PixelFormatNormalizeOptionBit::NoSnorm8RenderTarget)
+            << "internalformat 0x" << std::hex << internalFormat;
+        // The two bits are per precision class, so the 16-bit one never reaches an 8-bit format -
+        // that is what keeps the fallback reason from naming both.
+        EXPECT_FALSE(applicable & PixelFormatNormalizeOptionBit::NoSnorm16RenderTarget)
+            << "internalformat 0x" << std::hex << internalFormat;
+    }
+    for (const GLenum internalFormat : {GL_R16_SNORM, GL_RG16_SNORM, GL_RGB16_SNORM, GL_RGBA16_SNORM}) {
+        const auto applicable = GetApplicablePixelFormatNormalizeOptions(internalFormat, requested);
+        EXPECT_TRUE(applicable & PixelFormatNormalizeOptionBit::NoSnorm16RenderTarget)
+            << "internalformat 0x" << std::hex << internalFormat;
+        EXPECT_FALSE(applicable & PixelFormatNormalizeOptionBit::NoSnorm8RenderTarget)
+            << "internalformat 0x" << std::hex << internalFormat;
+    }
+    // GL_RGB16_SNORM used to be granted the 16-bit bit only when the three-channel widening was
+    // requested alongside it, which made the answer depend on the order the caller assembled its
+    // option set in. The capability probe and the runtime storage choice assemble different sets.
+    EXPECT_TRUE(GetApplicablePixelFormatNormalizeOptions(GL_RGB16_SNORM,
+                                                         PixelFormatNormalizeOptionBit::NoSnorm16RenderTarget) &
+                PixelFormatNormalizeOptionBit::NoSnorm16RenderTarget);
+
+    // Nothing else responds to either bit; an unsigned-normalized or float format keeps its storage.
+    for (const GLenum internalFormat : {GL_R8, GL_R16, GL_RGBA8, GL_RGBA16, GL_RGB16F, GL_RGBA32F, GL_RGB9_E5}) {
+        EXPECT_FALSE(GetApplicablePixelFormatNormalizeOptions(internalFormat, requested))
+            << "internalformat 0x" << std::hex << internalFormat;
+    }
+}
+
+TEST_F(TextureTest, SnormRenderTargetSubstitutesKeepEveryChannelValueExactly) {
+    using MG_Util::TextureFormatProcessor::NormalizePixelFormat;
+    struct Case {
+        GLenum requested;
+        Flags<PixelFormatNormalizeOptionBit> options;
+        GLenum internalFormat;
+        GLenum format;
+        GLenum type;
+    };
+    const Flags<PixelFormatNormalizeOptionBit> snorm8RT = PixelFormatNormalizeOptionBit::NoSnorm8RenderTarget;
+    const Flags<PixelFormatNormalizeOptionBit> snorm16RT = PixelFormatNormalizeOptionBit::NoSnorm16RenderTarget;
+
+    const Case cases[] = {
+        // 8-bit: a half float represents every v/127 exactly (the worst case, -123/127, quantizes
+        // 0.03 of a SNORM step away), so it is the same storage GL_RGBA8_SNORM already always got.
+        {GL_R8_SNORM, snorm8RT, GL_R16F, GL_RED, GL_FLOAT},
+        {GL_RG8_SNORM, snorm8RT, GL_RG16F, GL_RG, GL_FLOAT},
+        {GL_RGBA8_SNORM, snorm8RT, GL_RGBA16F, GL_RGBA, GL_FLOAT},
+        // 16-bit: NOT a half float. Its spacing just below 1.0 is some 16 SNORM steps, so it hands
+        // -23451/32767 back as -23457 against a conformance window of one step; a 32-bit float
+        // round-trips all 65535 channel values.
+        {GL_R16_SNORM, snorm16RT, GL_R32F, GL_RED, GL_FLOAT},
+        {GL_RG16_SNORM, snorm16RT, GL_RG32F, GL_RG, GL_FLOAT},
+        {GL_RGBA16_SNORM, snorm16RT, GL_RGBA32F, GL_RGBA, GL_FLOAT},
+        // The render-target bit outranks the narrower fallbacks, whichever way the caller's option
+        // set was assembled: the capability probe folds the driver options in, the runtime storage
+        // choice can see the render-target bit alone, and the two have to pick the same storage.
+        {GL_R16_SNORM, snorm16RT | PixelFormatNormalizeOptionBit::NoNorm16, GL_R32F, GL_RED, GL_FLOAT},
+        {GL_RG16_SNORM, snorm16RT | PixelFormatNormalizeOptionBit::NoSnorm16, GL_RG32F, GL_RG, GL_FLOAT},
+        {GL_RGBA16_SNORM,
+         snorm16RT | PixelFormatNormalizeOptionBit::NoNorm16 | PixelFormatNormalizeOptionBit::NoSnorm16,
+         GL_RGBA32F, GL_RGBA, GL_FLOAT},
+        // The three-channel formats go on through the widening, which outranks everything.
+        {GL_RGB8_SNORM, snorm8RT | PixelFormatNormalizeOptionBit::NoThreeChannelRenderTarget, GL_RGBA16F, GL_RGBA,
+         GL_FLOAT},
+        {GL_RGB16_SNORM, snorm16RT | PixelFormatNormalizeOptionBit::NoThreeChannelRenderTarget, GL_RGBA32F, GL_RGBA,
+         GL_FLOAT},
+        // Control: with EXT_render_snorm neither bit is ever set, so the driver that renders to the
+        // signed-normalized encoding keeps storing it byte for byte. This is the shape Adreno and
+        // llvmpipe take, which is why the substitution is invisible on every gate the project runs.
+        {GL_R8_SNORM, PixelFormatNormalizeOptionBit::None, GL_R8_SNORM, GL_RED, GL_BYTE},
+        {GL_RG8_SNORM, PixelFormatNormalizeOptionBit::None, GL_RG8_SNORM, GL_RG, GL_BYTE},
+        {GL_R16_SNORM, PixelFormatNormalizeOptionBit::None, GL_R16_SNORM, GL_RED, GL_SHORT},
+        {GL_RG16_SNORM, PixelFormatNormalizeOptionBit::None, GL_RG16_SNORM, GL_RG, GL_SHORT},
+        {GL_RGBA16_SNORM, PixelFormatNormalizeOptionBit::None, GL_RGBA16_SNORM, GL_RGBA, GL_SHORT},
+        // ...and the bit for the other precision class does nothing on its own.
+        {GL_R8_SNORM, snorm16RT, GL_R8_SNORM, GL_RED, GL_BYTE},
+        {GL_R16_SNORM, snorm8RT, GL_R16_SNORM, GL_RED, GL_SHORT},
+    };
+
+    for (const auto& testCase : cases) {
+        GLenum internalFormat = 0;
+        GLenum format = 0;
+        GLenum type = 0;
+        NormalizePixelFormat(testCase.requested, testCase.options, &internalFormat, &format, &type);
+        EXPECT_EQ(internalFormat, testCase.internalFormat) << "requested 0x" << std::hex << testCase.requested;
+        EXPECT_EQ(format, testCase.format) << "requested 0x" << std::hex << testCase.requested;
+        EXPECT_EQ(type, testCase.type) << "requested 0x" << std::hex << testCase.requested;
+    }
 }
 
 TEST_F(TextureTest, ThreeChannelRenderTargetOptionAppliesToEveryDeniedThreeChannelFormat) {
@@ -2984,9 +4043,10 @@ TEST_F(TextureTest, ThreeChannelWideningRetargetsInternalFormatAndTransferPairTo
         {GL_RGB16F, widen, GL_RGBA16F, GL_RGBA, GL_HALF_FLOAT},
         {GL_RGB32F, widen, GL_RGBA32F, GL_RGBA, GL_FLOAT},
         // 16-bit SNORM keeps its encoding where EXT_render_snorm can render to it; a half float's
-        // 11-bit mantissa cannot represent a 16-bit SNORM channel exactly.
+        // 11-bit mantissa cannot represent a 16-bit SNORM channel exactly, so the driver that
+        // cannot render to the encoding gets the 32-bit float rather than the half.
         {GL_RGB16_SNORM, widen, GL_RGBA16_SNORM, GL_RGBA, GL_SHORT},
-        {GL_RGB16_SNORM, widenNoSnorm16, GL_RGBA16F, GL_RGBA, GL_FLOAT},
+        {GL_RGB16_SNORM, widenNoSnorm16, GL_RGBA32F, GL_RGBA, GL_FLOAT},
         // 16-bit UNORM and the legacy 10/12-bit formats stored as RGB16.
         {GL_RGB16, widen, GL_RGBA32F, GL_RGBA, GL_FLOAT},
         {GL_RGB10, widen, GL_RGBA32F, GL_RGBA, GL_FLOAT},
@@ -3268,23 +4328,864 @@ TEST_F(TextureTest, CopyTexImage1DReportsUnsupportedInsteadOfTerminating) {
     ExpectSingleGlError(GL_INVALID_OPERATION);
 }
 
-TEST_F(TextureTest, GetTexLevelParameterOnBufferStorageReportsErrorInsteadOfTerminating) {
-    // TextureStorageType is {Mipmap, Buffer} and the level queries only answer out of a mipmap
-    // chain, so every glGetTexLevelParameter* on a GL_TEXTURE_BUFFER texture reached a
-    // THROW_UNIMPL_EXCEPTION default: label and killed the process.
+TEST_F(TextureTest, GetTexLevelParameterAnswersBufferStorageGeometry) {
+    // TextureStorageType is {Mipmap, Buffer} and the level queries used to answer only out of a
+    // mipmap chain, so every glGetTexLevelParameter* on a GL_TEXTURE_BUFFER texture reached a
+    // THROW_UNIMPL_EXCEPTION default: label and killed the process. It now answers out of the
+    // attached buffer range instead (GL 4.6 core 8.9): a buffer texture is one-dimensional, and
+    // with no buffer attached it addresses no texels at all.
     GLuint texture = 0;
     MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_BUFFER, 1, &texture);
     MG_Impl::GLImpl::BindTexture(GL_TEXTURE_BUFFER, texture);
     MG_Impl::GLImpl::TexBuffer(GL_TEXTURE_BUFFER, GL_R8, 0);
     DrainPendingGlErrors();
 
-    for (const GLenum pname : {GL_TEXTURE_WIDTH, GL_TEXTURE_HEIGHT, GL_TEXTURE_DEPTH}) {
+    const std::pair<GLenum, GLint> expectations[] = {
+        {GL_TEXTURE_WIDTH, 0}, {GL_TEXTURE_HEIGHT, 1}, {GL_TEXTURE_DEPTH, 1}};
+    for (const auto& [pname, expected] : expectations) {
         GLint intParam = 0x20202020;
         MG_Impl::GLImpl::GetTexLevelParameteriv(GL_TEXTURE_BUFFER, 0, pname, &intParam);
-        ExpectSingleGlError(GL_INVALID_OPERATION);
+        EXPECT_EQ(MG_Impl::GLImpl::GetError(), static_cast<GLenum>(GL_NO_ERROR));
+        EXPECT_EQ(intParam, expected) << "pname " << pname;
 
         GLfloat floatParam = 12345.0f;
         MG_Impl::GLImpl::GetTexLevelParameterfv(GL_TEXTURE_BUFFER, 0, pname, &floatParam);
-        ExpectSingleGlError(GL_INVALID_OPERATION);
+        EXPECT_EQ(MG_Impl::GLImpl::GetError(), static_cast<GLenum>(GL_NO_ERROR));
+        EXPECT_EQ(floatParam, static_cast<GLfloat>(expected)) << "pname " << pname;
     }
+}
+
+// Immutable storage plus glCompressedTexSubImage2D is the modern way to upload a compressed
+// texture, so glTexStorage2D has to commit its levels to a specific compressed internalformat
+// exactly as glTexImage2D does. When it did not, the sub-image call found an uncompressed level
+// and refused it, and glTexImage2D and glTexStorage2D disagreed about the same token.
+TEST_F(TextureTest, TexStorage2DTagsEveryLevelForASpecificCompressedFormat) {
+    GLuint texture = 0;
+    MG_Impl::GLImpl::GenTextures(1, &texture);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, texture);
+    MG_Impl::GLImpl::TexStorage2D(GL_TEXTURE_2D, 2, GL_COMPRESSED_RED_RGTC1, 8, 8);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    for (GLint level = 0; level < 2; ++level) {
+        GLint compressed = GL_FALSE;
+        MG_Impl::GLImpl::GetTexLevelParameteriv(GL_TEXTURE_2D, level, GL_TEXTURE_COMPRESSED, &compressed);
+        EXPECT_EQ(compressed, GL_TRUE) << "level " << level;
+        GLint internalFormat = 0;
+        MG_Impl::GLImpl::GetTexLevelParameteriv(GL_TEXTURE_2D, level, GL_TEXTURE_INTERNAL_FORMAT, &internalFormat);
+        EXPECT_EQ(internalFormat, static_cast<GLint>(GL_COMPRESSED_RED_RGTC1)) << "level " << level;
+        GLint imageSize = 0;
+        MG_Impl::GLImpl::GetTexLevelParameteriv(GL_TEXTURE_2D, level, GL_TEXTURE_COMPRESSED_IMAGE_SIZE, &imageSize);
+        // 8x8 -> 2x2 blocks -> 32 bytes; 4x4 -> 1 block -> 8 bytes.
+        EXPECT_EQ(imageSize, level == 0 ? 32 : 8) << "level " << level;
+    }
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    // ...and the sub-image call the whole arrangement exists for now reaches both levels.
+    Uint8 blocks[kRgtc1Size8x8];
+    for (Int i = 0; i < kRgtc1Size8x8; ++i) blocks[i] = static_cast<Uint8>(0x40 + i);
+    MG_Impl::GLImpl::CompressedTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 8, 8, GL_COMPRESSED_RED_RGTC1, kRgtc1Size8x8,
+                                             blocks);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    Uint8 stored[kRgtc1Size8x8] = {};
+    MG_Impl::GLImpl::GetCompressedTexImage(GL_TEXTURE_2D, 0, stored);
+    EXPECT_EQ(std::memcmp(stored, blocks, sizeof(stored)), 0);
+
+    MG_Impl::GLImpl::CompressedTexSubImage2D(GL_TEXTURE_2D, 1, 0, 0, 4, 4, GL_COMPRESSED_RED_RGTC1, 8, blocks);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
+// The negative control: a generic compressed token leaves glTexStorage2D's levels uncompressed,
+// because for those the implementation's choice IS the answer and MobileGL chooses uncompressed.
+TEST_F(TextureTest, TexStorage2DLeavesAGenericCompressedFormatUncompressed) {
+    GLuint texture = 0;
+    MG_Impl::GLImpl::GenTextures(1, &texture);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, texture);
+    MG_Impl::GLImpl::TexStorage2D(GL_TEXTURE_2D, 1, GL_COMPRESSED_RED, 8, 8);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    GLint compressed = GL_TRUE;
+    MG_Impl::GLImpl::GetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_COMPRESSED, &compressed);
+    EXPECT_EQ(compressed, GL_FALSE);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
+// ===================== glCopyImageSubData validation (KHR-GL43.copy_image) =====================
+//
+// Every case below is a mechanism the conformance group caught in the field, and each one is
+// pinned here because the backend cannot: a wrongly ACCEPTED copy shows up only as wrong pixels
+// on a device, and a wrongly REJECTED one shows up only as a conformance failure.
+
+namespace {
+    struct CopyImageSubDataCall {
+        Bool Called = false;
+        GLenum SrcTarget = GL_NONE;
+        GLenum DstTarget = GL_NONE;
+        GLint SrcZ = -1;
+        GLint DstZ = -1;
+        GLsizei Depth = -1;
+        Bool SrcIsRenderbuffer = false;
+        Bool DstIsRenderbuffer = false;
+    } g_copyImageSubDataCall;
+
+    void RecordCopyImageSubData(const MG_Backend::CopyImageEndpoint& src, GLenum srcTarget,
+                                GLint srcLevel, GLint srcX, GLint srcY, GLint srcZ,
+                                const MG_Backend::CopyImageEndpoint& dst, GLenum dstTarget,
+                                GLint dstLevel, GLint dstX, GLint dstY, GLint dstZ, GLsizei srcWidth,
+                                GLsizei srcHeight, GLsizei srcDepth) {
+        (void)srcLevel;
+        (void)srcX;
+        (void)srcY;
+        (void)dstLevel;
+        (void)dstX;
+        (void)dstY;
+        (void)srcWidth;
+        (void)srcHeight;
+        g_copyImageSubDataCall = {true,   srcTarget, dstTarget,           srcZ,
+                                  dstZ,   srcDepth,  src.IsRenderbuffer(), dst.IsRenderbuffer()};
+    }
+
+    // Two storage-backed 2D textures of the requested formats, so a copy between them is a legal
+    // call in every respect except the one the test is about.
+    void MakeCopyImagePair(GLenum srcFormat, GLenum dstFormat, GLuint& srcTexture, GLuint& dstTexture,
+                           GLsizei levels = 1, GLsizei extent = 8) {
+        MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_2D, 1, &srcTexture);
+        MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_2D, 1, &dstTexture);
+        MG_Impl::GLImpl::TextureStorage2D(srcTexture, levels, srcFormat, extent, extent);
+        MG_Impl::GLImpl::TextureStorage2D(dstTexture, levels, dstFormat, extent, extent);
+    }
+} // namespace
+
+// GL 4.6 core 18.3.2 compatibility is texel-block SIZE, not base internal format. RGB10_A2 and
+// R11F_G11F_B10F are both 32-bit and their bases differ (RGBA vs RGB); the old exact-base-format
+// predicate rejected the pair, which is what took down the whole cross-format half of the
+// conformance matrix on both backends.
+TEST_F(TextureTest, CopyImageSubDataAcceptsEqualTexelSizeAcrossDifferentBaseFormats) {
+    const ScopedTextureBackendFunctionsOverride backendGuard;
+    MG_Backend::gBackendFunctionsTable.GL.CopyImageSubData = RecordCopyImageSubData;
+    g_copyImageSubDataCall = {};
+
+    GLuint srcTexture = 0;
+    GLuint dstTexture = 0;
+    MakeCopyImagePair(GL_RGB10_A2, GL_R11F_G11F_B10F, srcTexture, dstTexture);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    MG_Impl::GLImpl::CopyImageSubData(srcTexture, GL_TEXTURE_2D, 0, 0, 0, 0, dstTexture, GL_TEXTURE_2D, 0, 0, 0, 0,
+                                      4, 4, 1);
+    EXPECT_TRUE(g_copyImageSubDataCall.Called);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
+// The other half of the same rule: equal base format is not sufficient either. RGBA8 and RGBA32F
+// are both RGBA and 32 vs 128 bits, so the copy is illegal.
+TEST_F(TextureTest, CopyImageSubDataRejectsDifferentTexelSizesWithTheSameBaseFormat) {
+    const ScopedTextureBackendFunctionsOverride backendGuard;
+    MG_Backend::gBackendFunctionsTable.GL.CopyImageSubData = RecordCopyImageSubData;
+    g_copyImageSubDataCall = {};
+
+    GLuint srcTexture = 0;
+    GLuint dstTexture = 0;
+    MakeCopyImagePair(GL_RGBA8, GL_RGBA32F, srcTexture, dstTexture);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    MG_Impl::GLImpl::CopyImageSubData(srcTexture, GL_TEXTURE_2D, 0, 0, 0, 0, dstTexture, GL_TEXTURE_2D, 0, 0, 0, 0,
+                                      4, 4, 1);
+    EXPECT_FALSE(g_copyImageSubDataCall.Called);
+    ExpectSingleGlError(GL_INVALID_OPERATION);
+}
+
+// ...and the pairing that is legal purely because the sizes agree, across integer-ness too.
+TEST_F(TextureTest, CopyImageSubDataAcceptsIntegerAndFloatOfTheSameTexelSize) {
+    const ScopedTextureBackendFunctionsOverride backendGuard;
+    MG_Backend::gBackendFunctionsTable.GL.CopyImageSubData = RecordCopyImageSubData;
+    g_copyImageSubDataCall = {};
+
+    GLuint srcTexture = 0;
+    GLuint dstTexture = 0;
+    MakeCopyImagePair(GL_RGBA32UI, GL_RGBA32F, srcTexture, dstTexture);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    MG_Impl::GLImpl::CopyImageSubData(srcTexture, GL_TEXTURE_2D, 0, 0, 0, 0, dstTexture, GL_TEXTURE_2D, 0, 0, 0, 0,
+                                      4, 4, 1);
+    EXPECT_TRUE(g_copyImageSubDataCall.Called);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
+// 18.3.2 spells a name that is not an object INVALID_VALUE. The shared texture-object validator
+// says INVALID_OPERATION, which is right for the entry points that reach an object through a
+// BINDING - hence a rule local to this entry point rather than a change to the helper.
+TEST_F(TextureTest, CopyImageSubDataNonExistentNameIsInvalidValue) {
+    const ScopedTextureBackendFunctionsOverride backendGuard;
+    MG_Backend::gBackendFunctionsTable.GL.CopyImageSubData = RecordCopyImageSubData;
+    g_copyImageSubDataCall = {};
+
+    MG_Impl::GLImpl::CopyImageSubData(4242, GL_TEXTURE_2D, 0, 0, 0, 0, 4243, GL_TEXTURE_2D, 0, 0, 0, 0, 1, 1, 1);
+    EXPECT_FALSE(g_copyImageSubDataCall.Called);
+    ExpectSingleGlError(GL_INVALID_VALUE);
+}
+
+// A target that disagrees with the object it names is INVALID_ENUM, not the INVALID_OPERATION the
+// shared target-uniformity validator records for the upload paths.
+TEST_F(TextureTest, CopyImageSubDataTargetNotMatchingTheObjectIsInvalidEnum) {
+    const ScopedTextureBackendFunctionsOverride backendGuard;
+    MG_Backend::gBackendFunctionsTable.GL.CopyImageSubData = RecordCopyImageSubData;
+    g_copyImageSubDataCall = {};
+
+    GLuint srcTexture = 0;
+    GLuint dstTexture = 0;
+    MakeCopyImagePair(GL_RGBA8, GL_RGBA8, srcTexture, dstTexture);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    MG_Impl::GLImpl::CopyImageSubData(srcTexture, GL_TEXTURE_2D, 0, 0, 0, 0, dstTexture, GL_TEXTURE_2D_ARRAY, 0, 0,
+                                      0, 0, 1, 1, 1);
+    EXPECT_FALSE(g_copyImageSubDataCall.Called);
+    ExpectSingleGlError(GL_INVALID_ENUM);
+}
+
+// The eleven whole-image targets only: a cube FACE converts to a target the frontend knows, so the
+// generic target validator lets it through, but 18.3.2 does not accept it here.
+TEST_F(TextureTest, CopyImageSubDataRejectsTargetsOutsideTheSpecList) {
+    const ScopedTextureBackendFunctionsOverride backendGuard;
+    MG_Backend::gBackendFunctionsTable.GL.CopyImageSubData = RecordCopyImageSubData;
+    g_copyImageSubDataCall = {};
+
+    GLuint srcTexture = 0;
+    GLuint dstTexture = 0;
+    MakeCopyImagePair(GL_RGBA8, GL_RGBA8, srcTexture, dstTexture);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    MG_Impl::GLImpl::CopyImageSubData(srcTexture, GL_TEXTURE_CUBE_MAP_POSITIVE_X, 0, 0, 0, 0, dstTexture,
+                                      GL_TEXTURE_2D, 0, 0, 0, 0, 1, 1, 1);
+    EXPECT_FALSE(g_copyImageSubDataCall.Called);
+    ExpectSingleGlError(GL_INVALID_ENUM);
+}
+
+// A level the image does not have is INVALID_VALUE; a single-level texture asked for level 1 used
+// to reach the backend with whatever the storage layer answered for that level.
+TEST_F(TextureTest, CopyImageSubDataRejectsLevelTheImageDoesNotHave) {
+    const ScopedTextureBackendFunctionsOverride backendGuard;
+    MG_Backend::gBackendFunctionsTable.GL.CopyImageSubData = RecordCopyImageSubData;
+    g_copyImageSubDataCall = {};
+
+    GLuint srcTexture = 0;
+    GLuint dstTexture = 0;
+    MakeCopyImagePair(GL_RGBA8, GL_RGBA8, srcTexture, dstTexture);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    MG_Impl::GLImpl::CopyImageSubData(srcTexture, GL_TEXTURE_2D, 0, 0, 0, 0, dstTexture, GL_TEXTURE_2D, 1, 0, 0, 0,
+                                      1, 1, 1);
+    EXPECT_FALSE(g_copyImageSubDataCall.Called);
+    ExpectSingleGlError(GL_INVALID_VALUE);
+}
+
+// Sample counts must match. A single-sample image reports zero, so this same comparison is also
+// what refuses a copy between a multisample target and a non-multisample one.
+TEST_F(TextureTest, CopyImageSubDataRejectsSampleCountMismatch) {
+    const ScopedTextureBackendFunctionsOverride backendGuard;
+    MG_Backend::gBackendFunctionsTable.GL.CopyImageSubData = RecordCopyImageSubData;
+    g_copyImageSubDataCall = {};
+
+    // Two DIFFERENT counts are the whole point, so the case needs a context that can actually
+    // create multisample storage - which this unit-test binary, with no backend behind the
+    // renderable-format and sample-count queries, may not be able to. The precondition is
+    // checked on the state objects rather than assumed, so this can only ever skip or test the
+    // real rule; it can never pass vacuously.
+    GLint maxSamples = 1;
+    MG_Impl::GLImpl::GetIntegerv(GL_MAX_SAMPLES, &maxSamples);
+    GLuint srcTexture = 0;
+    GLuint dstTexture = 0;
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_2D_MULTISAMPLE, 1, &srcTexture);
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_2D_MULTISAMPLE, 1, &dstTexture);
+    MG_Impl::GLImpl::TextureStorage2DMultisample(srcTexture, 1, GL_RGBA8, 8, 8, GL_FALSE);
+    MG_Impl::GLImpl::TextureStorage2DMultisample(dstTexture, std::max(maxSamples, 2), GL_RGBA8, 8, 8, GL_FALSE);
+    DrainPendingGlErrors();
+
+    const Int srcSamples = MG_State::pGLContext->GetTextureObject(srcTexture)->GetSamples();
+    const Int dstSamples = MG_State::pGLContext->GetTextureObject(dstTexture)->GetSamples();
+    if (srcSamples == dstSamples) {
+        GTEST_SKIP() << "this context could not give the two textures different sample counts (both " << srcSamples
+                     << "); nothing for the rule to reject";
+    }
+
+    MG_Impl::GLImpl::CopyImageSubData(srcTexture, GL_TEXTURE_2D_MULTISAMPLE, 0, 0, 0, 0, dstTexture,
+                                      GL_TEXTURE_2D_MULTISAMPLE, 0, 0, 0, 0, 1, 1, 1);
+    EXPECT_FALSE(g_copyImageSubDataCall.Called);
+    ExpectSingleGlError(GL_INVALID_OPERATION);
+}
+
+// The layer range has to survive the frontend intact. Both backends used to drop it - DirectVulkan
+// pinned baseArrayLayer/layerCount at 0/1 - so a 12-layer copy moved one layer and said nothing;
+// this pins the frontend half of that contract.
+TEST_F(TextureTest, CopyImageSubDataForwardsTheWholeLayerRangeToTheBackend) {
+    const ScopedTextureBackendFunctionsOverride backendGuard;
+    MG_Backend::gBackendFunctionsTable.GL.CopyImageSubData = RecordCopyImageSubData;
+    g_copyImageSubDataCall = {};
+
+    GLuint srcTexture = 0;
+    GLuint dstTexture = 0;
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_2D_ARRAY, 1, &srcTexture);
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_2D_ARRAY, 1, &dstTexture);
+    MG_Impl::GLImpl::TextureStorage3D(srcTexture, 1, GL_RGBA8, 8, 8, 12);
+    MG_Impl::GLImpl::TextureStorage3D(dstTexture, 1, GL_RGBA8, 8, 8, 12);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    MG_Impl::GLImpl::CopyImageSubData(srcTexture, GL_TEXTURE_2D_ARRAY, 0, 0, 0, 2, dstTexture, GL_TEXTURE_2D_ARRAY,
+                                      0, 0, 0, 5, 4, 4, 7);
+    EXPECT_TRUE(g_copyImageSubDataCall.Called);
+    EXPECT_EQ(g_copyImageSubDataCall.SrcZ, 2);
+    EXPECT_EQ(g_copyImageSubDataCall.DstZ, 5);
+    EXPECT_EQ(g_copyImageSubDataCall.Depth, 7);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
+// The shape KHR-GL43.copy_image.invalid_object ends on once the invalid-name cases are answered
+// correctly: two ordinary glTexImage2D textures, no storage object, one texel copied from the
+// origin. Nothing about it is exotic, which is exactly why it is worth a case of its own - every
+// rule added to this validator is a new way to reject it.
+TEST_F(TextureTest, CopyImageSubDataAcceptsAPlainMutableTexImage2DPair) {
+    const ScopedTextureBackendFunctionsOverride backendGuard;
+    MG_Backend::gBackendFunctionsTable.GL.CopyImageSubData = RecordCopyImageSubData;
+    g_copyImageSubDataCall = {};
+
+    GLuint srcTexture = 0;
+    GLuint dstTexture = 0;
+    MG_Impl::GLImpl::GenTextures(1, &srcTexture);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, srcTexture);
+    MG_Impl::GLImpl::TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 16, 16, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    MG_Impl::GLImpl::TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
+    MG_Impl::GLImpl::TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
+    MG_Impl::GLImpl::GenTextures(1, &dstTexture);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, dstTexture);
+    MG_Impl::GLImpl::TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 16, 16, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    MG_Impl::GLImpl::TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
+    MG_Impl::GLImpl::TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    MG_Impl::GLImpl::CopyImageSubData(srcTexture, GL_TEXTURE_2D, 0, 0, 0, 0, dstTexture, GL_TEXTURE_2D, 0, 0, 0, 0,
+                                      1, 1, 1);
+    EXPECT_TRUE(g_copyImageSubDataCall.Called);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    // ...and again after the names have been through a delete/regenerate cycle, which is what the
+    // conformance case does between its sub-cases: it deletes an object to make it invalid, then
+    // builds the next pair from names the allocator hands straight back.
+    MG_Impl::GLImpl::DeleteTextures(1, &srcTexture);
+    MG_Impl::GLImpl::DeleteTextures(1, &dstTexture);
+    DrainPendingGlErrors();
+    g_copyImageSubDataCall = {};
+
+    GLuint reusedSrc = 0;
+    GLuint reusedDst = 0;
+    MG_Impl::GLImpl::GenTextures(1, &reusedSrc);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, reusedSrc);
+    MG_Impl::GLImpl::TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 16, 16, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    MG_Impl::GLImpl::TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
+    MG_Impl::GLImpl::TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
+    MG_Impl::GLImpl::GenTextures(1, &reusedDst);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, reusedDst);
+    MG_Impl::GLImpl::TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 16, 16, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    MG_Impl::GLImpl::TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
+    MG_Impl::GLImpl::TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    MG_Impl::GLImpl::CopyImageSubData(reusedSrc, GL_TEXTURE_2D, 0, 0, 0, 0, reusedDst, GL_TEXTURE_2D, 0, 0, 0, 0, 1,
+                                      1, 1);
+    EXPECT_TRUE(g_copyImageSubDataCall.Called);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
+// A rectangle target reaches the backend as itself. The translation to the GL_TEXTURE_2D the ES
+// driver actually stores it in belongs to DirectGLES, not here - and putting it here would break
+// DirectVulkan, which needs the real target to tell an array copy from a flat one.
+TEST_F(TextureTest, CopyImageSubDataPassesTheRectangleTargetThroughUntranslated) {
+    const ScopedTextureBackendFunctionsOverride backendGuard;
+    MG_Backend::gBackendFunctionsTable.GL.CopyImageSubData = RecordCopyImageSubData;
+    g_copyImageSubDataCall = {};
+
+    GLuint srcTexture = 0;
+    GLuint dstTexture = 0;
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_RECTANGLE, 1, &srcTexture);
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_RECTANGLE, 1, &dstTexture);
+    MG_Impl::GLImpl::TextureStorage2D(srcTexture, 1, GL_RGBA8, 8, 8);
+    MG_Impl::GLImpl::TextureStorage2D(dstTexture, 1, GL_RGBA8, 8, 8);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    MG_Impl::GLImpl::CopyImageSubData(srcTexture, GL_TEXTURE_RECTANGLE, 0, 0, 0, 0, dstTexture, GL_TEXTURE_RECTANGLE,
+                                      0, 0, 0, 0, 4, 4, 1);
+    EXPECT_TRUE(g_copyImageSubDataCall.Called);
+    EXPECT_EQ(g_copyImageSubDataCall.SrcTarget, static_cast<GLenum>(GL_TEXTURE_RECTANGLE));
+    EXPECT_EQ(g_copyImageSubDataCall.DstTarget, static_cast<GLenum>(GL_TEXTURE_RECTANGLE));
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
+// GL 4.6 core 18.3.2 accepts GL_RENDERBUFFER as an endpoint target, and a renderbuffer name lives
+// in its own namespace. Resolving BOTH names through the texture namespace answered a null object
+// for every renderbuffer endpoint, so all 74 conformance cases that name one - the whole
+// texture<->renderbuffer half of KHR-GL43.copy_image, plus its smoke test - reported
+// GL_INVALID_VALUE. The endpoint is a sum type now; the target picks the namespace.
+TEST_F(TextureTest, CopyImageSubDataResolvesARenderbufferEndpointInTheRenderbufferNamespace) {
+    const ScopedTextureBackendFunctionsOverride backendGuard;
+    MG_Backend::gBackendFunctionsTable.GL.CopyImageSubData = RecordCopyImageSubData;
+    g_copyImageSubDataCall = {};
+
+    GLuint texture = 0;
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_2D, 1, &texture);
+    MG_Impl::GLImpl::TextureStorage2D(texture, 1, GL_RGBA8, 8, 8);
+    GLuint renderbuffer = 0;
+    MG_Impl::GLImpl::CreateRenderbuffers(1, &renderbuffer);
+    MG_Impl::GLImpl::NamedRenderbufferStorage(renderbuffer, GL_RGBA8, 8, 8);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    MG_Impl::GLImpl::CopyImageSubData(texture, GL_TEXTURE_2D, 0, 0, 0, 0, renderbuffer, GL_RENDERBUFFER, 0, 0, 0, 0,
+                                      4, 4, 1);
+    EXPECT_TRUE(g_copyImageSubDataCall.Called);
+    EXPECT_FALSE(g_copyImageSubDataCall.SrcIsRenderbuffer);
+    EXPECT_TRUE(g_copyImageSubDataCall.DstIsRenderbuffer);
+    EXPECT_EQ(g_copyImageSubDataCall.DstTarget, static_cast<GLenum>(GL_RENDERBUFFER));
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    // ...and back the other way, which is the second half of the conformance case's two-copy
+    // shape (texture -> renderbuffer -> texture).
+    g_copyImageSubDataCall = {};
+    MG_Impl::GLImpl::CopyImageSubData(renderbuffer, GL_RENDERBUFFER, 0, 0, 0, 0, texture, GL_TEXTURE_2D, 0, 0, 0, 0,
+                                      4, 4, 1);
+    EXPECT_TRUE(g_copyImageSubDataCall.Called);
+    EXPECT_TRUE(g_copyImageSubDataCall.SrcIsRenderbuffer);
+    EXPECT_FALSE(g_copyImageSubDataCall.DstIsRenderbuffer);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
+// Renderbuffer to renderbuffer, the shape neither endpoint could take before, plus the negative
+// that pins which table was consulted: with GL_RENDERBUFFER named, a number that is not a live
+// RENDERBUFFER is INVALID_VALUE - the texture table is never asked.
+TEST_F(TextureTest, CopyImageSubDataKeepsTheTwoNameNamespacesApart) {
+    const ScopedTextureBackendFunctionsOverride backendGuard;
+    MG_Backend::gBackendFunctionsTable.GL.CopyImageSubData = RecordCopyImageSubData;
+    g_copyImageSubDataCall = {};
+
+    GLuint srcRenderbuffer = 0;
+    GLuint dstRenderbuffer = 0;
+    MG_Impl::GLImpl::CreateRenderbuffers(1, &srcRenderbuffer);
+    MG_Impl::GLImpl::CreateRenderbuffers(1, &dstRenderbuffer);
+    MG_Impl::GLImpl::NamedRenderbufferStorage(srcRenderbuffer, GL_RGBA8, 8, 8);
+    MG_Impl::GLImpl::NamedRenderbufferStorage(dstRenderbuffer, GL_RGBA8, 8, 8);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    MG_Impl::GLImpl::CopyImageSubData(srcRenderbuffer, GL_RENDERBUFFER, 0, 0, 0, 0, dstRenderbuffer,
+                                      GL_RENDERBUFFER, 0, 0, 0, 0, 4, 4, 1);
+    EXPECT_TRUE(g_copyImageSubDataCall.Called);
+    EXPECT_TRUE(g_copyImageSubDataCall.SrcIsRenderbuffer);
+    EXPECT_TRUE(g_copyImageSubDataCall.DstIsRenderbuffer);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    g_copyImageSubDataCall = {};
+    MG_Impl::GLImpl::CopyImageSubData(srcRenderbuffer, GL_RENDERBUFFER, 0, 0, 0, 0, 4243, GL_RENDERBUFFER, 0, 0, 0,
+                                      0, 4, 4, 1);
+    EXPECT_FALSE(g_copyImageSubDataCall.Called);
+    ExpectSingleGlError(GL_INVALID_VALUE);
+}
+
+// A renderbuffer has exactly one image, so any level above zero is the same INVALID_VALUE a
+// texture gets for a level it does not have - and an unallocated one is an incomplete image,
+// which 18.3.2 spells INVALID_OPERATION.
+TEST_F(TextureTest, CopyImageSubDataChecksARenderbufferLevelAndStorage) {
+    const ScopedTextureBackendFunctionsOverride backendGuard;
+    MG_Backend::gBackendFunctionsTable.GL.CopyImageSubData = RecordCopyImageSubData;
+    g_copyImageSubDataCall = {};
+
+    GLuint texture = 0;
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_2D, 1, &texture);
+    MG_Impl::GLImpl::TextureStorage2D(texture, 1, GL_RGBA8, 8, 8);
+    GLuint renderbuffer = 0;
+    MG_Impl::GLImpl::CreateRenderbuffers(1, &renderbuffer);
+    MG_Impl::GLImpl::NamedRenderbufferStorage(renderbuffer, GL_RGBA8, 8, 8);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    MG_Impl::GLImpl::CopyImageSubData(texture, GL_TEXTURE_2D, 0, 0, 0, 0, renderbuffer, GL_RENDERBUFFER, 1, 0, 0, 0,
+                                      4, 4, 1);
+    EXPECT_FALSE(g_copyImageSubDataCall.Called);
+    ExpectSingleGlError(GL_INVALID_VALUE);
+
+    g_copyImageSubDataCall = {};
+    GLuint emptyRenderbuffer = 0;
+    MG_Impl::GLImpl::CreateRenderbuffers(1, &emptyRenderbuffer);
+    DrainPendingGlErrors();
+
+    MG_Impl::GLImpl::CopyImageSubData(texture, GL_TEXTURE_2D, 0, 0, 0, 0, emptyRenderbuffer, GL_RENDERBUFFER, 0, 0,
+                                      0, 0, 4, 4, 1);
+    EXPECT_FALSE(g_copyImageSubDataCall.Called);
+    ExpectSingleGlError(GL_INVALID_OPERATION);
+}
+
+// GL 4.6 core 18.3.2 requires INVALID_VALUE when the region exceeds either image's boundaries, and
+// this validator had no bounds check whatsoever: the one call shaped like one,
+// ValidateCopyImageBlockAlignment, returns true on its first line for every UNCOMPRESSED format.
+// Texture endpoints only looked covered because the ES driver raised its own error - which
+// DirectGLES logs and swallows, so the application saw GL_NO_ERROR and a destination that never
+// changed (KHR-GL43.copy_image.exceeding_boundaries).
+TEST_F(TextureTest, CopyImageSubDataRejectsARegionThatLeavesTheImage) {
+    const ScopedTextureBackendFunctionsOverride backendGuard;
+    MG_Backend::gBackendFunctionsTable.GL.CopyImageSubData = RecordCopyImageSubData;
+    g_copyImageSubDataCall = {};
+
+    GLuint srcTexture = 0;
+    GLuint dstTexture = 0;
+    MakeCopyImagePair(GL_RGBA8, GL_RGBA8, srcTexture, dstTexture);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    // The region that exactly reaches the far edge is the boundary this must NOT reject - a
+    // validator that answered INVALID_VALUE to every non-origin region would satisfy the negatives
+    // below and break every legal partial copy.
+    MG_Impl::GLImpl::CopyImageSubData(srcTexture, GL_TEXTURE_2D, 0, 4, 4, 0, dstTexture, GL_TEXTURE_2D, 0, 4, 4, 0,
+                                      4, 4, 1);
+    EXPECT_TRUE(g_copyImageSubDataCall.Called);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    // One texel past it on x, on y, and on the destination side.
+    g_copyImageSubDataCall = {};
+    MG_Impl::GLImpl::CopyImageSubData(srcTexture, GL_TEXTURE_2D, 0, 5, 4, 0, dstTexture, GL_TEXTURE_2D, 0, 0, 0, 0,
+                                      4, 4, 1);
+    EXPECT_FALSE(g_copyImageSubDataCall.Called);
+    ExpectSingleGlError(GL_INVALID_VALUE);
+
+    g_copyImageSubDataCall = {};
+    MG_Impl::GLImpl::CopyImageSubData(srcTexture, GL_TEXTURE_2D, 0, 4, 5, 0, dstTexture, GL_TEXTURE_2D, 0, 0, 0, 0,
+                                      4, 4, 1);
+    EXPECT_FALSE(g_copyImageSubDataCall.Called);
+    ExpectSingleGlError(GL_INVALID_VALUE);
+
+    g_copyImageSubDataCall = {};
+    MG_Impl::GLImpl::CopyImageSubData(srcTexture, GL_TEXTURE_2D, 0, 0, 0, 0, dstTexture, GL_TEXTURE_2D, 0, 5, 5, 0,
+                                      4, 4, 1);
+    EXPECT_FALSE(g_copyImageSubDataCall.Called);
+    ExpectSingleGlError(GL_INVALID_VALUE);
+
+    // A negative origin is out of bounds on the other side of the same rule.
+    g_copyImageSubDataCall = {};
+    MG_Impl::GLImpl::CopyImageSubData(srcTexture, GL_TEXTURE_2D, 0, -1, 0, 0, dstTexture, GL_TEXTURE_2D, 0, 0, 0, 0,
+                                      4, 4, 1);
+    EXPECT_FALSE(g_copyImageSubDataCall.Called);
+    ExpectSingleGlError(GL_INVALID_VALUE);
+}
+
+// The endpoint the missing bounds check actually cost: a renderbuffer never reaches the ES
+// driver's texture-shaped checks either, so a 4x4 region at y = 14 of a 16x16 renderbuffer - the
+// exact sub-case KHR-GL43.copy_image.exceeding_boundaries starts with, GL_RENDERBUFFER being first
+// in its target list - was accepted outright.
+TEST_F(TextureTest, CopyImageSubDataBoundsARenderbufferRegion) {
+    const ScopedTextureBackendFunctionsOverride backendGuard;
+    MG_Backend::gBackendFunctionsTable.GL.CopyImageSubData = RecordCopyImageSubData;
+    g_copyImageSubDataCall = {};
+
+    GLuint texture = 0;
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_2D, 1, &texture);
+    MG_Impl::GLImpl::TextureStorage2D(texture, 1, GL_RGBA8, 16, 16);
+    GLuint renderbuffer = 0;
+    MG_Impl::GLImpl::CreateRenderbuffers(1, &renderbuffer);
+    MG_Impl::GLImpl::NamedRenderbufferStorage(renderbuffer, GL_RGBA8, 16, 16);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    MG_Impl::GLImpl::CopyImageSubData(renderbuffer, GL_RENDERBUFFER, 0, 0, 12, 0, texture, GL_TEXTURE_2D, 0, 0, 0, 0,
+                                      4, 4, 1);
+    EXPECT_TRUE(g_copyImageSubDataCall.Called);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    g_copyImageSubDataCall = {};
+    MG_Impl::GLImpl::CopyImageSubData(renderbuffer, GL_RENDERBUFFER, 0, 0, 14, 0, texture, GL_TEXTURE_2D, 0, 0, 0, 0,
+                                      4, 4, 1);
+    EXPECT_FALSE(g_copyImageSubDataCall.Called);
+    ExpectSingleGlError(GL_INVALID_VALUE);
+
+    // ...and as the destination, where the same renderbuffer has the same one image.
+    g_copyImageSubDataCall = {};
+    MG_Impl::GLImpl::CopyImageSubData(texture, GL_TEXTURE_2D, 0, 0, 0, 0, renderbuffer, GL_RENDERBUFFER, 0, 14, 0, 0,
+                                      4, 4, 1);
+    EXPECT_FALSE(g_copyImageSubDataCall.Called);
+    ExpectSingleGlError(GL_INVALID_VALUE);
+
+    // A renderbuffer has exactly one slice, so any z at all is out of range.
+    g_copyImageSubDataCall = {};
+    MG_Impl::GLImpl::CopyImageSubData(renderbuffer, GL_RENDERBUFFER, 0, 0, 0, 1, texture, GL_TEXTURE_2D, 0, 0, 0, 0,
+                                      4, 4, 1);
+    EXPECT_FALSE(g_copyImageSubDataCall.Called);
+    ExpectSingleGlError(GL_INVALID_VALUE);
+}
+
+// The z axis was structurally unbounded - srcZ/dstZ did not even reach the validator - so a layer
+// range running off the end of an array reached the backend as an out-of-range image subresource.
+TEST_F(TextureTest, CopyImageSubDataBoundsTheLayerRangeOfAnArray) {
+    const ScopedTextureBackendFunctionsOverride backendGuard;
+    MG_Backend::gBackendFunctionsTable.GL.CopyImageSubData = RecordCopyImageSubData;
+    g_copyImageSubDataCall = {};
+
+    GLuint srcTexture = 0;
+    GLuint dstTexture = 0;
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_2D_ARRAY, 1, &srcTexture);
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_2D_ARRAY, 1, &dstTexture);
+    MG_Impl::GLImpl::TextureStorage3D(srcTexture, 1, GL_RGBA8, 8, 8, 12);
+    MG_Impl::GLImpl::TextureStorage3D(dstTexture, 1, GL_RGBA8, 8, 8, 12);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    // Layers 5..11 of a 12-layer array: the last one the range may reach.
+    MG_Impl::GLImpl::CopyImageSubData(srcTexture, GL_TEXTURE_2D_ARRAY, 0, 0, 0, 5, dstTexture, GL_TEXTURE_2D_ARRAY,
+                                      0, 0, 0, 5, 4, 4, 7);
+    EXPECT_TRUE(g_copyImageSubDataCall.Called);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    g_copyImageSubDataCall = {};
+    MG_Impl::GLImpl::CopyImageSubData(srcTexture, GL_TEXTURE_2D_ARRAY, 0, 0, 0, 6, dstTexture, GL_TEXTURE_2D_ARRAY,
+                                      0, 0, 0, 0, 4, 4, 7);
+    EXPECT_FALSE(g_copyImageSubDataCall.Called);
+    ExpectSingleGlError(GL_INVALID_VALUE);
+
+    g_copyImageSubDataCall = {};
+    MG_Impl::GLImpl::CopyImageSubData(srcTexture, GL_TEXTURE_2D_ARRAY, 0, 0, 0, 0, dstTexture, GL_TEXTURE_2D_ARRAY,
+                                      0, 0, 0, 6, 4, 4, 7);
+    EXPECT_FALSE(g_copyImageSubDataCall.Called);
+    ExpectSingleGlError(GL_INVALID_VALUE);
+}
+
+// The convention the bounds check has to get right, and the one that would silently reject legal
+// copies if it did not: on a CUBE MAP the z axis selects among the six faces, which this frontend
+// keeps as six separate one-slice upload targets - so the level's own extent reports depth 1 and a
+// bound taken from it would refuse every whole-cube copy.
+TEST_F(TextureTest, CopyImageSubDataCountsCubeMapFacesOnTheZAxis) {
+    const ScopedTextureBackendFunctionsOverride backendGuard;
+    MG_Backend::gBackendFunctionsTable.GL.CopyImageSubData = RecordCopyImageSubData;
+    g_copyImageSubDataCall = {};
+
+    GLuint srcTexture = 0;
+    GLuint dstTexture = 0;
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_CUBE_MAP, 1, &srcTexture);
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_CUBE_MAP, 1, &dstTexture);
+    MG_Impl::GLImpl::TextureStorage2D(srcTexture, 1, GL_RGBA8, 8, 8);
+    MG_Impl::GLImpl::TextureStorage2D(dstTexture, 1, GL_RGBA8, 8, 8);
+    DrainPendingGlErrors();
+
+    const auto srcObject = MG_State::pGLContext->GetTextureObject(srcTexture);
+    const auto dstObject = MG_State::pGLContext->GetTextureObject(dstTexture);
+    ASSERT_NE(srcObject, nullptr);
+    ASSERT_NE(dstObject, nullptr);
+    if (!srcObject->IsComplete() || !dstObject->IsComplete()) {
+        GTEST_SKIP() << "this context could not give the cube maps storage";
+    }
+
+    MG_Impl::GLImpl::CopyImageSubData(srcTexture, GL_TEXTURE_CUBE_MAP, 0, 0, 0, 0, dstTexture, GL_TEXTURE_CUBE_MAP,
+                                      0, 0, 0, 0, 8, 8, 6);
+    EXPECT_TRUE(g_copyImageSubDataCall.Called);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    // A seventh face does not exist.
+    g_copyImageSubDataCall = {};
+    MG_Impl::GLImpl::CopyImageSubData(srcTexture, GL_TEXTURE_CUBE_MAP, 0, 0, 0, 1, dstTexture, GL_TEXTURE_CUBE_MAP,
+                                      0, 0, 0, 0, 8, 8, 6);
+    EXPECT_FALSE(g_copyImageSubDataCall.Called);
+    ExpectSingleGlError(GL_INVALID_VALUE);
+}
+
+// The other axis convention: GL puts a 1D ARRAY's layers on y for this entry point (srcY is the
+// first layer, srcHeight the layer count), which is also where this frontend keeps them - so the
+// level extent answers directly and z stays a single slice.
+TEST_F(TextureTest, CopyImageSubDataBoundsA1DArraysLayersOnTheYAxis) {
+    const ScopedTextureBackendFunctionsOverride backendGuard;
+    MG_Backend::gBackendFunctionsTable.GL.CopyImageSubData = RecordCopyImageSubData;
+    g_copyImageSubDataCall = {};
+
+    GLuint srcTexture = 0;
+    GLuint dstTexture = 0;
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_1D_ARRAY, 1, &srcTexture);
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_1D_ARRAY, 1, &dstTexture);
+    MG_Impl::GLImpl::TextureStorage2D(srcTexture, 1, GL_RGBA8, 16, 8);
+    MG_Impl::GLImpl::TextureStorage2D(dstTexture, 1, GL_RGBA8, 16, 8);
+    DrainPendingGlErrors();
+
+    const auto srcObject = MG_State::pGLContext->GetTextureObject(srcTexture);
+    const auto dstObject = MG_State::pGLContext->GetTextureObject(dstTexture);
+    ASSERT_NE(srcObject, nullptr);
+    ASSERT_NE(dstObject, nullptr);
+    if (!srcObject->IsComplete() || !dstObject->IsComplete()) {
+        GTEST_SKIP() << "this context could not give the 1D arrays storage";
+    }
+
+    MG_Impl::GLImpl::CopyImageSubData(srcTexture, GL_TEXTURE_1D_ARRAY, 0, 0, 3, 0, dstTexture, GL_TEXTURE_1D_ARRAY,
+                                      0, 0, 3, 0, 4, 5, 1);
+    EXPECT_TRUE(g_copyImageSubDataCall.Called);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    g_copyImageSubDataCall = {};
+    MG_Impl::GLImpl::CopyImageSubData(srcTexture, GL_TEXTURE_1D_ARRAY, 0, 0, 4, 0, dstTexture, GL_TEXTURE_1D_ARRAY,
+                                      0, 0, 0, 0, 4, 5, 1);
+    EXPECT_FALSE(g_copyImageSubDataCall.Called);
+    ExpectSingleGlError(GL_INVALID_VALUE);
+}
+
+// A 16-byte RGTC2 block and a 16-byte RGBA32UI texel are in the same size class, so GL 4.6 core
+// 18.3.2 requires this copy to succeed. It did not for an ARRAY source: glTexImage3D recorded no
+// specific-compressed-format tag, so the level was measured as the 2-byte RG8 storage RGTC2
+// resolves to and the compatibility rule saw 2 against 16.
+TEST_F(TextureTest, CopyImageSubDataSizesACompressedArrayLevelByItsBlock) {
+    const ScopedTextureBackendFunctionsOverride backendGuard;
+    MG_Backend::gBackendFunctionsTable.GL.CopyImageSubData = RecordCopyImageSubData;
+    g_copyImageSubDataCall = {};
+
+    GLuint compressedSource = 0;
+    MG_Impl::GLImpl::GenTextures(1, &compressedSource);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D_ARRAY, compressedSource);
+    MG_Impl::GLImpl::TexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_COMPRESSED_RG_RGTC2, 8, 8, 1, 0, GL_RG,
+                                GL_UNSIGNED_BYTE, nullptr);
+    MG_Impl::GLImpl::TexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_BASE_LEVEL, 0);
+    MG_Impl::GLImpl::TexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAX_LEVEL, 0);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D_ARRAY, 0);
+
+    GLuint uncompressedDestination = 0;
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_2D_ARRAY, 1, &uncompressedDestination);
+    MG_Impl::GLImpl::TextureStorage3D(uncompressedDestination, 1, GL_RGBA32UI, 8, 8, 1);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    MG_Impl::GLImpl::CopyImageSubData(compressedSource, GL_TEXTURE_2D_ARRAY, 0, 0, 0, 0, uncompressedDestination,
+                                      GL_TEXTURE_2D_ARRAY, 0, 0, 0, 0, 8, 8, 1);
+    EXPECT_TRUE(g_copyImageSubDataCall.Called);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
+// 18.3.2 requires INVALID_OPERATION when either object is an INCOMPLETE TEXTURE, and completeness
+// is GL 4.6 core 8.17's - which includes the mip chain whenever the minification filter reads it.
+// A mutable texture with level 0 alone still carries the default NEAREST_MIPMAP_LINEAR filter, so
+// it is mipmap incomplete; the storage-only IsComplete() this used to ask called it complete and
+// let the copy through, which is the whole of KHR-GL43.copy_image.incomplete_tex.
+TEST_F(TextureTest, CopyImageSubDataRejectsAMipmapIncompleteTexture) {
+    const ScopedTextureBackendFunctionsOverride backendGuard;
+    MG_Backend::gBackendFunctionsTable.GL.CopyImageSubData = RecordCopyImageSubData;
+    g_copyImageSubDataCall = {};
+
+    GLuint incomplete = 0;
+    MG_Impl::GLImpl::GenTextures(1, &incomplete);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, incomplete);
+    MG_Impl::GLImpl::TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 16, 16, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, 0);
+    GLuint complete = 0;
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_2D, 1, &complete);
+    MG_Impl::GLImpl::TextureStorage2D(complete, 1, GL_RGBA8, 16, 16);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    MG_Impl::GLImpl::CopyImageSubData(incomplete, GL_TEXTURE_2D, 0, 0, 0, 0, complete, GL_TEXTURE_2D, 0, 0, 0, 0, 4,
+                                      4, 1);
+    EXPECT_FALSE(g_copyImageSubDataCall.Called);
+    ExpectSingleGlError(GL_INVALID_OPERATION);
+
+    // The destination side is checked the same way.
+    g_copyImageSubDataCall = {};
+    MG_Impl::GLImpl::CopyImageSubData(complete, GL_TEXTURE_2D, 0, 0, 0, 0, incomplete, GL_TEXTURE_2D, 0, 0, 0, 0, 4,
+                                      4, 1);
+    EXPECT_FALSE(g_copyImageSubDataCall.Called);
+    ExpectSingleGlError(GL_INVALID_OPERATION);
+
+    // Capping TEXTURE_MAX_LEVEL at the one level that exists is what the conformance suite's
+    // makeTextureComplete does, and it is enough to make the same object complete.
+    g_copyImageSubDataCall = {};
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, incomplete);
+    MG_Impl::GLImpl::TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
+    MG_Impl::GLImpl::TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, 0);
+    DrainPendingGlErrors();
+
+    MG_Impl::GLImpl::CopyImageSubData(incomplete, GL_TEXTURE_2D, 0, 0, 0, 0, complete, GL_TEXTURE_2D, 0, 0, 0, 0, 4,
+                                      4, 1);
+    EXPECT_TRUE(g_copyImageSubDataCall.Called);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
+// The targets that have no mip chain must not be dragged in: GL 4.6 core 8.17 makes q equal to
+// level_base for them, so no filter can make them mipmap incomplete. A rectangle texture gets a
+// non-mipmapping default filter from the object itself, so it would survive a predicate that
+// trusted the sampler alone - it is here because the whole texture path is one branch and this is
+// the cheap half of pinning it.
+TEST_F(TextureTest, CopyImageSubDataDoesNotApplyMipmapCompletenessToRectangleTextures) {
+    const ScopedTextureBackendFunctionsOverride backendGuard;
+    MG_Backend::gBackendFunctionsTable.GL.CopyImageSubData = RecordCopyImageSubData;
+    g_copyImageSubDataCall = {};
+
+    GLuint srcRectangle = 0;
+    GLuint dstRectangle = 0;
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_RECTANGLE, 1, &srcRectangle);
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_RECTANGLE, 1, &dstRectangle);
+    MG_Impl::GLImpl::TextureStorage2D(srcRectangle, 1, GL_RGBA8, 8, 8);
+    MG_Impl::GLImpl::TextureStorage2D(dstRectangle, 1, GL_RGBA8, 8, 8);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    MG_Impl::GLImpl::CopyImageSubData(srcRectangle, GL_TEXTURE_RECTANGLE, 0, 0, 0, 0, dstRectangle,
+                                      GL_TEXTURE_RECTANGLE, 0, 0, 0, 0, 4, 4, 1);
+    EXPECT_TRUE(g_copyImageSubDataCall.Called);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
+// The multisample half, which is the one the target guard actually exists for: a multisample
+// texture keeps the shared NEAREST_MIPMAP_LINEAR default in its own sampler state (only the
+// rectangle constructor overrides it), so asking the mipmap predicate about it without the target
+// guard would report every 8x8 multisample image incomplete and refuse a legal copy.
+TEST_F(TextureTest, CopyImageSubDataDoesNotApplyMipmapCompletenessToMultisampleTextures) {
+    const ScopedTextureBackendFunctionsOverride backendGuard;
+    MG_Backend::gBackendFunctionsTable.GL.CopyImageSubData = RecordCopyImageSubData;
+    g_copyImageSubDataCall = {};
+
+    GLuint srcMultisample = 0;
+    GLuint dstMultisample = 0;
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_2D_MULTISAMPLE, 1, &srcMultisample);
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_2D_MULTISAMPLE, 1, &dstMultisample);
+    MG_Impl::GLImpl::TextureStorage2DMultisample(srcMultisample, 1, GL_RGBA8, 8, 8, GL_FALSE);
+    MG_Impl::GLImpl::TextureStorage2DMultisample(dstMultisample, 1, GL_RGBA8, 8, 8, GL_FALSE);
+    DrainPendingGlErrors();
+
+    // This unit-test binary has no backend behind the renderable-format and sample-count queries,
+    // so the storage may not have been created at all. Checked on the state objects rather than
+    // assumed, so the case can only skip or test the real rule.
+    const auto srcObject = MG_State::pGLContext->GetTextureObject(srcMultisample);
+    const auto dstObject = MG_State::pGLContext->GetTextureObject(dstMultisample);
+    ASSERT_NE(srcObject, nullptr);
+    ASSERT_NE(dstObject, nullptr);
+    if (!srcObject->IsComplete() || !dstObject->IsComplete()) {
+        GTEST_SKIP() << "this context could not give the multisample textures storage";
+    }
+
+    MG_Impl::GLImpl::CopyImageSubData(srcMultisample, GL_TEXTURE_2D_MULTISAMPLE, 0, 0, 0, 0, dstMultisample,
+                                      GL_TEXTURE_2D_MULTISAMPLE, 0, 0, 0, 0, 4, 4, 1);
+    EXPECT_TRUE(g_copyImageSubDataCall.Called);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
+// GL 4.6 core 8.11 makes GL_IMAGE_FORMAT_COMPATIBILITY_TYPE readable through every
+// GetTexParameter form. Three of MobileGL's four getters answered it and glGetTexParameterfv did
+// not, so the float query raised GL_INVALID_ENUM and left the caller's float uninitialised
+// (KHR-GL4x.shader_image_load_store.basic-api-texParam reads it with both iv and fv and compares
+// them). Asserted across all four here, because an enum present in three of four parallel
+// switches is the drift shape that comes back.
+TEST_F(TextureTest, ImageFormatCompatibilityTypeAgreesAcrossEveryTexParameterGetter) {
+    GLuint texture = 0;
+    MG_Impl::GLImpl::GenTextures(1, &texture);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, texture);
+    MG_Impl::GLImpl::TexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, 4, 4);
+    DrainPendingGlErrors();
+
+    GLint integerValue = 0;
+    MG_Impl::GLImpl::GetTexParameteriv(GL_TEXTURE_2D, GL_IMAGE_FORMAT_COMPATIBILITY_TYPE, &integerValue);
+    EXPECT_EQ(integerValue, GL_IMAGE_FORMAT_COMPATIBILITY_BY_SIZE);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    GLfloat floatValue = 0.0f;
+    MG_Impl::GLImpl::GetTexParameterfv(GL_TEXTURE_2D, GL_IMAGE_FORMAT_COMPATIBILITY_TYPE, &floatValue);
+    EXPECT_FLOAT_EQ(floatValue, static_cast<GLfloat>(GL_IMAGE_FORMAT_COMPATIBILITY_BY_SIZE));
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    GLint signedValue = 0;
+    MG_Impl::GLImpl::GetTexParameterIiv(GL_TEXTURE_2D, GL_IMAGE_FORMAT_COMPATIBILITY_TYPE, &signedValue);
+    EXPECT_EQ(signedValue, GL_IMAGE_FORMAT_COMPATIBILITY_BY_SIZE);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    GLuint unsignedValue = 0;
+    MG_Impl::GLImpl::GetTexParameterIuiv(GL_TEXTURE_2D, GL_IMAGE_FORMAT_COMPATIBILITY_TYPE, &unsignedValue);
+    EXPECT_EQ(unsignedValue, static_cast<GLuint>(GL_IMAGE_FORMAT_COMPATIBILITY_BY_SIZE));
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, 0);
+    MG_Impl::GLImpl::DeleteTextures(1, &texture);
+    DrainPendingGlErrors();
 }

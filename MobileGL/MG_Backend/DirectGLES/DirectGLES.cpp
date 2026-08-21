@@ -17,6 +17,7 @@
 #include <MG_Util/Metrics/TextureMetrics.h>
 #include <MG_State/GLState/Core.h>
 #include <MG_State/GLState/ErrorState/Error.h>
+#include <MG_State/GLState/TextureState/TextureObjectBuffer.h>
 #include <MG_Impl/GLImpl/Framebuffer/GL_Framebuffer.h>
 #include <MG_Util/BackendLoaders/OpenGL/Loader.h>
 #include <MG_Util/Converters/GLToStr/GLEnumConverter.h>
@@ -260,14 +261,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
             drawBuffer->SyncPersistentMappedRange();
             const SizeT commandOffset = reinterpret_cast<SizeT>(indirect);
             if (commandOffset + requiredBytes > drawBuffer->GetSize()) {
-                MGLOG_E("%s skipped: invalid GL_DRAW_INDIRECT_BUFFER binding or range", label);
+                MGLOG_E_ONCE("%s skipped: invalid GL_DRAW_INDIRECT_BUFFER binding or range", label);
                 return nullptr;
             }
             return drawBuffer->MappedData() + commandOffset;
         }
 
         if (!indirect) {
-            MGLOG_E("%s skipped: indirect pointer is null", label);
+            MGLOG_E_ONCE("%s skipped: indirect pointer is null", label);
             return nullptr;
         }
 
@@ -299,10 +300,32 @@ namespace MobileGL::MG_Backend::DirectGLES {
             Clear();
         }
 #else
-        void ErrorLopper::Loop(const std::function<void(GLenum)>& func) {}
-        void ErrorLopper::Clear() {}
-        ErrorLopper::ErrorLopper() = default;
-        ErrorLopper::~ErrorLopper() = default;
+        // Error HYGIENE is not a debugging feature: every site that brackets a risky ES call with
+        // Clear()/Loop() relied on these to empty the driver's queue, and compiling them to
+        // nothing left whatever the driver raised sitting there for an unrelated later
+        // `glGetError() == GL_NO_ERROR` probe to read as its own failure. The callback stays
+        // unused because MGLOG_D is compiled out at this level, but the queue still gets drained.
+        // Bounded like DrainESErrors: a driver that never returns GL_NO_ERROR (a lost context is
+        // the usual way) must not spin here.
+        constexpr Int kMaxDrainedESErrors = 32;
+
+        void ErrorLopper::Loop(const std::function<void(GLenum)>& func) {
+            static_cast<void>(func);
+            for (Int i = 0; i < kMaxDrainedESErrors && g_GLESFuncs.glGetError() != GL_NO_ERROR; ++i) {
+            }
+        }
+
+        void ErrorLopper::Clear() {
+            for (Int i = 0; i < kMaxDrainedESErrors && g_GLESFuncs.glGetError() != GL_NO_ERROR; ++i) {
+            }
+        }
+
+        ErrorLopper::ErrorLopper() {
+            Clear();
+        }
+        ErrorLopper::~ErrorLopper() {
+            Clear();
+        }
 #endif
 
 #if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG
@@ -340,7 +363,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
                 auto* backendResource = EnsureBufferResource(obj);
                 if (!backendResource || backendResource->id == 0) {
-                    MGLOG_E("No backend buffer found for %s binding point %zu.",
+                    MGLOG_E_ONCE("No backend buffer found for %s binding point %zu.",
                             MG_Util::ConvertGLEnumToString(glTarget).c_str(), i);
                     continue;
                 }
@@ -372,6 +395,50 @@ namespace MobileGL::MG_Backend::DirectGLES {
             }
         }
 
+        void SyncAtomicCounterBuffers(const Vector<Int>& glBindings, Int esslBindingTop) {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
+            const SizeT pointCount = MG_State::pGLContext->GetBufferBindingPointCount(BufferTarget::AtomicCounter);
+            for (const Int glBinding : glBindings) {
+                if (glBinding < 0 || static_cast<SizeT>(glBinding) >= pointCount) continue;
+                const Int esslBinding = esslBindingTop - glBinding;
+                // Already diagnosed once when the block was transpiled; nothing was bound to it
+                // there either, so there is nothing to unbind here.
+                if (esslBinding < 0) continue;
+                auto& point = MG_State::pGLContext->GetBufferBindingPoint(BufferTarget::AtomicCounter,
+                                                                          static_cast<Uint>(glBinding));
+                auto& obj = point.GetBoundObject();
+                if (!obj) {
+                    BindBufferBaseCached(GL_SHADER_STORAGE_BUFFER, static_cast<Uint>(esslBinding), 0);
+                    continue;
+                }
+
+                auto* backendResource = EnsureBufferResource(obj);
+                if (!backendResource || backendResource->id == 0) {
+                    MGLOG_E_ONCE("No backend buffer found for atomic counter binding point %d.", glBinding);
+                    continue;
+                }
+
+                const auto& range = point.GetRange();
+                if (range.start == 0 && range.end >= obj->GetSize()) {
+                    BindBufferBaseCached(GL_SHADER_STORAGE_BUFFER, static_cast<Uint>(esslBinding),
+                                         backendResource->id);
+                } else {
+                    const auto start = std::min(range.start, obj->GetSize());
+                    const auto end = std::min(range.end, obj->GetSize());
+                    BindBufferRangeCached(GL_SHADER_STORAGE_BUFFER, static_cast<Uint>(esslBinding),
+                                          backendResource->id, static_cast<GLintptr>(start),
+                                          static_cast<GLsizeiptr>(end - start));
+                }
+                // The whole point of a counter is that the shader INCREMENTS it, and every
+                // conformance case reads the result back with glMapBufferRange or
+                // glGetBufferSubData - which serve the frontend's CPU shadow until the buffer is
+                // flagged (BufferObject::SyncGpuWrites), exactly as for a storage buffer.
+                obj->MarkGpuWritten();
+            }
+        }
+
         void SyncBoundBuffer(BufferTarget target, GLenum glTarget) {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
@@ -384,7 +451,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             auto* backendResource = EnsureBufferResource(bufferObject);
             if (!backendResource || backendResource->id == 0) {
-                MGLOG_E("No backend buffer found for %s.", MG_Util::ConvertGLEnumToString(glTarget).c_str());
+                MGLOG_E_ONCE("No backend buffer found for %s.", MG_Util::ConvertGLEnumToString(glTarget).c_str());
                 return;
             }
             BindBufferId(glTarget, backendResource->id);
@@ -409,7 +476,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             // PBO is not needed since it should be handled in frontend
 
             if (!currentVAOObject) {
-                MGLOG_E("No VAO is currently bound, cannot sync necessary buffers.");
+                MGLOG_E_ONCE("No VAO is currently bound, cannot sync necessary buffers.");
                 return;
             }
 
@@ -642,7 +709,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                                                     static_cast<GLintptr>(target.start),
                                                                     static_cast<GLsizeiptr>(size), GL_MAP_READ_BIT);
                         if (mapped == nullptr) {
-                            MGLOG_E("EndTransformFeedback: failed to map backend buffer %u for capture readback",
+                            MGLOG_E_ONCE("EndTransformFeedback: failed to map backend buffer %u for capture readback",
                                     target.backendId);
                             continue;
                         }
@@ -708,7 +775,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                                                   static_cast<GLsizeiptr>(packedStride * vertices),
                                                                   GL_MAP_READ_BIT);
                 if (packed == nullptr) {
-                    MGLOG_E("EndTransformFeedback: failed to map the scatter capture buffer");
+                    MGLOG_E_ONCE("EndTransformFeedback: failed to map the scatter capture buffer");
                     return;
                 }
 
@@ -934,7 +1001,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             g_backendVertexArrayObjects.CollectGarbageIfNeeded();
 
             if (!currentVAOObject || !vaoTwin) {
-                MGLOG_E("No VAO is currently bound, cannot sync current VAO.");
+                MGLOG_E_ONCE("No VAO is currently bound, cannot sync current VAO.");
                 return;
             }
 
@@ -998,7 +1065,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     g_GLESFuncs.glVertexAttribI4uiv(location, currentValue.uintValue.data());
                     break;
                 case MG_State::GLState::VertexAttribBaseType::Unsupported:
-                    MGLOG_E("SyncCurrentVertexAttributeValues: program=%u location=%u has no enabled array and its "
+                    MGLOG_E_ONCE("SyncCurrentVertexAttributeValues: program=%u location=%u has no enabled array and its "
                             "shader input type 0x%x is not supported as a current generic vertex attribute",
                             program->GetExternalIndex(), location, program->GetAttribType(location));
                     break;
@@ -1313,27 +1380,119 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
         void SyncNeccessaryTextures() { SyncNeccessaryTextures(CaptureDrawTextureSyncKeys()); }
 
+        // Whether glBindImageTexture's `layered` means anything for this target - asked of the
+        // target the DRIVER will see, not the one the application named. A GL_TEXTURE_1D_ARRAY
+        // is stored as an ES 2D array (MapToBackendTextureTarget), and so is layerable; asking
+        // the state target instead answered "no" for it and pinned every 1D-array image binding
+        // to layer 0, whatever the application passed.
+        //
+        // `layer` travels with the answer, because GL 4.6 core 8.26 (and ES 3.2 8.22, word for
+        // word) makes them one rule: "If the texture identified by texture does not have
+        // multiple layers or faces, the entire texture level is bound, regardless of the values
+        // of layered and layer." REGARDLESS means ignored - not clamped, and not an error - so
+        // the driver must not be handed a layer index the texture has no room for. Adreno takes
+        // such a request literally and leaves the image unit reading zero, which is what failed
+        // KHR-GL42.bind_image_texture.single_layer's layer:1 rows on GL_TEXTURE_2D and on the
+        // GL_TEXTURE_1D that is stored as one. Normalizing here and not in the frontend shadow
+        // is deliberate: GL_IMAGE_BINDING_LAYER must keep echoing what the application passed.
         static Bool SupportsLayeredImageBinding(TextureTarget target) {
-            return target == TextureTarget::Texture3D || target == TextureTarget::TextureCubeMap ||
-                   target == TextureTarget::Texture2DArray || target == TextureTarget::TextureCubeMapArray ||
-                   target == TextureTarget::Texture2DMultisampleArray;
+            const TextureTarget backendTarget = TextureImpl::MapToBackendTextureTarget(target);
+            return backendTarget == TextureTarget::Texture3D || backendTarget == TextureTarget::TextureCubeMap ||
+                   backendTarget == TextureTarget::Texture2DArray ||
+                   backendTarget == TextureTarget::TextureCubeMapArray ||
+                   backendTarget == TextureTarget::Texture2DMultisampleArray;
         }
+
+        // Which image units currently hold a WRITABLE buffer texture, and how many. Kept here
+        // rather than recomputed per draw because the frontend tracks 192 image units and
+        // almost every program uses none of them: the draw path pays one integer test.
+        //
+        // Maintained by SyncImageTextureBinding, which is the single funnel for an image-unit
+        // change on this backend - glBindImageTextures is a frontend loop over
+        // glBindImageTexture, and the whole-sweep SyncImageTextureBindings goes through it too.
+        // Anything that clears a binding WITHOUT coming through here (a deleted texture, a
+        // recreated context) can only leave a bit set for a unit that no longer has one; the
+        // sweep re-reads the binding, finds nothing to mark, and CLEARS the bit on its way past.
+        // So the error is self-healing, and in the direction that costs one wasted look rather
+        // than one missed write.
+        static Array<Bool, MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS>
+            g_writableImageBufferUnits{};
+        static Uint g_writableImageBufferUnitCount = 0;
+
+        static Bool IsWritableImageBufferTexture(const MG_State::GLState::ImageTextureBinding& binding) {
+            return binding.Texture != nullptr && binding.Access != GL_READ_ONLY &&
+                   binding.Texture->GetStorageType() == TextureStorageType::Buffer;
+        }
+
+        static void TrackWritableImageBufferUnit(Uint unit, Bool writableBufferTexture) {
+            Bool& tracked = g_writableImageBufferUnits[unit];
+            if (tracked == writableBufferTexture) return;
+            tracked = writableBufferTexture;
+            // Written as two guarded steps rather than one signed add: the count is unsigned,
+            // and a decrement that ever ran one time too many would not saturate at zero, it
+            // would wrap to four billion and defeat the early-out for the rest of the process.
+            if (writableBufferTexture) {
+                ++g_writableImageBufferUnitCount;
+            } else if (g_writableImageBufferUnitCount > 0) {
+                --g_writableImageBufferUnitCount;
+            }
+        }
+
+        // Highest image unit that has ever been given a texture, plus one. Maintained by the
+        // single funnel below, so it is a sound "no draw in this context can be reading an image"
+        // test: nothing reaches an image unit without going through SyncImageTextureBinding.
+        // Almost every program (every Minecraft draw) leaves it at zero, which is what keeps the
+        // draw-path staleness check below at one integer test.
+        static Uint g_imageUnitHighWaterMark = 0;
 
         void SyncImageTextureBinding(Uint unit) {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
             auto& imageBinding = MG_State::pGLContext->GetImageTextureBinding(static_cast<Int>(unit));
+            TrackWritableImageBufferUnit(unit, IsWritableImageBufferTexture(imageBinding));
+            if (imageBinding.Texture && unit + 1 > g_imageUnitHighWaterMark) {
+                g_imageUnitHighWaterMark = unit + 1;
+            }
             if (!imageBinding.Texture) {
                 g_GLESFuncs.glBindImageTexture(unit, 0, 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA8);
                 return;
             }
 
             auto& backendTexture = SyncTextureObjectToBackend(imageBinding.Texture, true);
-            const GLboolean layered =
-                SupportsLayeredImageBinding(imageBinding.Texture->GetTarget()) ? imageBinding.Layered : GL_FALSE;
+            const Bool layerable = SupportsLayeredImageBinding(imageBinding.Texture->GetTarget());
+            const GLboolean layered = layerable ? imageBinding.Layered : GL_FALSE;
+            const GLint layer = layerable ? imageBinding.Layer : 0;
             g_GLESFuncs.glBindImageTexture(unit, backendTexture->GetBackendTextureId(), imageBinding.Level,
-                                           layered, imageBinding.Layer, imageBinding.Access, imageBinding.Format);
+                                           layered, layer, imageBinding.Access, imageBinding.Format);
+        }
+
+        // A buffer texture bound to a WRITABLE image unit is a buffer the shader is about to
+        // write, and those writes land in the ES driver's buffer object - behind the frontend's
+        // CPU shadow, which is what MapBuffer and GetBufferSubData read. Same flag, and for the
+        // same reason, as MarkShaderStorageBuffersGpuWritten does for a storage block; the
+        // difference is only which binding the shader reaches the buffer through. A GL_READ_ONLY
+        // binding is left alone: marking it would make the next map wait on - and then re-read -
+        // a dispatch that could not have changed a byte of it.
+        //
+        // Called from the draw and dispatch preparations rather than from the eager sync
+        // glBindImageTexture performs: that one runs before any shader has touched the buffer,
+        // and flagging there would pull the driver's copy over a shadow the application may
+        // still be writing into.
+        void MarkWritableImageBufferTexturesGpuWritten() {
+            if (g_writableImageBufferUnitCount == 0) return;
+            for (Uint unit = 0; unit < g_writableImageBufferUnits.size(); ++unit) {
+                if (!g_writableImageBufferUnits[unit]) continue;
+                const auto& imageBinding = MG_State::pGLContext->GetImageTextureBinding(static_cast<Int>(unit));
+                if (!IsWritableImageBufferTexture(imageBinding)) {
+                    TrackWritableImageBufferUnit(unit, false);
+                    continue;
+                }
+                auto* textureBuffer =
+                    static_cast<MG_State::GLState::TextureObjectBuffer*>(imageBinding.Texture.get());
+                const auto& bufferObject = textureBuffer->GetBufferBindingSlot().GetBoundObject();
+                if (bufferObject) bufferObject->MarkGpuWritten();
+            }
         }
 
         void SyncImageTextureBindings() {
@@ -1348,6 +1507,40 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 SyncImageTextureBinding(unit);
             }
         }
+
+        // What the draw path last swept the image units against. A draw never swept them at all:
+        // an image unit was established once, eagerly, by glBindImageTexture and never revisited.
+        // That is stale the moment the texture behind it is re-specified with a new size or
+        // format, because ES 3.1 only allows IMMUTABLE storage on an image unit
+        // (SyncTextureObjectToBackend's imageBindableStorageRequired), immutable storage cannot be
+        // redefined, and so the re-spec MINTS A NEW ES TEXTURE NAME - leaving the unit pointing at
+        // the deleted one and imageSize() reporting the old dimensions
+        // (KHR-GL43.shader_image_size.advanced-changeSize).
+        static Uint64 g_imageSweepContextId = 0;
+        static Uint64 g_imageSweepSamplingGeneration = 0;
+        static Uint g_imageSweepBackendContextGeneration = 0;
+        static Bool g_imageSweepValid = false;
+
+        // The sweep is a glBindImageTexture per unit, so it must not run per draw: the gate is the
+        // frontend's sampling-resolution generation, which TextureObjectBase::BumpShapeVersion
+        // moves on exactly the shape and format changes that can force the re-mint. Deliberately
+        // NOT the backend-side re-mint counter (g_attachmentBackendIdGeneration's sibling would be
+        // the obvious choice): a texture that is bound ONLY to an image unit is re-minted inside
+        // this very sweep, so a backend-side trigger would be bumped after the gate had already
+        // declined to run it.
+        void SyncImageTextureBindingsForDraw(const DrawTextureSyncKeys& keys) {
+            if (g_imageUnitHighWaterMark == 0) return;
+            if (g_imageSweepValid && g_imageSweepContextId == keys.contextId &&
+                g_imageSweepSamplingGeneration == keys.samplingGeneration &&
+                g_imageSweepBackendContextGeneration == g_backendContextGeneration) {
+                return;
+            }
+            SyncImageTextureBindings();
+            g_imageSweepContextId = keys.contextId;
+            g_imageSweepSamplingGeneration = keys.samplingGeneration;
+            g_imageSweepBackendContextGeneration = g_backendContextGeneration;
+            g_imageSweepValid = true;
+        }
     } // namespace TextureImpl
 
     namespace FramebufferImpl {
@@ -1359,6 +1552,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             g_fboSyncedSlotVersions[SizeT(target)] = slotVersion;
             g_fboSyncedObjectVersions[SizeT(target)] = objectVersion;
             g_fboSyncedObjects[SizeT(target)] = fbo;
+            g_fboSyncedBackendIdGenerations[SizeT(target)] = g_attachmentBackendIdGeneration;
         }
 
         void SyncCurrentFBO() {
@@ -1389,15 +1583,19 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 const Uint16 slotVersion = slot.GetVersion();
                 const Uint16 objectVersion = currentFBO ? currentFBO->GetObjectVersion() : 0;
                 auto* currentPtr = currentFBO.get();
+                // The backend-id generation joins the triple: a backend texture re-mint
+                // (RecreateBackendTexture) moves no frontend version, so without it the
+                // early-out would keep the driver FBO on the deleted texture name.
                 if (slotVersion == g_fboSyncedSlotVersions[SizeT(target)] &&
                     objectVersion == g_fboSyncedObjectVersions[SizeT(target)] &&
-                    currentPtr == g_fboSyncedObjects[SizeT(target)]) {
+                    currentPtr == g_fboSyncedObjects[SizeT(target)] &&
+                    g_fboSyncedBackendIdGenerations[SizeT(target)] == g_attachmentBackendIdGeneration) {
                     lastUpdatedFBO = currentPtr;
                     continue;
                 }
 
                 if (!currentFBO) {
-                    MGLOG_E("No FBO is currently bound, cannot sync current FBO.");
+                    MGLOG_E_ONCE("No FBO is currently bound, cannot sync current FBO.");
                     continue;
                 }
 
@@ -1528,7 +1726,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 !g_hasSyncedRenderState || std::memcmp(currentBytes + kBlendSpanEnd, syncedBytes + kBlendSpanEnd,
                                                        sizeof(RenderStateParameters) - kBlendSpanEnd) != 0;
 
-            IntVec4 backendViewport = parameters.Viewport;
+            IntVec4 backendViewport = MG_State::pGLContext->GetViewport();
             if (backendViewport.z() <= 0 || backendViewport.w() <= 0) {
                 Int surfaceWidth = 0;
                 Int surfaceHeight = 0;
@@ -1542,7 +1740,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 g_syncedBackendViewport = backendViewport;
             }
 
-            // All 12 capability bools live after LogicOp in the struct, i.e. in the tail span.
+            // Every capability bool (and the scissor-test mask below) lives after LogicOp in the
+            // struct, i.e. in the tail span.
             if (tailSpanDirty) {
 #define SYNC_CAPABILITY(cap_mg, cap_gl)                                                                                \
     if (forceFullPush || parameters.cap_mg##Enabled != g_syncedRenderStateParameters.cap_mg##Enabled) {                                 \
@@ -1561,11 +1760,48 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 SYNC_CAPABILITY(SampleMask, GL_SAMPLE_MASK);
                 SYNC_CAPABILITY(PolygonOffsetFill, GL_POLYGON_OFFSET_FILL);
                 SYNC_CAPABILITY(RasterizerDiscard, GL_RASTERIZER_DISCARD);
-                SYNC_CAPABILITY(ScissorTest, GL_SCISSOR_TEST);
                 SYNC_CAPABILITY(StencilTest, GL_STENCIL_TEST);
                 SYNC_CAPABILITY(CullFace, GL_CULL_FACE);
 
 #undef SYNC_CAPABILITY
+
+                // GL_SCISSOR_TEST is per-viewport enable state (ARB_viewport_array), so it is a
+                // 16-bit mask and not a "<Name>Enabled" bool the macro above could key off. ES
+                // has exactly one scissor rectangle and one scissor enable, so only bit 0 - the
+                // index every ES draw rasterizes against - can be forwarded; a program that
+                // enables the test for viewport 3 alone gets viewport 0's answer here. That is
+                // the same limitation as the unemulated gl_ViewportIndex on this backend and is
+                // why the multi-viewport half of KHR-GL43.viewport_array stays red on Espryt.
+                {
+                    const Bool scissorTest = (parameters.ScissorTestEnabledMask & 1u) != 0;
+                    const Bool syncedScissorTest =
+                        (g_syncedRenderStateParameters.ScissorTestEnabledMask & 1u) != 0;
+                    if (forceFullPush || scissorTest != syncedScissorTest) {
+                        scissorTest ? g_GLESFuncs.glEnable(GL_SCISSOR_TEST) : g_GLESFuncs.glDisable(GL_SCISSOR_TEST);
+                    }
+                }
+            }
+
+            if (tailSpanDirty && g_GLESCapabilities.SupportsClipDistance) {
+                // gl_ClipDistance clipping is per-distance enable state in GL, and ES reaches it
+                // only through GL_EXT_clip_cull_distance. That extension reuses the desktop enum
+                // values for CLIP_DISTANCE0_EXT..7_EXT, but the token is absent from the ES
+                // headers this file compiles against, hence the local name. Without the
+                // extension there is nowhere to put the state and the shader could not have
+                // compiled either, so the whole block is gated rather than silently no-op'ing.
+                constexpr GLenum kClipDistance0 = 0x3000;
+                constexpr Uint kClipDistanceCount = 8;
+                const Uint32 mask = parameters.ClipDistanceEnabledMask;
+                const Uint32 syncedMask = g_syncedRenderStateParameters.ClipDistanceEnabledMask;
+                if (forceFullPush || mask != syncedMask) {
+                    const Uint32 changed = forceFullPush ? ~0u : (mask ^ syncedMask);
+                    for (Uint i = 0; i < kClipDistanceCount; ++i) {
+                        const Uint32 bit = 1u << i;
+                        if ((changed & bit) == 0) continue;
+                        const GLenum cap = static_cast<GLenum>(kClipDistance0 + i);
+                        (mask & bit) ? g_GLESFuncs.glEnable(cap) : g_GLESFuncs.glDisable(cap);
+                    }
+                }
             }
 
             { // sRGB framebuffer writes. GLES core always encodes a write into an sRGB attachment,
@@ -1770,8 +2006,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 if (forceFullPush || parameters.DepthMask != g_syncedRenderStateParameters.DepthMask) {
                     g_GLESFuncs.glDepthMask(parameters.DepthMask ? GL_TRUE : GL_FALSE);
                 }
-                if (forceFullPush || parameters.DepthRange != g_syncedRenderStateParameters.DepthRange) {
-                    g_GLESFuncs.glDepthRangef(parameters.DepthRange.x(), parameters.DepthRange.y());
+                if (forceFullPush || parameters.DepthRanges[0] != g_syncedRenderStateParameters.DepthRanges[0]) {
+                    g_GLESFuncs.glDepthRangef(parameters.DepthRanges[0].x(), parameters.DepthRanges[0].y());
                 }
             }
 
@@ -1909,7 +2145,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
               // everything drawn with GL_SCISSOR_TEST enabled before the app's first glScissor
               // is clipped away - Minecraft 26.2 keeps only its unscissored sky and hand and
               // loses the terrain and the whole GUI.
-                IntVec4 backendScissorBox = parameters.ScissorBox;
+                IntVec4 backendScissorBox = parameters.ScissorBoxes[0];
                 if (backendScissorBox.z() <= 0 || backendScissorBox.w() <= 0) {
                     Int surfaceWidth = 0;
                     Int surfaceHeight = 0;
@@ -2019,6 +2255,15 @@ namespace MobileGL::MG_Backend::DirectGLES {
         static Bool g_broadcastMemoValid = false;
         static Uint g_broadcastMemoCount = 1;
 
+        // The identity+version key above is only monotonic WITHIN one GLContext: a
+        // library teardown + re-init frees every FramebufferObject and restarts the
+        // draw slot's counter at zero, so a recycled FBO address with coinciding
+        // fresh versions would false-hit. Cleared at the same boundaries as the
+        // structurally identical SyncCurrentFBO trio (InvalidateFramebufferBindingCache).
+        void InvalidateBroadcastMemo() {
+            g_broadcastMemoValid = false;
+        }
+
         void SyncCurrentProgram(const SharedPtr<MG_State::GLState::ProgramObject>& currentProgram) {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
@@ -2101,7 +2346,15 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 twin->GetUnormFallbackClampOutputMask() != g_unormFallbackClampOutputMask ||
                 twin->GetFragColorBroadcastCount() != g_fragColorBroadcastCount ||
                 twin->GetShaderStorageBlockBindingSignature() !=
-                    ComputeShaderStorageBlockBindingSignature(*currentProgram)) {
+                    ComputeShaderStorageBlockBindingSignature(*currentProgram) ||
+                // A fourth of the same shape, and the reason glBindImageTexture itself does
+                // nothing: GLSL ES demands a format layout qualifier on an image where desktop
+                // GLSL lets a writeonly declaration omit one, so a format-less declaration is
+                // compiled against the format the application BOUND, and a rebind to a
+                // different one makes what was built wrong. Asked of the twin because only it
+                // knows which units its own images address - and answered by an empty-vector
+                // test for every program that declares its formats, which is nearly all of them.
+                !twin->ImageUnitFormatsStillMatch()) {
                 twin->SyncToBackend(currentProgram);
             }
             g_currentDrawFrontendProgram = currentProgram.get();
@@ -2138,7 +2391,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             if (twin) {
                 twin->Bind(target);
             } else {
-                MGLOG_E("No backend FBO found (maybe not synced) for current %s FBO, cannot bind FBO.",
+                MGLOG_E_ONCE("No backend FBO found (maybe not synced) for current %s FBO, cannot bind FBO.",
                         (target == FramebufferTarget::Read ? "READ" : "DRAW"));
             }
         } else {
@@ -2194,6 +2447,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
         FramebufferImpl::g_fboSyncedSlotVersions[(SizeT)target] = slot.GetVersion();
         FramebufferImpl::g_fboSyncedObjectVersions[(SizeT)target] = fbo ? fbo->GetObjectVersion() : 0;
         FramebufferImpl::g_fboSyncedObjects[(SizeT)target] = fbo.get();
+        FramebufferImpl::g_fboSyncedBackendIdGenerations[(SizeT)target] =
+            FramebufferImpl::g_attachmentBackendIdGeneration;
     }
 
     static void BindCurrentProgramWithResources(
@@ -2229,6 +2484,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                           syncBit & DrawSyncBit::IndirectBuffer);
         VertexArrayImpl::SyncCurrentVAO(currentVAO, vaoTwin);
         TextureImpl::SyncNeccessaryTextures(textureKeys);
+        // A draw reads and writes through its image units too, so the unit bindings have to be
+        // as current as the sampled ones. Gated (see the sweep): a program with no image binding
+        // pays one integer test, and one with images re-issues them only when a texture shape
+        // moved under them.
+        TextureImpl::SyncImageTextureBindingsForDraw(textureKeys);
+        // A draw writes through its image units too - the conformance case that found this
+        // stores into a buffer texture from the FRAGMENT stage, not from a dispatch.
+        TextureImpl::MarkWritableImageBufferTexturesGpuWritten();
         FramebufferImpl::SyncCurrentFBO();
         PrgramImpl::SyncCurrentProgram(currentProgram);
         RenderStateImpl::SyncRenderState();
@@ -2739,10 +3002,20 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                         (GLintptr)range.start, (GLintptr)(range.end - range.start));
                                 }
                             } else {
-                                MGLOG_E("No backend buffer found for UBO binding, cannot bind UBO.");
+                                MGLOG_E_ONCE("No backend buffer found for UBO binding, cannot bind UBO.");
                             }
                         }
                     }
+                }
+
+                // Atomic counter buffers. Bound here rather than beside the storage-buffer sync
+                // in SyncNeccessaryBuffers because the reserved slot the transpiled ESSL reads
+                // them at is PROGRAM state: it is `top - GL binding` for the counter blocks THIS
+                // program declares, and no other program's blocks live there. Both the draw and
+                // the dispatch path reach this, which is what a compute-shader counter needs.
+                if (!backendProgram.GetAtomicCounterBindings().empty()) {
+                    BufferImpl::SyncAtomicCounterBuffers(backendProgram.GetAtomicCounterBindings(),
+                                                         backendProgram.GetAtomicCounterEsslBindingTop());
                 }
 
                 {
@@ -2871,7 +3144,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             } else {
                 g_GLESFuncs.glUseProgram(0);
                 PrgramImpl::g_lastUsedBackendProgramId = 0;
-                MGLOG_E("No backend program found (maybe not synced) for current program, cannot use program.");
+                MGLOG_E_ONCE("No backend program found (maybe not synced) for current program, cannot use program.");
             }
         }
     }
@@ -2905,16 +3178,42 @@ namespace MobileGL::MG_Backend::DirectGLES {
         }
     }
 
+    void SetCurrentBaseVertex(Int32 baseVertex) {
+        if (const auto program = GetCurrentBackendProgram()) {
+            program->SetBaseVertex(baseVertex);
+        }
+    }
+
     Bool CurrentProgramReadsDrawID() {
         const auto program = GetCurrentBackendProgram();
         return program != nullptr && program->ReadsDrawID();
     }
 
+    Bool CurrentProgramReadsBaseVertex() {
+        const auto program = GetCurrentBackendProgram();
+        return program != nullptr && program->ReadsBaseVertex();
+    }
+
+    // The two questions above, asked from BEFORE PrepareForDraw - where neither can be
+    // answered honestly. GetCurrentBackendProgram only sees a twin that a previous draw
+    // already synced, and a twin from before a relink still carries the previous link's
+    // uniform locations, so "no" there means "not known yet" at least as often as it
+    // means no. The multi-draw compute tier has to decide whether to flatten a batch
+    // before PrepareForDraw runs (its dispatch cannot come after the draw state), and
+    // flattening a batch that turns out to need per-sub-draw values is unrecoverable -
+    // so an unanswerable program counts as needing them.
+    Bool CurrentProgramMayNeedPerSubDrawBuiltins(Bool batchCarriesBaseVertices) {
+        const auto& currentProgram = MG_State::pGLContext->GetProgramForDraw();
+        const auto program = GetCurrentBackendProgram();
+        if (!currentProgram || program == nullptr ||
+            program->GetSyncedLinkVersion() != currentProgram->GetLinkVersion()) {
+            return true;
+        }
+        return program->ReadsDrawID() || (batchCarriesBaseVertices && program->ReadsBaseVertex());
+    }
+
     static Bool SupportsNativeIndirectDraws() {
-        const auto& version = g_GLESCapabilities.GLESVersion;
-        const Bool esVersionOk = version.Major > 3 || (version.Major == 3 && version.Minor >= 1);
-        return esVersionOk && g_GLESFuncs.glDrawElementsIndirect != nullptr &&
-               g_GLESFuncs.glDrawArraysIndirect != nullptr;
+        return g_GLESCapabilities.SupportsDrawIndirect;
     }
 
     // Runs an (indexed) indirect multi-draw. When a GL_DRAW_INDIRECT_BUFFER is bound the draws
@@ -2947,16 +3246,28 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                                      resource->id);
                 }
             }
+            // gl_BaseVertex has no SSBO view of its own: the command's baseVertex word is read
+            // from the CPU shadow, so a command whose baseVertex a compute shader wrote this
+            // frame is not observable here (baseInstance is, through the view above). Feeding
+            // the stale-but-usually-correct shadow beats leaving the uniform at the previous
+            // draw's value, which is what a program reading gl_BaseVertex saw before.
+            const Bool feedBaseVertex = CurrentProgramReadsBaseVertex();
             for (GLsizei i = 0; i < drawcount; ++i) {
                 const SizeT cmdByteOffset = commandOffset + static_cast<SizeT>(i) * stride;
                 SetCurrentDrawID(static_cast<Uint32>(i));
                 if (paramsBinding >= 0 && backendProgram) {
                     // baseInstance is the 5th word of DrawElementsIndirectCommand.
                     backendProgram->SetBaseInstanceWordIndex(static_cast<Int32>((cmdByteOffset + 16) / 4));
+                    if (feedBaseVertex) {
+                        DrawElementsIndirectCommand cmd{};
+                        std::memcpy(&cmd, commandBytes + static_cast<SizeT>(i) * stride, sizeof(cmd));
+                        SetCurrentBaseVertex(cmd.baseVertex);
+                    }
                 } else {
                     DrawElementsIndirectCommand cmd{};
                     std::memcpy(&cmd, commandBytes + static_cast<SizeT>(i) * stride, sizeof(cmd));
                     SetCurrentBaseInstance(cmd.baseInstance);
+                    SetCurrentBaseVertex(cmd.baseVertex);
                 }
                 g_GLESFuncs.glDrawElementsIndirect(mode, type, reinterpret_cast<const void*>(cmdByteOffset));
             }
@@ -2969,6 +3280,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 }
                 SetCurrentDrawID(static_cast<Uint32>(i));
                 SetCurrentBaseInstance(cmd.baseInstance);
+                SetCurrentBaseVertex(cmd.baseVertex);
                 const auto indexByteOffset = static_cast<SizeT>(cmd.firstIndex) * indexSize;
                 g_GLESFuncs.glDrawElementsInstancedBaseVertex(
                     mode, static_cast<GLsizei>(cmd.count), type, reinterpret_cast<const GLvoid*>(indexByteOffset),
@@ -2977,12 +3289,18 @@ namespace MobileGL::MG_Backend::DirectGLES {
         }
         SetCurrentDrawID(0);
         SetCurrentBaseInstance(0);
+        SetCurrentBaseVertex(0);
     }
 
     static void ExecuteArraysIndirectCommands(GLenum mode, const Uint8* commandBytes, SizeT commandOffset,
                                               const SharedPtr<MG_State::GLState::BufferObject>& drawIndirectBuffer,
                                               GLsizei drawcount, GLsizei stride, const char* label) {
         (void)label;
+        // DrawArraysIndirectCommand has no baseVertex word, so gl_BaseVertex is zero for every
+        // command here. Written BEFORE the draws, not merely restored after them: the previous
+        // draw is what leaves a stale value, and restoring afterwards would only protect the
+        // NEXT draw while these commands ran with the stale one.
+        SetCurrentBaseVertex(0);
         const Bool useNative = drawIndirectBuffer != nullptr && SupportsNativeIndirectDraws();
         if (useNative) {
             const auto backendProgram = GetCurrentBackendProgram();
@@ -3039,6 +3357,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         BufferImpl::SyncComputeBuffers(includeDispatchIndirectBuffer);
         TextureImpl::SyncNeccessaryTextures(textureKeys);
         TextureImpl::SyncImageTextureBindings();
+        TextureImpl::MarkWritableImageBufferTexturesGpuWritten();
         PrgramImpl::SyncCurrentProgram(currentProgram);
 
         if (!currentProgram || !currentProgram->GetLinkStatus() || !currentProgram->GetSpirvStatus()) {
@@ -3059,13 +3378,13 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
     GLuint GetBackendProgramId(GLuint program) {
         if (!MG_State::pGLContext->ValidateProgramName(program)) {
-            MGLOG_E("Invalid frontend program object: %u", program);
+            MGLOG_E_ONCE("Invalid frontend program object: %u", program);
             return 0;
         }
 
         auto& programObject = MG_State::pGLContext->GetProgramObject(program);
         if (!programObject) {
-            MGLOG_E("Program object %u is null.", program);
+            MGLOG_E_ONCE("Program object %u is null.", program);
             return 0;
         }
 
@@ -3269,7 +3588,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
         DrawSyncFlags syncBit = DrawSyncBit::IndexBuffer;
         PrepareForDraw(syncBit);
         CheckPrimitiveRestartSupported(type);
+        SetCurrentBaseVertex(basevertex);
         g_GLESFuncs.glDrawElementsBaseVertex(mode, count, type, indices, basevertex);
+        SetCurrentBaseVertex(0);
     }
 
     void MultiDrawArrays(GLenum mode, const GLint* first, const GLsizei* count, GLsizei drawcount) {
@@ -3279,6 +3600,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
         DrawSyncFlags syncBit = DrawSyncBit::None;
         PrepareForDraw(syncBit);
 
+        // This loop IS the emulation - there is no batched tier for the non-indexed form -
+        // so each sub-draw has to be given its own gl_DrawID here, exactly as the indexed
+        // ladder and the indirect executors do. Without it every sub-draw of a
+        // glMultiDrawArrays read draw index 0.
+        const Bool feedDrawID = CurrentProgramReadsDrawID();
         const auto& currentVAO = MG_State::pGLContext->GetBoundVertexArray();
         for (GLsizei i = 0; i < drawcount; ++i) {
             // Client-side arrays are uploaded per sub-draw range, like the single DrawArrays path.
@@ -3288,8 +3614,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     (*backendVAOSlot)->SyncClientSideAttributesForDrawArrays(currentVAO, first[i], count[i]);
                 }
             }
+            if (feedDrawID) SetCurrentDrawID(static_cast<Uint32>(i));
             g_GLESFuncs.glDrawArrays(mode, first[i], count[i]);
         }
+        if (feedDrawID) SetCurrentDrawID(0);
     }
 
     // Both glMultiDrawElements entry points are emulated - ES has neither in core - by the
@@ -3323,7 +3651,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             stride = sizeof(DrawElementsIndirectCommand);
         }
         if (stride < static_cast<GLsizei>(sizeof(DrawElementsIndirectCommand))) {
-            MGLOG_E("MultiDrawElementsIndirect skipped: stride %d is smaller than command size %zu",
+            MGLOG_E_ONCE("MultiDrawElementsIndirect skipped: stride %d is smaller than command size %zu",
                     stride, sizeof(DrawElementsIndirectCommand));
             return;
         }
@@ -3333,7 +3661,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
         const SizeT indexSize = MG_Util::GetGLTypeSize(type);
         if (indexSize == 0) {
-            MGLOG_E("MultiDrawElementsIndirect skipped: unsupported index type 0x%x", type);
+            MGLOG_E_ONCE("MultiDrawElementsIndirect skipped: unsupported index type 0x%x", type);
             return;
         }
 
@@ -3363,7 +3691,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             stride = sizeof(DrawElementsIndirectCommand);
         }
         if (stride < static_cast<GLsizei>(sizeof(DrawElementsIndirectCommand))) {
-            MGLOG_E("MultiDrawElementsIndirectCount skipped: stride %d is smaller than command size %zu",
+            MGLOG_E_ONCE("MultiDrawElementsIndirectCount skipped: stride %d is smaller than command size %zu",
                     stride, sizeof(DrawElementsIndirectCommand));
             return;
         }
@@ -3373,18 +3701,18 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
         const SizeT indexSize = MG_Util::GetGLTypeSize(type);
         if (indexSize == 0) {
-            MGLOG_E("MultiDrawElementsIndirectCount skipped: unsupported index type 0x%x", type);
+            MGLOG_E_ONCE("MultiDrawElementsIndirectCount skipped: unsupported index type 0x%x", type);
             return;
         }
 
         auto drawBuffer = MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::DrawIndirect).GetBoundObject();
         auto parameterBuffer = MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::Parameter).GetBoundObject();
         if (!drawBuffer) {
-            MGLOG_E("MultiDrawElementsIndirectCount skipped: no GL_DRAW_INDIRECT_BUFFER is bound");
+            MGLOG_E_ONCE("MultiDrawElementsIndirectCount skipped: no GL_DRAW_INDIRECT_BUFFER is bound");
             return;
         }
         if (!parameterBuffer) {
-            MGLOG_E("MultiDrawElementsIndirectCount skipped: no GL_PARAMETER_BUFFER is bound");
+            MGLOG_E_ONCE("MultiDrawElementsIndirectCount skipped: no GL_PARAMETER_BUFFER is bound");
             return;
         }
 
@@ -3395,11 +3723,20 @@ namespace MobileGL::MG_Backend::DirectGLES {
         const SizeT commandBytes = commandOffset + static_cast<SizeT>(stride) * static_cast<SizeT>(maxdrawcount - 1) +
             sizeof(DrawElementsIndirectCommand);
         if (commandBytes > drawBuffer->GetSize()) {
-            MGLOG_E("MultiDrawElementsIndirectCount skipped: invalid GL_DRAW_INDIRECT_BUFFER binding or range");
+            MGLOG_E_ONCE("MultiDrawElementsIndirectCount skipped: invalid GL_DRAW_INDIRECT_BUFFER binding or range");
             return;
         }
         if (drawcount < 0 || static_cast<SizeT>(drawcount) + sizeof(Uint32) > parameterBuffer->GetSize()) {
-            MGLOG_E("MultiDrawElementsIndirectCount skipped: invalid GL_PARAMETER_BUFFER binding or range");
+            MGLOG_E_ONCE("MultiDrawElementsIndirectCount skipped: invalid GL_PARAMETER_BUFFER binding or range");
+            return;
+        }
+
+        // Both counts are read from the CPU shadow, which a buffer with no shadow does not
+        // have - MappedData() is null there and the reads below would be a null dereference,
+        // not a wrong picture. The DirectVulkan twin declines the same way.
+        if (parameterBuffer->MappedData() == nullptr || drawBuffer->MappedData() == nullptr) {
+            MGLOG_E_ONCE("MultiDrawElementsIndirectCount skipped: CPU fallback cannot read the parameter or "
+                    "draw-indirect buffer");
             return;
         }
 
@@ -3422,7 +3759,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             stride = sizeof(DrawArraysIndirectCommand);
         }
         if (stride < static_cast<GLsizei>(sizeof(DrawArraysIndirectCommand))) {
-            MGLOG_E("MultiDrawArraysIndirect skipped: stride %d is smaller than command size %zu",
+            MGLOG_E_ONCE("MultiDrawArraysIndirect skipped: stride %d is smaller than command size %zu",
                     stride, sizeof(DrawArraysIndirectCommand));
             return;
         }
@@ -3444,11 +3781,79 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                       drawcount, stride, "MultiDrawArraysIndirect");
     }
 
+    // The non-indexed twin of MultiDrawElementsIndirectCount, and structurally identical to it:
+    // ES has no GL_PARAMETER_BUFFER at all, so the draw count is read from the CPU shadow of the
+    // bound one and the batch degenerates into an ordinary indirect multi-draw of that many
+    // commands. Missing from the backend table until now, which made every
+    // glMultiDrawArraysIndirectCount an INVALID_OPERATION ("backend does not support
+    // indirect-parameter array draws") on DirectGLES while the extension was advertised.
+    void MultiDrawArraysIndirectCount(GLenum mode, const void* indirect, GLintptr drawcount, GLsizei maxdrawcount,
+                                      GLsizei stride) {
+#if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG && MOBILEGL_ENABLE_SCOPE_MARKER
+        DebugImpl::OpenGLScopeMarker marker(__func__);
+#endif
+        if (maxdrawcount <= 0) {
+            return;
+        }
+        if (stride == 0) {
+            stride = sizeof(DrawArraysIndirectCommand);
+        }
+        if (stride < static_cast<GLsizei>(sizeof(DrawArraysIndirectCommand))) {
+            MGLOG_E_ONCE("MultiDrawArraysIndirectCount skipped: stride %d is smaller than command size %zu",
+                    stride, sizeof(DrawArraysIndirectCommand));
+            return;
+        }
+
+        DrawSyncFlags syncBit = DrawSyncBit::IndirectBuffer | DrawSyncBit::Instancing;
+        PrepareForDraw(syncBit);
+
+        auto drawBuffer = MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::DrawIndirect).GetBoundObject();
+        auto parameterBuffer = MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::Parameter).GetBoundObject();
+        if (!drawBuffer) {
+            MGLOG_E_ONCE("MultiDrawArraysIndirectCount skipped: no GL_DRAW_INDIRECT_BUFFER is bound");
+            return;
+        }
+        if (!parameterBuffer) {
+            MGLOG_E_ONCE("MultiDrawArraysIndirectCount skipped: no GL_PARAMETER_BUFFER is bound");
+            return;
+        }
+
+        drawBuffer->SyncPersistentMappedRange();
+        parameterBuffer->SyncPersistentMappedRange();
+
+        const SizeT commandOffset = reinterpret_cast<SizeT>(indirect);
+        const SizeT commandBytes = commandOffset + static_cast<SizeT>(stride) * static_cast<SizeT>(maxdrawcount - 1) +
+            sizeof(DrawArraysIndirectCommand);
+        if (commandBytes > drawBuffer->GetSize()) {
+            MGLOG_E_ONCE("MultiDrawArraysIndirectCount skipped: invalid GL_DRAW_INDIRECT_BUFFER binding or range");
+            return;
+        }
+        if (drawcount < 0 || static_cast<SizeT>(drawcount) + sizeof(Uint32) > parameterBuffer->GetSize()) {
+            MGLOG_E_ONCE("MultiDrawArraysIndirectCount skipped: invalid GL_PARAMETER_BUFFER binding or range");
+            return;
+        }
+
+        // See the indexed twin: no CPU shadow means no count to read, not a wrong one.
+        if (parameterBuffer->MappedData() == nullptr || drawBuffer->MappedData() == nullptr) {
+            MGLOG_E_ONCE("MultiDrawArraysIndirectCount skipped: CPU fallback cannot read the parameter or "
+                    "draw-indirect buffer");
+            return;
+        }
+
+        Uint32 actualDrawCount = 0;
+        std::memcpy(&actualDrawCount, parameterBuffer->MappedData() + drawcount, sizeof(actualDrawCount));
+        actualDrawCount = std::min<Uint32>(actualDrawCount, static_cast<Uint32>(maxdrawcount));
+        ExecuteArraysIndirectCommands(mode, drawBuffer->MappedData() + commandOffset, commandOffset, drawBuffer,
+                                      static_cast<GLsizei>(actualDrawCount), stride, "MultiDrawArraysIndirectCount");
+    }
+
     void DrawRangeElementsBaseVertex(GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type,
                                      const void* indices, GLint basevertex) {
         DrawSyncFlags syncBit = DrawSyncBit::IndexBuffer;
         PrepareForDraw(syncBit);
+        SetCurrentBaseVertex(basevertex);
         g_GLESFuncs.glDrawRangeElementsBaseVertex(mode, start, end, count, type, indices, basevertex);
+        SetCurrentBaseVertex(0);
     }
 
     void DrawRangeElements(GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type, const void* indices) {
@@ -3457,12 +3862,33 @@ namespace MobileGL::MG_Backend::DirectGLES {
         g_GLESFuncs.glDrawRangeElements(mode, start, end, count, type, indices);
     }
 
+    // True when the driver will apply baseInstance to the vertex fetch itself, in which case the
+    // attribute-offset emulation must stay out of the way. SetCurrentBaseInstance is orthogonal
+    // and runs either way - it feeds the shader's gl_BaseInstance, not the fetch.
+    inline Bool UseNativeBaseInstance() {
+        return g_GLESCapabilities.SupportsBaseInstance;
+    }
+
+    // The emulated shift has to be in place before PrepareForDraw, because that is what syncs the
+    // VAO; a zero here is what un-shifts the arrays for the next ordinary draw.
+    inline Uint32 EmulatedFetchBaseInstance(GLuint baseinstance) {
+        return UseNativeBaseInstance() ? 0u : static_cast<Uint32>(baseinstance);
+    }
+
     void DrawElementsInstancedBaseVertexBaseInstance(GLenum mode, GLsizei count, GLenum type, const void* indices,
                                                      GLsizei instancecount, GLint basevertex, GLuint baseinstance) {
         DrawSyncFlags syncBit = DrawSyncBit::IndexBuffer | DrawSyncBit::Instancing;
+        const VertexArrayImpl::ScopedFetchBaseInstance fetchScope(EmulatedFetchBaseInstance(baseinstance));
         PrepareForDraw(syncBit);
         SetCurrentBaseInstance(baseinstance);
-        g_GLESFuncs.glDrawElementsInstancedBaseVertex(mode, count, type, indices, instancecount, basevertex);
+        SetCurrentBaseVertex(basevertex);
+        if (UseNativeBaseInstance()) {
+            g_GLESFuncs.glDrawElementsInstancedBaseVertexBaseInstanceEXT(mode, count, type, indices, instancecount,
+                                                                        basevertex, baseinstance);
+        } else {
+            g_GLESFuncs.glDrawElementsInstancedBaseVertex(mode, count, type, indices, instancecount, basevertex);
+        }
+        SetCurrentBaseVertex(0);
         SetCurrentBaseInstance(0);
     }
 
@@ -3470,15 +3896,23 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                          GLsizei instancecount, GLint basevertex) {
         DrawSyncFlags syncBit = DrawSyncBit::IndexBuffer | DrawSyncBit::Instancing;
         PrepareForDraw(syncBit);
+        SetCurrentBaseVertex(basevertex);
         g_GLESFuncs.glDrawElementsInstancedBaseVertex(mode, count, type, indices, instancecount, basevertex);
+        SetCurrentBaseVertex(0);
     }
 
     void DrawElementsInstancedBaseInstance(GLenum mode, GLsizei count, GLenum type, const void* indices,
                                            GLsizei instancecount, GLuint baseinstance) {
         DrawSyncFlags syncBit = DrawSyncBit::IndexBuffer | DrawSyncBit::Instancing;
+        const VertexArrayImpl::ScopedFetchBaseInstance fetchScope(EmulatedFetchBaseInstance(baseinstance));
         PrepareForDraw(syncBit);
         SetCurrentBaseInstance(baseinstance);
-        g_GLESFuncs.glDrawElementsInstanced(mode, count, type, indices, instancecount);
+        if (UseNativeBaseInstance()) {
+            g_GLESFuncs.glDrawElementsInstancedBaseInstanceEXT(mode, count, type, indices, instancecount,
+                                                              baseinstance);
+        } else {
+            g_GLESFuncs.glDrawElementsInstanced(mode, count, type, indices, instancecount);
+        }
         SetCurrentBaseInstance(0);
     }
 
@@ -3494,7 +3928,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
         const SizeT indexSize = MG_Util::GetGLTypeSize(type);
         if (indexSize == 0) {
-            MGLOG_E("DrawElementsIndirect skipped: unsupported index type 0x%x", type);
+            MGLOG_E_ONCE("DrawElementsIndirect skipped: unsupported index type 0x%x", type);
             return;
         }
 
@@ -3514,9 +3948,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
     void DrawArraysInstancedBaseInstance(GLenum mode, GLint first, GLsizei count, GLsizei instancecount,
                                          GLuint baseinstance) {
         DrawSyncFlags syncBit = DrawSyncBit::Instancing;
+        const VertexArrayImpl::ScopedFetchBaseInstance fetchScope(EmulatedFetchBaseInstance(baseinstance));
         PrepareForDraw(syncBit);
         SetCurrentBaseInstance(baseinstance);
-        g_GLESFuncs.glDrawArraysInstanced(mode, first, count, instancecount);
+        if (UseNativeBaseInstance()) {
+            g_GLESFuncs.glDrawArraysInstancedBaseInstanceEXT(mode, first, count, instancecount, baseinstance);
+        } else {
+            g_GLESFuncs.glDrawArraysInstanced(mode, first, count, instancecount);
+        }
         SetCurrentBaseInstance(0);
     }
 
@@ -3542,10 +3981,27 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                       sizeof(DrawArraysIndirectCommand), "DrawArraysIndirect");
     }
 
-    static void DrainBlitErrors() {
-        while (g_GLESFuncs.glGetError() != GL_NO_ERROR) {
+    // Empties the ES driver's error queue, BOUNDED. A driver that never answers GL_NO_ERROR - a
+    // lost context is the usual way, and GL_CONTEXT_LOST is allowed to keep coming back - would
+    // otherwise spin an unbounded drain forever inside whichever GL entry point happened to be
+    // cleaning up, which is how a GPU reset reads as an unkillable process whose log simply
+    // stops. A healthy context cannot queue anywhere near the cap, so reaching it IS the
+    // diagnostic. Every drain in this backend goes through here so the bound cannot drift apart
+    // between them.
+    static constexpr Int kMaxDrainedGLErrors = 32;
+
+    static void DrainDriverErrors(const char* site) {
+        Int drained = 0;
+        while (drained < kMaxDrainedGLErrors && g_GLESFuncs.glGetError() != GL_NO_ERROR) {
+            ++drained;
+        }
+        if (drained == kMaxDrainedGLErrors) {
+            MGLOG_E_ONCE("%s: the ES driver still reported errors after %d drains - the context is most likely lost",
+                         site, kMaxDrainedGLErrors);
         }
     }
+
+    static void DrainBlitErrors() { DrainDriverErrors("BlitFramebuffer"); }
 
     // Sized internal format of the currently bound READ framebuffer's read colour
     // attachment, 0 when it cannot be determined.
@@ -3663,8 +4119,19 @@ namespace MobileGL::MG_Backend::DirectGLES {
         Bool resolved = g_GLESFuncs.glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
         if (resolved) {
             DrainBlitErrors();
+            // A blit is scissored like a draw (the replicate path's guard documents the
+            // same rule): the application's box would clip this resolve into the
+            // scratch, and the second blit would then copy never-written scratch texels
+            // into the destination - silently, since scissor clipping raises no GL
+            // error. Disable for the staging blit only; the caller-visible blit below
+            // keeps the blit's native scissor semantics. Tracked via the render-state
+            // shadow, exactly like ScopedScissorDisable.
+            const Bool scissorWasEnabled =
+                (RenderStateImpl::g_syncedRenderStateParameters.ScissorTestEnabledMask & 1u) != 0;
+            if (scissorWasEnabled) g_GLESFuncs.glDisable(GL_SCISSOR_TEST);
             g_GLESFuncs.glBlitFramebuffer(left, bottom, right, top, 0, 0, width, height, GL_COLOR_BUFFER_BIT,
                                           GL_NEAREST);
+            if (scissorWasEnabled) g_GLESFuncs.glEnable(GL_SCISSOR_TEST);
             resolved = g_GLESFuncs.glGetError() == GL_NO_ERROR;
         }
         if (resolved) {
@@ -3686,10 +4153,202 @@ namespace MobileGL::MG_Backend::DirectGLES {
         g_GLESFuncs.glBindFramebuffer(GL_DRAW_FRAMEBUFFER, static_cast<GLuint>(previousDraw));
         FramebufferImpl::InvalidateFramebufferBindingCache();
         if (!resolved) {
-            MGLOG_E("BlitFramebuffer: multisample resolve fallback failed");
+            MGLOG_E_ONCE("BlitFramebuffer: multisample resolve fallback failed");
         }
         return resolved;
     }
+
+    // ---------------------------------------------------------------------------------
+    // Shared guard for the emulation passes that have to DRAW to get their work done: the
+    // single-sample -> multisample blit replicate below, and the depth/stencil readback
+    // emulation further down. Both borrow the application's ES context for a full-screen
+    // pass, so everything they disturb is captured here and put back on the way out - the
+    // sync layer's shadow of the driver state has to stay true, and one leaked binding
+    // regresses every draw that follows.
+    //
+    // Three members of that set are not obvious:
+    //
+    //  - The borrowed texture unit. Both passes bind their scratch texture to
+    //    TextureImpl::TempTextureUnit, and the unit's binding is only restored correctly by
+    //    asking TextureImpl::g_boundTexturesCache what is supposed to be there: the raw
+    //    glBindTexture the passes issue never moves that cache, so restoring a *queried*
+    //    id leaves the driver and the cache disagreeing and the per-draw binding memo
+    //    false-skips the re-bind - the borrowed-slot failure mode that showed up as
+    //    process-wide glyph death under Iris. Reading GL_TEXTURE_BINDING_2D was doubly
+    //    wrong here because the replicate path may already have switched units and bound
+    //    its own scratch texture by the time it asked.
+    //
+    //  - The sampler object on that unit. It would override the scratch texture's own
+    //    filter and compare parameters. Unbinding through SamplerImpl::UnbindSampler moves
+    //    the sampler cache, which is exactly what re-opens BindCurrentUnitSamplers' memo,
+    //    so the application's sampler comes back on the next draw with no explicit restore.
+    //
+    //  - An active transform feedback capture. GL rejects a draw issued with a program
+    //    other than the one that began the capture, and would otherwise append the
+    //    emulation's vertices to the application's buffers.
+    class ScopedEmulationDrawState {
+    public:
+        ScopedEmulationDrawState() {
+            g_GLESFuncs.glGetIntegerv(GL_CURRENT_PROGRAM, &m_program);
+            g_GLESFuncs.glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &m_vertexArray);
+            g_GLESFuncs.glGetIntegerv(GL_VIEWPORT, m_viewport);
+            g_GLESFuncs.glGetIntegerv(GL_SCISSOR_BOX, m_scissorBox);
+            g_GLESFuncs.glGetBooleanv(GL_COLOR_WRITEMASK, m_colorMask);
+            g_GLESFuncs.glGetIntegerv(GL_DEPTH_FUNC, &m_depthFunc);
+            g_GLESFuncs.glGetBooleanv(GL_DEPTH_WRITEMASK, &m_depthMask);
+            g_GLESFuncs.glGetIntegerv(GL_STENCIL_FUNC, &m_stencilFunc[0]);
+            g_GLESFuncs.glGetIntegerv(GL_STENCIL_BACK_FUNC, &m_stencilFunc[1]);
+            g_GLESFuncs.glGetIntegerv(GL_STENCIL_REF, &m_stencilRef[0]);
+            g_GLESFuncs.glGetIntegerv(GL_STENCIL_BACK_REF, &m_stencilRef[1]);
+            g_GLESFuncs.glGetIntegerv(GL_STENCIL_VALUE_MASK, &m_stencilValueMask[0]);
+            g_GLESFuncs.glGetIntegerv(GL_STENCIL_BACK_VALUE_MASK, &m_stencilValueMask[1]);
+            g_GLESFuncs.glGetIntegerv(GL_STENCIL_WRITEMASK, &m_stencilWriteMask[0]);
+            g_GLESFuncs.glGetIntegerv(GL_STENCIL_BACK_WRITEMASK, &m_stencilWriteMask[1]);
+            g_GLESFuncs.glGetIntegerv(GL_STENCIL_FAIL, &m_stencilFail[0]);
+            g_GLESFuncs.glGetIntegerv(GL_STENCIL_BACK_FAIL, &m_stencilFail[1]);
+            g_GLESFuncs.glGetIntegerv(GL_STENCIL_PASS_DEPTH_FAIL, &m_stencilDepthFail[0]);
+            g_GLESFuncs.glGetIntegerv(GL_STENCIL_BACK_PASS_DEPTH_FAIL, &m_stencilDepthFail[1]);
+            g_GLESFuncs.glGetIntegerv(GL_STENCIL_PASS_DEPTH_PASS, &m_stencilPass[0]);
+            g_GLESFuncs.glGetIntegerv(GL_STENCIL_BACK_PASS_DEPTH_PASS, &m_stencilPass[1]);
+            if (g_GLESCapabilities.SupportsClipDistance) {
+                m_capabilityCount = kBaseCapabilityCount + kClipDistanceCapabilityCount;
+            }
+            for (Uint i = 0; i < m_capabilityCount; ++i) {
+                m_capabilities[i].enabled = g_GLESFuncs.glIsEnabled(m_capabilities[i].cap);
+            }
+            // GL_SAMPLE_MASK is ES 3.1; on an older driver the query above just raised
+            // GL_INVALID_ENUM and answered GL_FALSE, which is also the right thing to
+            // restore. Drop the flag so it is not misattributed to the emulation's own work.
+            DrainBlitErrors();
+
+            if (MG_State::pGLContext->IsTransformFeedbackActive() &&
+                !MG_State::pGLContext->IsTransformFeedbackPaused() && g_GLESFuncs.glPauseTransformFeedback) {
+                g_GLESFuncs.glPauseTransformFeedback();
+                m_pausedTransformFeedback = true;
+                DrainBlitErrors();
+            }
+
+            m_activeTextureUnit = TextureImpl::g_activeTextureUnit;
+            TextureImpl::ActivateTextureUnit(TextureImpl::TempTextureUnit);
+            SamplerImpl::UnbindSampler(TextureImpl::TempTextureUnit);
+
+            // The neutral baseline every emulation pass wants: nothing culled, nothing
+            // clipped, nothing tested, no coverage games, and colour writes open. Callers
+            // turn back on only what they need (the replicate pass wants the depth and
+            // stencil tests, and masks colour off because it writes neither).
+            for (Uint i = 0; i < m_capabilityCount; ++i) {
+                g_GLESFuncs.glDisable(m_capabilities[i].cap);
+            }
+            g_GLESFuncs.glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+            g_GLESFuncs.glDepthMask(GL_FALSE);
+            DrainBlitErrors();
+        }
+
+        ~ScopedEmulationDrawState() {
+            g_GLESFuncs.glUseProgram(static_cast<GLuint>(m_program));
+            // Put back whatever the binding cache says lives on the borrowed unit, not what
+            // the driver happened to hold: see the class comment.
+            auto* cachedBound =
+                TextureImpl::g_boundTexturesCache[TextureImpl::TempTextureUnit]
+                                                 [static_cast<SizeT>(TextureTarget::Texture2D)];
+            g_GLESFuncs.glBindTexture(GL_TEXTURE_2D, cachedBound ? cachedBound->GetBackendTextureId() : 0);
+            TextureImpl::ActivateTextureUnit(m_activeTextureUnit);
+            VertexArrayImpl::BindBackendVAOId(static_cast<GLuint>(m_vertexArray));
+            g_GLESFuncs.glViewport(m_viewport[0], m_viewport[1], m_viewport[2], m_viewport[3]);
+            g_GLESFuncs.glScissor(m_scissorBox[0], m_scissorBox[1], m_scissorBox[2], m_scissorBox[3]);
+            g_GLESFuncs.glColorMask(m_colorMask[0], m_colorMask[1], m_colorMask[2], m_colorMask[3]);
+            g_GLESFuncs.glDepthFunc(static_cast<GLenum>(m_depthFunc));
+            g_GLESFuncs.glDepthMask(m_depthMask);
+            const GLenum faces[2] = {GL_FRONT, GL_BACK};
+            for (SizeT face = 0; face < 2; ++face) {
+                g_GLESFuncs.glStencilFuncSeparate(faces[face], static_cast<GLenum>(m_stencilFunc[face]),
+                                                  m_stencilRef[face],
+                                                  static_cast<GLuint>(m_stencilValueMask[face]));
+                g_GLESFuncs.glStencilOpSeparate(faces[face], static_cast<GLenum>(m_stencilFail[face]),
+                                                static_cast<GLenum>(m_stencilDepthFail[face]),
+                                                static_cast<GLenum>(m_stencilPass[face]));
+                g_GLESFuncs.glStencilMaskSeparate(faces[face], static_cast<GLuint>(m_stencilWriteMask[face]));
+            }
+            for (Uint i = 0; i < m_capabilityCount; ++i) {
+                if (m_capabilities[i].enabled) {
+                    g_GLESFuncs.glEnable(m_capabilities[i].cap);
+                } else {
+                    g_GLESFuncs.glDisable(m_capabilities[i].cap);
+                }
+            }
+            // The per-draw-buffer colour masks are not covered by the non-indexed
+            // glColorMask above. Restore what the SYNC actually pushed, not the raw
+            // application masks: a widened attachment's alpha write is forced off by
+            // SyncRenderState and memoized in g_syncedColorMaskAlphaWidenMask, and the
+            // next sync early-outs on an unchanged version - restoring the undoctored
+            // mask here would leave alpha writes enabled on the widened buffer with
+            // nothing left to repair it. Same three-way pointer fallback as
+            // SyncRenderState's push: gating on the core name alone left EXT/OES-only
+            // devices holding buffer 0's mask broadcast across every buffer.
+            const auto colorMaskiFn = g_GLESFuncs.glColorMaski      ? g_GLESFuncs.glColorMaski
+                                      : g_GLESFuncs.glColorMaskiEXT ? g_GLESFuncs.glColorMaskiEXT
+                                                                    : g_GLESFuncs.glColorMaskiOES;
+            if (colorMaskiFn) {
+                for (Uint index = 0; index < MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS; ++index) {
+                    BoolVec4 colorMask = RenderStateImpl::g_syncedRenderStateParameters.ColorMasks[index];
+                    if (index < 32 && (RenderStateImpl::g_syncedColorMaskAlphaWidenMask & (1u << index)) != 0) {
+                        colorMask.w() = false;
+                    }
+                    colorMaskiFn(index, colorMask.x() ? GL_TRUE : GL_FALSE, colorMask.y() ? GL_TRUE : GL_FALSE,
+                                 colorMask.z() ? GL_TRUE : GL_FALSE, colorMask.w() ? GL_TRUE : GL_FALSE);
+                }
+            }
+            if (m_pausedTransformFeedback && g_GLESFuncs.glResumeTransformFeedback) {
+                g_GLESFuncs.glResumeTransformFeedback();
+            }
+            DrainBlitErrors();
+        }
+
+        ScopedEmulationDrawState(const ScopedEmulationDrawState&) = delete;
+        ScopedEmulationDrawState& operator=(const ScopedEmulationDrawState&) = delete;
+
+    private:
+        struct CapabilityState {
+            GLenum cap;
+            GLboolean enabled;
+        };
+
+        GLint m_program = 0;
+        GLint m_vertexArray = 0;
+        GLint m_viewport[4] = {0, 0, 0, 0};
+        GLint m_scissorBox[4] = {0, 0, 0, 0};
+        GLboolean m_colorMask[4] = {GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE};
+        GLint m_depthFunc = GL_LESS;
+        GLboolean m_depthMask = GL_TRUE;
+        GLint m_stencilFunc[2] = {GL_ALWAYS, GL_ALWAYS};
+        GLint m_stencilRef[2] = {0, 0};
+        GLint m_stencilValueMask[2] = {~0, ~0};
+        GLint m_stencilWriteMask[2] = {~0, ~0};
+        GLint m_stencilFail[2] = {GL_KEEP, GL_KEEP};
+        GLint m_stencilDepthFail[2] = {GL_KEEP, GL_KEEP};
+        GLint m_stencilPass[2] = {GL_KEEP, GL_KEEP};
+        Uint m_activeTextureUnit = 0;
+        Bool m_pausedTransformFeedback = false;
+        // The eight GL_CLIP_DISTANCE0_EXT..7_EXT entries are last so that a driver without
+        // GL_EXT_clip_cull_distance can be served by shortening the count instead of asking
+        // it about tokens it does not know. They belong here at all because an emulation pass
+        // draws its full-screen triangle with its OWN program, which writes no gl_ClipDistance:
+        // leaving the app's enables on would clip that triangle by undefined distances.
+        static constexpr Uint kBaseCapabilityCount = 10;
+        static constexpr Uint kClipDistanceCapabilityCount = 8;
+        Uint m_capabilityCount = kBaseCapabilityCount;
+        CapabilityState m_capabilities[kBaseCapabilityCount + kClipDistanceCapabilityCount] = {
+            {GL_SCISSOR_TEST, GL_FALSE},        {GL_DEPTH_TEST, GL_FALSE},
+            {GL_STENCIL_TEST, GL_FALSE},        {GL_CULL_FACE, GL_FALSE},
+            {GL_BLEND, GL_FALSE},               {GL_RASTERIZER_DISCARD, GL_FALSE},
+            {GL_POLYGON_OFFSET_FILL, GL_FALSE}, {GL_SAMPLE_ALPHA_TO_COVERAGE, GL_FALSE},
+            {GL_SAMPLE_COVERAGE, GL_FALSE},     {GL_SAMPLE_MASK, GL_FALSE},
+            {0x3000, GL_FALSE},                 {0x3001, GL_FALSE},
+            {0x3002, GL_FALSE},                 {0x3003, GL_FALSE},
+            {0x3004, GL_FALSE},                 {0x3005, GL_FALSE},
+            {0x3006, GL_FALSE},                 {0x3007, GL_FALSE},
+        };
+    };
 
     // ---------------------------------------------------------------------------------
     // Single-sample -> multisample blit ("replicate")
@@ -3705,6 +4364,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
     // exactly what the replicate rule asks for. Depth comes from gl_FragDepth; stencil has
     // no shader output on ES, so it is written one bit plane at a time with REPLACE and a
     // discard for the pixels whose source bit is clear.
+    // Defined further down with the other small GL helpers; the attachment-format probe below
+    // needs it to tell a rejected bind apart from a successful one.
+    static void ClearGLErrors();
+
     namespace ReplicateBlitImpl {
         static Uint s_contextGeneration = ~0u;
         static GLuint s_framebuffer = 0;
@@ -3801,7 +4464,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 s_stencilProgram = BuildProgram(kStencilFragmentSource);
                 if (s_depthProgram == 0 || s_stencilProgram == 0) {
                     s_programsFailed = true;
-                    MGLOG_E("BlitFramebuffer: could not build the multisample replicate programs");
+                    MGLOG_E_ONCE("BlitFramebuffer: could not build the multisample replicate programs");
                     return false;
                 }
                 s_depthUvTransform = g_GLESFuncs.glGetUniformLocation(s_depthProgram, "uUvTransform");
@@ -3819,40 +4482,69 @@ namespace MobileGL::MG_Backend::DirectGLES {
             return true;
         }
 
-        // Sized internal format of the read framebuffer's depth (or, failing that, stencil)
-        // attachment. The scratch copy has to use the very same one: ES rejects a
-        // depth/stencil blit between differing formats even when both sides are single-sampled.
+        // Sized internal format of ONE attachment point of the bound READ framebuffer, or 0
+        // when there is no object there to ask (the default framebuffer's buffers have no
+        // queryable format at all). The scratch copy has to use the very same one: ES rejects
+        // a depth/stencil blit between differing formats even when both sides are
+        // single-sampled.
+        //
+        // The texture branch can only ask about a GL_TEXTURE_2D, and a name whose target is
+        // something else (an array or cube texture attached by glFramebufferTextureLayer /
+        // glFramebufferTexture) makes glBindTexture answer GL_INVALID_OPERATION and change
+        // nothing. Reading glGetTexLevelParameteriv after that failed bind does NOT return 0 -
+        // it truthfully describes whatever texture was already on GL_TEXTURE_2D, which on this
+        // path is the emulation's own staging scratch. That is a wrong answer that looks like a
+        // right one, so the bind has to be error-checked rather than trusted.
+        static GLenum QueryAttachmentSizedFormat(GLenum attachment) {
+            GLint objectType = 0;
+            GLint objectName = 0;
+            g_GLESFuncs.glGetFramebufferAttachmentParameteriv(GL_READ_FRAMEBUFFER, attachment,
+                                                              GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, &objectType);
+            g_GLESFuncs.glGetFramebufferAttachmentParameteriv(GL_READ_FRAMEBUFFER, attachment,
+                                                              GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, &objectName);
+            if (objectName == 0) {
+                return 0;
+            }
+            GLint internalFormat = 0;
+            if (objectType == GL_RENDERBUFFER) {
+                GLint previous = 0;
+                g_GLESFuncs.glGetIntegerv(GL_RENDERBUFFER_BINDING, &previous);
+                ClearGLErrors();
+                g_GLESFuncs.glBindRenderbuffer(GL_RENDERBUFFER, static_cast<GLuint>(objectName));
+                const Bool bound = g_GLESFuncs.glGetError() == GL_NO_ERROR;
+                if (bound) {
+                    g_GLESFuncs.glGetRenderbufferParameteriv(GL_RENDERBUFFER, GL_RENDERBUFFER_INTERNAL_FORMAT,
+                                                             &internalFormat);
+                }
+                g_GLESFuncs.glBindRenderbuffer(GL_RENDERBUFFER, static_cast<GLuint>(previous));
+                ClearGLErrors();
+            } else if (objectType == GL_TEXTURE) {
+                GLint previous = 0;
+                g_GLESFuncs.glGetIntegerv(GL_TEXTURE_BINDING_2D, &previous);
+                ClearGLErrors();
+                g_GLESFuncs.glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(objectName));
+                const Bool bound = g_GLESFuncs.glGetError() == GL_NO_ERROR;
+                if (bound) {
+                    g_GLESFuncs.glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_INTERNAL_FORMAT,
+                                                         &internalFormat);
+                    if (g_GLESFuncs.glGetError() != GL_NO_ERROR) {
+                        internalFormat = 0;
+                    }
+                }
+                g_GLESFuncs.glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(previous));
+                ClearGLErrors();
+            }
+            return static_cast<GLenum>(internalFormat);
+        }
+
+        // The read framebuffer's depth format, or - when it has no depth - its stencil one.
         static GLenum QueryReadDepthStencilFormat(GLenum* outAttachment) {
             const GLenum attachments[] = {GL_DEPTH_ATTACHMENT, GL_STENCIL_ATTACHMENT};
             for (const GLenum attachment : attachments) {
-                GLint objectType = 0;
-                GLint objectName = 0;
-                g_GLESFuncs.glGetFramebufferAttachmentParameteriv(GL_READ_FRAMEBUFFER, attachment,
-                                                                  GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, &objectType);
-                g_GLESFuncs.glGetFramebufferAttachmentParameteriv(GL_READ_FRAMEBUFFER, attachment,
-                                                                  GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, &objectName);
-                if (objectName == 0) {
-                    continue;
-                }
-                GLint internalFormat = 0;
-                if (objectType == GL_RENDERBUFFER) {
-                    GLint previous = 0;
-                    g_GLESFuncs.glGetIntegerv(GL_RENDERBUFFER_BINDING, &previous);
-                    g_GLESFuncs.glBindRenderbuffer(GL_RENDERBUFFER, static_cast<GLuint>(objectName));
-                    g_GLESFuncs.glGetRenderbufferParameteriv(GL_RENDERBUFFER, GL_RENDERBUFFER_INTERNAL_FORMAT,
-                                                             &internalFormat);
-                    g_GLESFuncs.glBindRenderbuffer(GL_RENDERBUFFER, static_cast<GLuint>(previous));
-                } else if (objectType == GL_TEXTURE) {
-                    GLint previous = 0;
-                    g_GLESFuncs.glGetIntegerv(GL_TEXTURE_BINDING_2D, &previous);
-                    g_GLESFuncs.glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(objectName));
-                    g_GLESFuncs.glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_INTERNAL_FORMAT,
-                                                         &internalFormat);
-                    g_GLESFuncs.glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(previous));
-                }
+                const GLenum internalFormat = QueryAttachmentSizedFormat(attachment);
                 if (internalFormat != 0) {
                     if (outAttachment) *outAttachment = attachment;
-                    return static_cast<GLenum>(internalFormat);
+                    return internalFormat;
                 }
             }
             return 0;
@@ -3920,8 +4612,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
         GLint previousRead = 0;
         g_GLESFuncs.glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &previousDraw);
         g_GLESFuncs.glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &previousRead);
-        GLint previousActiveTexture = 0;
-        g_GLESFuncs.glGetIntegerv(GL_ACTIVE_TEXTURE, &previousActiveTexture);
+
+        // Everything below borrows the application's context - a texture unit for the
+        // scratch sampling and the whole rasterization pipeline for the replicate passes -
+        // so the guard is taken before the first of those, not just before the draws. It
+        // also puts the scissor test where the staging blit below needs it: a blit is
+        // scissored like a draw, and the application's box would otherwise clip the copy
+        // into the scratch texture.
+        ScopedEmulationDrawState emulationState;
 
         // Copy the source rectangle into a scratch texture of its own format: both sides of
         // that blit are single-sampled, which ES does allow.
@@ -3938,7 +4636,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             if (s_texture == 0) {
                 ok = false;
             } else {
-                g_GLESFuncs.glActiveTexture(GL_TEXTURE0);
+                // The guard already activated TempTextureUnit and cleared its sampler.
                 g_GLESFuncs.glBindTexture(GL_TEXTURE_2D, s_texture);
                 DrainBlitErrors();
                 g_GLESFuncs.glTexStorage2D(GL_TEXTURE_2D, 1, sourceFormat, s_textureWidth, s_textureHeight);
@@ -3970,65 +4668,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
         g_GLESFuncs.glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(previousRead));
         FramebufferImpl::InvalidateFramebufferBindingCache();
         if (!ok) {
-            g_GLESFuncs.glActiveTexture(static_cast<GLenum>(previousActiveTexture));
-            MGLOG_E("BlitFramebuffer: could not stage the source for the multisample replicate");
+            MGLOG_E_ONCE("BlitFramebuffer: could not stage the source for the multisample replicate");
             return false;
-        }
-
-        // Everything below draws into the caller's multisample draw framebuffer, so the
-        // pipeline state it depends on is saved and put back byte for byte - the sync layer's
-        // shadow of the driver state has to stay true.
-        GLint previousProgram = 0;
-        GLint previousVertexArray = 0;
-        GLint previousTexture = 0;
-        GLint previousViewport[4] = {0, 0, 0, 0};
-        GLint previousScissorBox[4] = {0, 0, 0, 0};
-        GLboolean previousColorMask[4] = {GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE};
-        GLint previousDepthFunc = GL_LESS;
-        GLboolean previousDepthMask = GL_TRUE;
-        GLint previousStencilFunc[2] = {GL_ALWAYS, GL_ALWAYS};
-        GLint previousStencilRef[2] = {0, 0};
-        GLint previousStencilValueMask[2] = {~0, ~0};
-        GLint previousStencilWriteMask[2] = {~0, ~0};
-        GLint previousStencilFail[2] = {GL_KEEP, GL_KEEP};
-        GLint previousStencilDepthFail[2] = {GL_KEEP, GL_KEEP};
-        GLint previousStencilPass[2] = {GL_KEEP, GL_KEEP};
-        g_GLESFuncs.glGetIntegerv(GL_CURRENT_PROGRAM, &previousProgram);
-        g_GLESFuncs.glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &previousVertexArray);
-        g_GLESFuncs.glGetIntegerv(GL_TEXTURE_BINDING_2D, &previousTexture);
-        g_GLESFuncs.glGetIntegerv(GL_VIEWPORT, previousViewport);
-        g_GLESFuncs.glGetIntegerv(GL_SCISSOR_BOX, previousScissorBox);
-        g_GLESFuncs.glGetBooleanv(GL_COLOR_WRITEMASK, previousColorMask);
-        g_GLESFuncs.glGetIntegerv(GL_DEPTH_FUNC, &previousDepthFunc);
-        g_GLESFuncs.glGetBooleanv(GL_DEPTH_WRITEMASK, &previousDepthMask);
-        g_GLESFuncs.glGetIntegerv(GL_STENCIL_FUNC, &previousStencilFunc[0]);
-        g_GLESFuncs.glGetIntegerv(GL_STENCIL_BACK_FUNC, &previousStencilFunc[1]);
-        g_GLESFuncs.glGetIntegerv(GL_STENCIL_REF, &previousStencilRef[0]);
-        g_GLESFuncs.glGetIntegerv(GL_STENCIL_BACK_REF, &previousStencilRef[1]);
-        g_GLESFuncs.glGetIntegerv(GL_STENCIL_VALUE_MASK, &previousStencilValueMask[0]);
-        g_GLESFuncs.glGetIntegerv(GL_STENCIL_BACK_VALUE_MASK, &previousStencilValueMask[1]);
-        g_GLESFuncs.glGetIntegerv(GL_STENCIL_WRITEMASK, &previousStencilWriteMask[0]);
-        g_GLESFuncs.glGetIntegerv(GL_STENCIL_BACK_WRITEMASK, &previousStencilWriteMask[1]);
-        g_GLESFuncs.glGetIntegerv(GL_STENCIL_FAIL, &previousStencilFail[0]);
-        g_GLESFuncs.glGetIntegerv(GL_STENCIL_BACK_FAIL, &previousStencilFail[1]);
-        g_GLESFuncs.glGetIntegerv(GL_STENCIL_PASS_DEPTH_FAIL, &previousStencilDepthFail[0]);
-        g_GLESFuncs.glGetIntegerv(GL_STENCIL_BACK_PASS_DEPTH_FAIL, &previousStencilDepthFail[1]);
-        g_GLESFuncs.glGetIntegerv(GL_STENCIL_PASS_DEPTH_PASS, &previousStencilPass[0]);
-        g_GLESFuncs.glGetIntegerv(GL_STENCIL_BACK_PASS_DEPTH_PASS, &previousStencilPass[1]);
-
-        struct CapabilityState {
-            GLenum cap;
-            GLboolean enabled;
-        };
-        CapabilityState capabilities[] = {
-            {GL_SCISSOR_TEST, GL_FALSE},     {GL_DEPTH_TEST, GL_FALSE},
-            {GL_STENCIL_TEST, GL_FALSE},     {GL_CULL_FACE, GL_FALSE},
-            {GL_BLEND, GL_FALSE},            {GL_RASTERIZER_DISCARD, GL_FALSE},
-            {GL_POLYGON_OFFSET_FILL, GL_FALSE}, {GL_SAMPLE_ALPHA_TO_COVERAGE, GL_FALSE},
-            {GL_SAMPLE_COVERAGE, GL_FALSE},  {GL_SAMPLE_MASK, GL_FALSE},
-        };
-        for (CapabilityState& capability : capabilities) {
-            capability.enabled = g_GLESFuncs.glIsEnabled(capability.cap);
         }
 
         const GLint dstLeft = std::min(dstX0, dstX1);
@@ -4042,19 +4683,15 @@ namespace MobileGL::MG_Backend::DirectGLES {
         const Float uvTransform[4] = {mirrorX ? -uvScaleX : uvScaleX, mirrorY ? -uvScaleY : uvScaleY,
                                       mirrorX ? uvScaleX : 0.0f, mirrorY ? uvScaleY : 0.0f};
 
+        // The guard already left the pipeline neutral (nothing culled, tested, blended or
+        // coverage-masked) on the borrowed texture unit; what is left is this pass's own
+        // choices - the destination rectangle, and colour writes off because it writes only
+        // depth and stencil.
         VertexArrayImpl::BindBackendVAOId(s_vertexArray);
-        g_GLESFuncs.glActiveTexture(GL_TEXTURE0);
         g_GLESFuncs.glBindTexture(GL_TEXTURE_2D, s_texture);
         g_GLESFuncs.glViewport(dstLeft, dstBottom, dstWidth, dstHeight);
         g_GLESFuncs.glScissor(dstLeft, dstBottom, dstWidth, dstHeight);
         g_GLESFuncs.glEnable(GL_SCISSOR_TEST);
-        g_GLESFuncs.glDisable(GL_CULL_FACE);
-        g_GLESFuncs.glDisable(GL_BLEND);
-        g_GLESFuncs.glDisable(GL_RASTERIZER_DISCARD);
-        g_GLESFuncs.glDisable(GL_POLYGON_OFFSET_FILL);
-        g_GLESFuncs.glDisable(GL_SAMPLE_ALPHA_TO_COVERAGE);
-        g_GLESFuncs.glDisable(GL_SAMPLE_COVERAGE);
-        g_GLESFuncs.glDisable(GL_SAMPLE_MASK);
         g_GLESFuncs.glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
         DrainBlitErrors();
 
@@ -4098,46 +4735,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
         const Bool replicated = g_GLESFuncs.glGetError() == GL_NO_ERROR;
 
-        g_GLESFuncs.glUseProgram(static_cast<GLuint>(previousProgram));
-        g_GLESFuncs.glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(previousTexture));
-        g_GLESFuncs.glActiveTexture(static_cast<GLenum>(previousActiveTexture));
-        VertexArrayImpl::BindBackendVAOId(static_cast<GLuint>(previousVertexArray));
-        g_GLESFuncs.glViewport(previousViewport[0], previousViewport[1], previousViewport[2], previousViewport[3]);
-        g_GLESFuncs.glScissor(previousScissorBox[0], previousScissorBox[1], previousScissorBox[2],
-                              previousScissorBox[3]);
-        g_GLESFuncs.glColorMask(previousColorMask[0], previousColorMask[1], previousColorMask[2],
-                                previousColorMask[3]);
-        g_GLESFuncs.glDepthFunc(static_cast<GLenum>(previousDepthFunc));
-        g_GLESFuncs.glDepthMask(previousDepthMask);
-        const GLenum faces[2] = {GL_FRONT, GL_BACK};
-        for (SizeT face = 0; face < 2; ++face) {
-            g_GLESFuncs.glStencilFuncSeparate(faces[face], static_cast<GLenum>(previousStencilFunc[face]),
-                                              previousStencilRef[face],
-                                              static_cast<GLuint>(previousStencilValueMask[face]));
-            g_GLESFuncs.glStencilOpSeparate(faces[face], static_cast<GLenum>(previousStencilFail[face]),
-                                            static_cast<GLenum>(previousStencilDepthFail[face]),
-                                            static_cast<GLenum>(previousStencilPass[face]));
-            g_GLESFuncs.glStencilMaskSeparate(faces[face], static_cast<GLuint>(previousStencilWriteMask[face]));
-        }
-        for (const CapabilityState& capability : capabilities) {
-            if (capability.enabled) {
-                g_GLESFuncs.glEnable(capability.cap);
-            } else {
-                g_GLESFuncs.glDisable(capability.cap);
-            }
-        }
-        // The per-draw-buffer colour masks are not covered by the non-indexed glColorMask above.
-        for (Uint index = 0; index < MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS; ++index) {
-            const BoolVec4& colorMask = RenderStateImpl::g_syncedRenderStateParameters.ColorMasks[index];
-            if (g_GLESFuncs.glColorMaski) {
-                g_GLESFuncs.glColorMaski(index, colorMask.x() ? GL_TRUE : GL_FALSE, colorMask.y() ? GL_TRUE : GL_FALSE,
-                                         colorMask.z() ? GL_TRUE : GL_FALSE, colorMask.w() ? GL_TRUE : GL_FALSE);
-            }
-        }
-        DrainBlitErrors();
-
+        // Everything the pass disturbed goes back through emulationState's destructor.
         if (!replicated) {
-            MGLOG_E("BlitFramebuffer: multisample replicate fallback failed");
+            MGLOG_E_ONCE("BlitFramebuffer: multisample replicate fallback failed");
         }
         return replicated;
     }
@@ -4172,21 +4772,51 @@ namespace MobileGL::MG_Backend::DirectGLES {
             // outright, desktop GL replicates the source sample into every destination one.
             if (ReplicateBlitIntoMultisampleDraw(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask)) {
                 if ((mask & GL_COLOR_BUFFER_BIT) != 0) {
-                    MGLOG_E("BlitFramebuffer: colour replicate into a multisample draw framebuffer is not emulated");
+                    MGLOG_E_ONCE("BlitFramebuffer: colour replicate into a multisample draw framebuffer is not emulated");
                 }
             }
             return;
         }
-        if (readSamples <= 0 || drawSamples > 0 || (mask & GL_COLOR_BUFFER_BIT) == 0) {
-            return;
-        }
-        if (ResolveThenBlit(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, filter) &&
-            (mask & ~static_cast<GLbitfield>(GL_COLOR_BUFFER_BIT)) != 0) {
+        // The combined call raised an error, so by GL 4.6 2.3.1 it wrote nothing at all: BOTH
+        // aspect groups still owe their copy, and each has to be retried on its own. Re-issuing
+        // the depth/stencil half only as a rider on a SUCCESSFUL colour resolve dropped it
+        // silently whenever the colour half could not be emulated - and on a framebuffer whose
+        // only attachment is depth it never can, because the colour emulation has no attachment
+        // to take a format from (KHR-GL33.framebuffer_blit's depth config test blits
+        // COLOR|DEPTH|STENCIL across depth-only framebuffers and kept reading the clear value).
+        const GLbitfield colourBit = mask & static_cast<GLbitfield>(GL_COLOR_BUFFER_BIT);
+        const GLbitfield dsBits = mask & static_cast<GLbitfield>(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+        // The colour group's one emulation is the multisample resolve that also converts format,
+        // which is the shape this names. It used to double as an early-out for the whole
+        // function, which is what cost a depth-only mask its single-aspect retry.
+        const Bool multisampleResolve = readSamples > 0 && drawSamples <= 0;
+        if (colourBit != 0) {
             DrainBlitErrors();
-            g_GLESFuncs.glBlitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1,
-                                          mask & ~static_cast<GLbitfield>(GL_COLOR_BUFFER_BIT), filter);
-            DrainBlitErrors();
+            g_GLESFuncs.glBlitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, colourBit, filter);
+            if (g_GLESFuncs.glGetError() != GL_NO_ERROR) {
+                const Bool emulated =
+                    multisampleResolve &&
+                    ResolveThenBlit(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, filter);
+                if (!emulated) {
+                    MGLOG_E_ONCE("BlitFramebuffer: the colour aspect was dropped - the driver rejected it on its "
+                                 "own and no emulation applies");
+                }
+            }
         }
+        if (dsBits != 0) {
+            DrainBlitErrors();
+            g_GLESFuncs.glBlitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, dsBits, filter);
+            if (g_GLESFuncs.glGetError() != GL_NO_ERROR) {
+                // Nothing to fall back on yet: ResolveThenBlit is colour-only and the replicate
+                // pass runs in the opposite direction, so a driver that declines a multisample
+                // depth/stencil resolve leaves the destination holding its clear value. The log
+                // is the whole diagnostic - the frontend performs no validation of its own, so
+                // this never reaches the application as a GL error.
+                MGLOG_E_ONCE("BlitFramebuffer: the depth/stencil aspect was dropped - the driver rejected it on "
+                             "its own and no emulation applies");
+            }
+        }
+        DrainBlitErrors();
     }
 
     void BlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0, GLint dstX1,
@@ -4273,7 +4903,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
         auto textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
         if (!TextureImpl::IsSupportedTextureTarget(textureTarget)) {
-            MGLOG_E("    Texture target %s is not supported, skipping.",
+            MGLOG_E_ONCE("    Texture target %s is not supported, skipping.",
                     MG_Util::ConvertTextureTargetToString(textureTarget).c_str());
             return false;
         }
@@ -4282,7 +4912,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         {
             const auto& textureObject = bindingSlot.GetBoundObject();
             if (!textureObject) {
-                MGLOG_W("%s: Texture target %s does not have texture bound.", __func__,
+                MGLOG_D("%s: Texture target %s does not have texture bound.", __func__,
                         MG_Util::ConvertTextureTargetToString(textureTarget).c_str());
             }
 
@@ -4367,7 +4997,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
     // restores the app state on exit, tracked via the render-state shadow.
     class ScopedScissorDisable {
     public:
-        ScopedScissorDisable() : m_wasEnabled(RenderStateImpl::g_syncedRenderStateParameters.ScissorTestEnabled) {
+        ScopedScissorDisable()
+            : m_wasEnabled((RenderStateImpl::g_syncedRenderStateParameters.ScissorTestEnabledMask & 1u) != 0) {
             if (m_wasEnabled) g_GLESFuncs.glDisable(GL_SCISSOR_TEST);
         }
         ~ScopedScissorDisable() {
@@ -4531,7 +5162,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             return true;
         }
 
-        MGLOG_E("%s failed: %s. target=%s, format=%s", operation,
+        MGLOG_E_ONCE("%s failed: %s. target=%s, format=%s", operation,
                 MG_Util::ConvertGLEnumToString(err).c_str(),
                 MG_Util::ConvertGLEnumToString(target).c_str(),
                 MG_Util::ConvertTextureInternalFormatToString(format).c_str());
@@ -4542,9 +5173,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         return false;
     }
 
-    static void ClearGLErrors() {
-        while (g_GLESFuncs.glGetError() != GL_NO_ERROR) {}
-    }
+    static void ClearGLErrors() { DrainDriverErrors("DirectGLES"); }
 
     // Binds a guaranteed-complete 1x1 scratch framebuffer at both targets for the
     // scope (GenerateMipmap must respecify texture storage while no incomplete
@@ -4867,7 +5496,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                         .GetBoundObject();
         auto* backendTextureSlot = TextureImpl::g_backendTextureObjects.Find(textureObject.get());
         if (!backendTextureSlot || !*backendTextureSlot) {
-            MGLOG_E("CopyTexSubImage2D: No backend texture found for texture %u.",
+            MGLOG_E_ONCE("CopyTexSubImage2D: No backend texture found for texture %u.",
                     textureObject ? textureObject->GetExternalIndex() : 0);
             return;
         }
@@ -4918,7 +5547,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                                     static_cast<Uint>(currentTex), target, level, isStencilFormat);
 
             if (g_GLESFuncs.glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-                MGLOG_E("ES glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE");
+                MGLOG_E_ONCE("ES glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE");
                 return;
             }
 
@@ -4962,7 +5591,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                         .GetBoundObject();
         auto* backendTextureSlot = TextureImpl::g_backendTextureObjects.Find(textureObject.get());
         if (!backendTextureSlot || !*backendTextureSlot) {
-            MGLOG_E("CopyTexSubImage2D: No backend texture found for texture %u.",
+            MGLOG_E_ONCE("CopyTexSubImage2D: No backend texture found for texture %u.",
                     textureObject ? textureObject->GetExternalIndex() : 0);
             return;
         }
@@ -5000,7 +5629,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
             });
             if (g_GLESFuncs.glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-                MGLOG_E("ES glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE");
+                MGLOG_E_ONCE("ES glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE");
                 return;
             }
 
@@ -5157,22 +5786,97 @@ namespace MobileGL::MG_Backend::DirectGLES {
         g_GLESFuncs.glDispatchComputeIndirect(indirect);
     }
 
+    // An atomic counter is a shader storage block by the time it reaches the ES driver (glslang
+    // lowers every atomic_uint onto one), so an application that asks only for the counter
+    // barrier is asking about memory the driver knows as storage-buffer memory. Ordering one
+    // does not oblige a driver to order the other, so the counter bit implies the storage bit
+    // here - which is what the lowering costs and the only place it can be paid.
+    static GLbitfield LowerAtomicCounterBarrierBits(GLbitfield barriers) {
+        if ((barriers & GL_ATOMIC_COUNTER_BARRIER_BIT) != 0) {
+            barriers |= GL_SHADER_STORAGE_BARRIER_BIT;
+        }
+        return barriers;
+    }
+
     void MemoryBarrier(GLbitfield barriers) {
-        g_GLESFuncs.glMemoryBarrier(barriers);
+        g_GLESFuncs.glMemoryBarrier(LowerAtomicCounterBarrierBits(barriers));
         if (g_GLESCapabilities.IsAngleRenderer) {
             g_GLESFuncs.glFlush();
         }
     }
 
     void MemoryBarrierByRegion(GLbitfield barriers) {
-        g_GLESFuncs.glMemoryBarrierByRegion(barriers);
+        g_GLESFuncs.glMemoryBarrierByRegion(LowerAtomicCounterBarrierBits(barriers));
     }
 
-    void CopyImageSubData(const SharedPtr<MG_State::GLState::ITextureObject>& srcTexture,
-                          GLenum srcTarget, GLint srcLevel, GLint srcX, GLint srcY, GLint srcZ,
-                          const SharedPtr<MG_State::GLState::ITextureObject>& dstTexture,
-                          GLenum dstTarget, GLint dstLevel, GLint dstX, GLint dstY, GLint dstZ,
-                          GLsizei srcWidth, GLsizei srcHeight, GLsizei srcDepth) {
+    // One endpoint of a glCopyImageSubData, expressed the way the ES driver stores it.
+    //
+    // The frontend hands this backend the target the APPLICATION named, and three of the
+    // targets core GL has do not exist in ES at all. They are not missing here either - the
+    // texture managers already store a 1D texture as a height-1 2D one, a 1D array as a
+    // height-1 2D array and a rectangle texture as a plain 2D one (MapToBackendTextureTarget) -
+    // but glCopyImageSubData was the one path that never asked for that translation and passed
+    // 0x84F5 / 0x0DE0 / 0x8C18 straight through. ES rejects the enum, the copy does not happen,
+    // and with the error only asserted on (asserts are compiled out of an INFO build) the
+    // destination silently keeps whatever it held.
+    //
+    // The 1D-array case is not just a rename: GL addresses its layers with y/height while the
+    // ES 2D array that backs it addresses them with z/depth, so the two axes swap with the
+    // target.
+    //
+    // GL_RENDERBUFFER is the exception that must NOT be translated: ES 3.2 core (and
+    // GL_EXT_copy_image) take it as a srcTarget/dstTarget verbatim, while
+    // ConvertGLEnumToTextureTarget answers Unknown for it and the translation below would hand
+    // the driver GL_UNKNOWN_MGL.
+    struct GLESCopyImageEndpoint {
+        GLenum target = GL_TEXTURE_2D;
+        // Exactly one of the two is set. The backend object is kept rather than its id, because
+        // the id is only stable until the OTHER endpoint syncs (a sync can re-mint a texture),
+        // so it is read at the point of use.
+        SharedPtr<TextureImpl::BackendTextureObject> texture;
+        SharedPtr<RenderbufferImpl::BackendRenderbufferObject> renderbuffer;
+        GLint x = 0;
+        GLint y = 0;
+        GLint z = 0;
+
+        Bool IsRenderbuffer() const { return renderbuffer != nullptr; }
+        GLuint Name() const {
+            if (renderbuffer) return renderbuffer->GetBackendRenderbufferId();
+            return texture ? texture->GetBackendTextureId() : 0u;
+        }
+    };
+
+    // The renderbuffer twin of TextureImpl::SyncTextureObjectToBackend: the same
+    // find-or-create-then-sync the framebuffer attachment walk does (see SyncAttachmentObject),
+    // reachable from a path that has a renderbuffer but no framebuffer.
+    static SharedPtr<RenderbufferImpl::BackendRenderbufferObject> SyncRenderbufferObjectToBackend(
+        const SharedPtr<MG_State::GLState::RenderbufferObject>& renderbufferObject) {
+        if (!renderbufferObject) return nullptr;
+        SharedPtr<RenderbufferImpl::BackendRenderbufferObject> backendRenderbufferObject;
+        if (auto* slot = RenderbufferImpl::g_backendRenderbufferObjects.Find(renderbufferObject.get())) {
+            backendRenderbufferObject = *slot;
+        } else {
+            auto& newSlot = RenderbufferImpl::g_backendRenderbufferObjects.GetOrCreate(renderbufferObject);
+            if (!newSlot) {
+                newSlot = MakeShared<RenderbufferImpl::BackendRenderbufferObject>();
+            }
+            backendRenderbufferObject = newSlot;
+        }
+        backendRenderbufferObject->SyncToBackend(renderbufferObject);
+        return backendRenderbufferObject;
+    }
+
+    static Bool MakeGLESCopyImageEndpoint(const CopyImageEndpoint& endpoint, GLenum appTarget, GLint x, GLint y,
+                                          GLint z, GLESCopyImageEndpoint& out) {
+        if (endpoint.IsRenderbuffer()) {
+            out.renderbuffer = SyncRenderbufferObjectToBackend(endpoint.Renderbuffer);
+            if (!out.renderbuffer) return false;
+            out.target = GL_RENDERBUFFER;
+            out.x = x;
+            out.y = y;
+            out.z = z;
+            return true;
+        }
         // BY VALUE, not by reference. SyncTextureObjectToBackend hands back a reference to a
         // slot inside the backend texture registry, and the second call mutates that very map:
         // GetOrCreate indexes it (an insert relocates entries - by rehashing, and also by
@@ -5182,57 +5886,229 @@ namespace MobileGL::MG_Backend::DirectGLES {
         // Either way a reference taken by the first call is stale by the time the second returns,
         // and it is read four more times below. Copying the SharedPtr costs two refcount bumps on
         // a path that is already doing a texture copy.
-        const SharedPtr<TextureImpl::BackendTextureObject> srcBackendTexture =
-            TextureImpl::SyncTextureObjectToBackend(srcTexture);
-        const SharedPtr<TextureImpl::BackendTextureObject> dstBackendTexture =
-            TextureImpl::SyncTextureObjectToBackend(dstTexture);
+        // An endpoint that named nothing is the frontend validator's INVALID_VALUE and never
+        // reaches here - but the assertion that says so is compiled out of a release build, and
+        // SyncTextureObjectToBackend would register a null state object.
+        if (!endpoint.Texture) return false;
+        out.texture = TextureImpl::SyncTextureObjectToBackend(endpoint.Texture);
+        if (!out.texture) return false;
+        const TextureTarget stateTarget = MG_Util::ConvertGLEnumToTextureTarget(appTarget);
+        out.target = TextureImpl::ConvertTextureTargetToBackendGLEnum(stateTarget);
+        if (stateTarget == TextureTarget::Texture1DArray) {
+            out.x = x;
+            out.y = 0;
+            out.z = y;
+            return true;
+        }
+        out.x = x;
+        out.y = y;
+        out.z = z;
+        return true;
+    }
 
-        const Bool srcIsDepth = MG_Util::IsDepthFormatInternalFormat(srcTexture->GetFormat());
-        const Bool dstIsDepth = MG_Util::IsDepthFormatInternalFormat(dstTexture->GetFormat());
-        const Bool srcStencil = MG_Util::IsStencilFormatInternalFormat(srcTexture->GetFormat());
-        const Bool dstStencil = MG_Util::IsStencilFormatInternalFormat(dstTexture->GetFormat());
-        if (srcIsDepth || dstIsDepth || srcStencil || dstStencil) {
-            MOBILEGL_ASSERT(srcIsDepth && dstIsDepth && !srcStencil && !dstStencil,
-                            "DirectGLES CopyImageSubData only supports depth-only image copies.");
-            MOBILEGL_ASSERT(srcTarget == GL_TEXTURE_2D && dstTarget == GL_TEXTURE_2D,
-                            "DirectGLES depth CopyImageSubData only supports GL_TEXTURE_2D.");
-            MOBILEGL_ASSERT(srcZ == 0 && dstZ == 0 && srcDepth == 1,
-                            "DirectGLES depth CopyImageSubData only supports single-layer copies.");
-            BlitDepthTexture2D(srcBackendTexture->GetBackendTextureId(), srcLevel, srcX, srcY, srcWidth, srcHeight,
-                               dstBackendTexture->GetBackendTextureId(), dstLevel, dstX, dstY, srcWidth, srcHeight);
+    // The region extent swaps the same two axes for a 1D array, and does so for whichever side
+    // of the copy is one - GL forbids a copy whose two endpoints disagree about how many layers
+    // move, so at most one of the two can be a 1D array only in the degenerate single-layer
+    // case, where the swap is the identity anyway.
+    static void ApplyGLESCopyImageExtent(GLenum appSrcTarget, GLenum appDstTarget, GLsizei& height, GLsizei& depth) {
+        const TextureTarget srcStateTarget = MG_Util::ConvertGLEnumToTextureTarget(appSrcTarget);
+        const TextureTarget dstStateTarget = MG_Util::ConvertGLEnumToTextureTarget(appDstTarget);
+        if (srcStateTarget != TextureTarget::Texture1DArray && dstStateTarget != TextureTarget::Texture1DArray) {
+            return;
+        }
+        std::swap(height, depth);
+    }
+
+    static TextureInternalFormat GetCopyImageEndpointFormat(const CopyImageEndpoint& endpoint) {
+        if (endpoint.IsRenderbuffer()) return endpoint.Renderbuffer->GetInternalFormat();
+        return endpoint.Texture ? endpoint.Texture->GetFormat() : TextureInternalFormat::Unknown;
+    }
+
+    // Whether this endpoint's CPU shadow can be addressed texel-exactly by the mirror below: one
+    // upload target (so not a cube map, whose six chains the z axis selects between) and layers on
+    // the z axis (GL_TEXTURE_1D_ARRAY carries them on y).
+    static Bool CanMirrorCopyImageShadow(const SharedPtr<MG_State::GLState::ITextureObject>& texture) {
+        if (!texture) return false;
+        if (texture->GetTarget() == TextureTarget::Texture1DArray) return false;
+        return texture->GetUploadTargets().size() == 1;
+    }
+
+    // glCopyImageSubData is defined as a raw texel-block move, so for a destination whose CPU
+    // shadow has to stay authoritative - a packed format with redundant encodings, where a GPU
+    // readback can only answer with RE-ENCODED words (see the verbatim branch in GetTexImage) -
+    // the same move is replayed on the shadow. Nothing is marked dirty: the driver copy already
+    // put these texels on the GPU, and flagging the level would only schedule a redundant upload
+    // back over them.
+    //
+    // Declined, leaving the shadow exactly as it was, for every shape whose bytes this cannot
+    // address exactly - a renderbuffer (no shadow at all), a cube or 1D-array endpoint, a level
+    // whose shadow is missing or not a plain texel grid, a region outside either level, or a
+    // self-copy within one level, where the row copies could overlap.
+    static void MirrorCopyImageIntoDestinationShadow(const CopyImageEndpoint& srcEndpoint, GLint srcLevel, GLint srcX,
+                                                     GLint srcY, GLint srcZ, const CopyImageEndpoint& dstEndpoint,
+                                                     GLint dstLevel, GLint dstX, GLint dstY, GLint dstZ,
+                                                     GLsizei width, GLsizei height, GLsizei depth) {
+        if (!CanMirrorCopyImageShadow(srcEndpoint.Texture) || !CanMirrorCopyImageShadow(dstEndpoint.Texture)) return;
+        if (srcEndpoint.Texture == dstEndpoint.Texture && srcLevel == dstLevel) return;
+        if (width <= 0 || height <= 0 || depth <= 0) return;
+        if (srcLevel < 0 || dstLevel < 0 || srcX < 0 || srcY < 0 || srcZ < 0 || dstX < 0 || dstY < 0 || dstZ < 0) {
+            return;
+        }
+        auto* srcMipmap = MG_State::GLState::AsMipmapTexture(srcEndpoint.Texture.get());
+        auto* dstMipmap = MG_State::GLState::AsMipmapTexture(dstEndpoint.Texture.get());
+        if (!srcMipmap || !dstMipmap) return;
+
+        const auto srcUploadTarget = srcEndpoint.Texture->GetUploadTargets()[0];
+        const auto dstUploadTarget = dstEndpoint.Texture->GetUploadTargets()[0];
+        const IntVec3 srcSize = srcMipmap->GetMipmapTexelSize(srcUploadTarget, static_cast<Uint>(srcLevel));
+        const IntVec3 dstSize = dstMipmap->GetMipmapTexelSize(dstUploadTarget, static_cast<Uint>(dstLevel));
+        const SizeT srcSlices = static_cast<SizeT>(std::max(srcSize.z(), 1));
+        const SizeT dstSlices = static_cast<SizeT>(std::max(dstSize.z(), 1));
+        if (srcSize.x() <= 0 || srcSize.y() <= 0 || dstSize.x() <= 0 || dstSize.y() <= 0) return;
+        const SizeT srcTexels = static_cast<SizeT>(srcSize.x()) * static_cast<SizeT>(srcSize.y()) * srcSlices;
+        const SizeT dstTexels = static_cast<SizeT>(dstSize.x()) * static_cast<SizeT>(dstSize.y()) * dstSlices;
+        const SizeT srcBytes = srcMipmap->GetMipmapByteSize(srcUploadTarget, static_cast<Uint>(srcLevel));
+        const SizeT dstBytes = dstMipmap->GetMipmapByteSize(dstUploadTarget, static_cast<Uint>(dstLevel));
+        // A shadow that is not exactly texels x texelSize bytes is one this cannot index (a
+        // compressed blob, or a level whose allocation disagrees with its recorded extent).
+        const SizeT texelBytes = srcTexels == 0 ? 0 : srcBytes / srcTexels;
+        if (texelBytes == 0 || srcBytes != srcTexels * texelBytes || dstTexels == 0 ||
+            dstBytes != dstTexels * texelBytes) {
+            return;
+        }
+        if (static_cast<SizeT>(srcX) + width > static_cast<SizeT>(srcSize.x()) ||
+            static_cast<SizeT>(srcY) + height > static_cast<SizeT>(srcSize.y()) ||
+            static_cast<SizeT>(srcZ) + depth > srcSlices ||
+            static_cast<SizeT>(dstX) + width > static_cast<SizeT>(dstSize.x()) ||
+            static_cast<SizeT>(dstY) + height > static_cast<SizeT>(dstSize.y()) ||
+            static_cast<SizeT>(dstZ) + depth > dstSlices) {
             return;
         }
 
-        if (srcTexture->GetFormat() == TextureInternalFormat::R32F ||
-            dstTexture->GetFormat() == TextureInternalFormat::R32F) {
+        const auto* srcBase = static_cast<const Uint8*>(
+            srcMipmap->MapMipmapData(srcUploadTarget, static_cast<Uint>(srcLevel)));
+        auto* dstBase = static_cast<Uint8*>(dstMipmap->MapMipmapData(dstUploadTarget, static_cast<Uint>(dstLevel)));
+        if (!srcBase || !dstBase) return;
+
+        const SizeT rowBytes = static_cast<SizeT>(width) * texelBytes;
+        for (GLsizei slice = 0; slice < depth; ++slice) {
+            for (GLsizei row = 0; row < height; ++row) {
+                const SizeT srcOffset = ((static_cast<SizeT>(srcZ + slice) * static_cast<SizeT>(srcSize.y()) +
+                                          static_cast<SizeT>(srcY + row)) *
+                                             static_cast<SizeT>(srcSize.x()) +
+                                         static_cast<SizeT>(srcX)) *
+                                        texelBytes;
+                const SizeT dstOffset = ((static_cast<SizeT>(dstZ + slice) * static_cast<SizeT>(dstSize.y()) +
+                                          static_cast<SizeT>(dstY + row)) *
+                                             static_cast<SizeT>(dstSize.x()) +
+                                         static_cast<SizeT>(dstX)) *
+                                        texelBytes;
+                Memcpy(dstBase + dstOffset, srcBase + srcOffset, rowBytes);
+            }
+        }
+        MGLOG_D("CopyImageSubData: mirrored %dx%dx%d texels into the destination's CPU shadow", width, height,
+                depth);
+    }
+
+    void CopyImageSubData(const CopyImageEndpoint& srcEndpoint,
+                          GLenum srcTarget, GLint srcLevel, GLint srcX, GLint srcY, GLint srcZ,
+                          const CopyImageEndpoint& dstEndpoint,
+                          GLenum dstTarget, GLint dstLevel, GLint dstX, GLint dstY, GLint dstZ,
+                          GLsizei srcWidth, GLsizei srcHeight, GLsizei srcDepth) {
+        GLESCopyImageEndpoint src{};
+        GLESCopyImageEndpoint dst{};
+        // The DirectVulkan half of this entry point died exactly here, on a texture whose sync
+        // produced nothing - and it died in a release build, where the MOBILEGL_ASSERT that was
+        // supposed to catch it expands to nothing. The four Name() calls below are the same
+        // dereference. The frontend validator is what keeps this unreachable and what reports
+        // the error the application is owed; declining is only how a future gap up there stops
+        // being a crash. See the level guard in VulkanRenderer::CopyImageSubData.
+        if (!MakeGLESCopyImageEndpoint(srcEndpoint, srcTarget, srcX, srcY, srcZ, src) ||
+            !MakeGLESCopyImageEndpoint(dstEndpoint, dstTarget, dstX, dstY, dstZ, dst)) {
+            MGLOG_E_ONCE("%s: source or destination image failed to sync; declining the copy", __func__);
+            return;
+        }
+
+        GLsizei copyHeight = srcHeight;
+        GLsizei copyDepth = srcDepth;
+        ApplyGLESCopyImageExtent(srcTarget, dstTarget, copyHeight, copyDepth);
+
+        const TextureInternalFormat srcFormat = GetCopyImageEndpointFormat(srcEndpoint);
+        const TextureInternalFormat dstFormat = GetCopyImageEndpointFormat(dstEndpoint);
+        // Both emulation fallbacks below are written against TEXTURE ids and texture targets, so
+        // an endpoint that is a renderbuffer takes the native ES copy - which accepts
+        // GL_RENDERBUFFER on both sides - and reports rather than mis-dispatches if the driver
+        // turns it down.
+        const Bool anyRenderbuffer = src.IsRenderbuffer() || dst.IsRenderbuffer();
+
+        const Bool srcIsDepth = MG_Util::IsDepthFormatInternalFormat(srcFormat);
+        const Bool dstIsDepth = MG_Util::IsDepthFormatInternalFormat(dstFormat);
+        const Bool srcStencil = MG_Util::IsStencilFormatInternalFormat(srcFormat);
+        const Bool dstStencil = MG_Util::IsStencilFormatInternalFormat(dstFormat);
+        if (!anyRenderbuffer && (srcIsDepth || dstIsDepth || srcStencil || dstStencil)) {
+            MOBILEGL_ASSERT(srcIsDepth && dstIsDepth && !srcStencil && !dstStencil,
+                            "DirectGLES CopyImageSubData only supports depth-only image copies.");
+            MOBILEGL_ASSERT(src.target == GL_TEXTURE_2D && dst.target == GL_TEXTURE_2D,
+                            "DirectGLES depth CopyImageSubData only supports GL_TEXTURE_2D.");
+            MOBILEGL_ASSERT(src.z == 0 && dst.z == 0 && copyDepth == 1,
+                            "DirectGLES depth CopyImageSubData only supports single-layer copies.");
+            BlitDepthTexture2D(src.Name(), srcLevel, src.x, src.y, srcWidth, copyHeight,
+                               dst.Name(), dstLevel, dst.x, dst.y, srcWidth, copyHeight);
+            return;
+        }
+
+        if (!anyRenderbuffer &&
+            (srcFormat == TextureInternalFormat::R32F || dstFormat == TextureInternalFormat::R32F)) {
             // The single glGetError below decides the fallback dispatch, and
             // ErrorLopper::Clear is compiled out at the default log level - drain
             // with the always-live helper so a stale flag cannot misroute a
             // succeeded native copy into the 2D-only fallback.
             ClearGLErrors();
-            g_GLESFuncs.glCopyImageSubData(srcBackendTexture->GetBackendTextureId(), srcTarget, srcLevel, srcX, srcY, srcZ,
-                                           dstBackendTexture->GetBackendTextureId(), dstTarget, dstLevel, dstX, dstY, dstZ,
-                                           srcWidth, srcHeight, srcDepth);
+            g_GLESFuncs.glCopyImageSubData(src.Name(), src.target, srcLevel, src.x, src.y, src.z,
+                                           dst.Name(), dst.target, dstLevel, dst.x, dst.y, dst.z,
+                                           srcWidth, copyHeight, copyDepth);
             const GLenum copyImageError = g_GLESFuncs.glGetError();
             if (copyImageError == GL_NO_ERROR) {
                 return;
             }
-            MOBILEGL_ASSERT(IsColorOnlyFormat(srcTexture->GetFormat()) && IsColorOnlyFormat(dstTexture->GetFormat()),
+            MOBILEGL_ASSERT(IsColorOnlyFormat(srcFormat) && IsColorOnlyFormat(dstFormat),
                             "DirectGLES CopyImageSubData only supports color-only or depth-only copies.");
-            MOBILEGL_ASSERT(srcTarget == GL_TEXTURE_2D && dstTarget == GL_TEXTURE_2D,
+            MOBILEGL_ASSERT(src.target == GL_TEXTURE_2D && dst.target == GL_TEXTURE_2D,
                             "DirectGLES color CopyImageSubData only supports GL_TEXTURE_2D.");
-            MOBILEGL_ASSERT(srcZ == 0 && dstZ == 0 && srcDepth == 1,
+            MOBILEGL_ASSERT(src.z == 0 && dst.z == 0 && copyDepth == 1,
                             "DirectGLES color CopyImageSubData only supports single-layer copies.");
-            CopyR32FTexture2D(srcBackendTexture->GetBackendTextureId(), srcLevel, srcX, srcY, srcWidth, srcHeight,
-                              dstBackendTexture->GetBackendTextureId(), dstTarget, dstLevel, dstX, dstY);
+            CopyR32FTexture2D(src.Name(), srcLevel, src.x, src.y, srcWidth, copyHeight,
+                              dst.Name(), dst.target, dstLevel, dst.x, dst.y);
             return;
         }
 
         ClearGLErrors();
-        g_GLESFuncs.glCopyImageSubData(srcBackendTexture->GetBackendTextureId(), srcTarget, srcLevel, srcX, srcY, srcZ,
-                                       dstBackendTexture->GetBackendTextureId(), dstTarget, dstLevel, dstX, dstY, dstZ,
-                                       srcWidth, srcHeight, srcDepth);
-        AssertNoGLError("glCopyImageSubData");
+        g_GLESFuncs.glCopyImageSubData(src.Name(), src.target, srcLevel, src.x, src.y, src.z,
+                                       dst.Name(), dst.target, dstLevel, dst.x, dst.y, dst.z,
+                                       srcWidth, copyHeight, copyDepth);
+        // Every error condition glCopyImageSubData has was already ruled out by the frontend
+        // validator, so a driver error here is an internal invariant violation, not something
+        // the application can provoke. Say so where an INFO build can still see it, then trap
+        // in the builds that trap - the previous bare assert left a release build with a
+        // destination that silently kept its old contents.
+        const GLenum copyImageError = g_GLESFuncs.glGetError();
+        if (copyImageError != GL_NO_ERROR) {
+            MGLOG_E_ONCE("glCopyImageSubData failed: %s. src target=%s (app %s), dst target=%s (app %s)",
+                         MG_Util::ConvertGLEnumToString(copyImageError).c_str(),
+                         MG_Util::ConvertGLEnumToString(src.target).c_str(),
+                         MG_Util::ConvertGLEnumToString(srcTarget).c_str(),
+                         MG_Util::ConvertGLEnumToString(dst.target).c_str(),
+                         MG_Util::ConvertGLEnumToString(dstTarget).c_str());
+            MOBILEGL_ASSERT(false, "glCopyImageSubData failed after frontend validation accepted the request.");
+            return;
+        }
+        // The copy landed on the GPU. For a destination whose readback cannot be bit-exact the
+        // CPU shadow is what glGetTexImage answers from, so it has to follow the same move -
+        // otherwise it hands back whatever the level held before this copy.
+        if (MG_Util::PixelStoreProcessor::HasRedundantPackedEncoding(dstFormat)) {
+            MirrorCopyImageIntoDestinationShadow(srcEndpoint, srcLevel, srcX, srcY, srcZ, dstEndpoint, dstLevel,
+                                                 dstX, dstY, dstZ, srcWidth, srcHeight, srcDepth);
+        }
     }
 
     void BindImageTexture(GLuint unit, GLuint texture, GLint level, GLboolean layered, GLint layer, GLenum access,
@@ -5587,6 +6463,552 @@ namespace MobileGL::MG_Backend::DirectGLES {
         return (rowBytes + resolvedAlignment - 1) & ~(resolvedAlignment - 1);
     }
 
+    // Destination walk shared by the depth, stencil and packed depth-stencil readbacks.
+    // Each of those produces its rows tightly packed and has to land them in the caller's
+    // destination - client memory or the bound pixel-pack buffer - under the PACK
+    // pixel-store parameters. `fillRow` is handed the row index and a buffer of exactly one
+    // packed row to populate. Only real pixel rows are written, so PACK skip/row-length gap
+    // regions stay untouched.
+    template <typename FillRow>
+    static Bool StoreReadbackRowsToClient(GLsizei width, GLsizei height, SizeT dstPixelBytes, void* pixels,
+                                          const char* what, FillRow&& fillRow) {
+        const auto packParams = MG_State::pGLContext->GetPixelStoreParameters(false);
+        const SizeT rowPixels = static_cast<SizeT>(packParams.RowLength > 0 ? packParams.RowLength : width);
+        const SizeT dstRowStride = AlignPixelRow(rowPixels * dstPixelBytes, packParams.Alignment);
+        const SizeT dstOffset = static_cast<SizeT>(std::max(packParams.SkipRows, 0)) * dstRowStride +
+                                static_cast<SizeT>(std::max(packParams.SkipPixels, 0)) * dstPixelBytes;
+        const SizeT rowBytes = static_cast<SizeT>(width) * dstPixelBytes;
+        const SizeT packedSize = dstOffset + static_cast<SizeT>(height - 1) * dstRowStride + rowBytes;
+        const auto& pixelPackBufferObject =
+            MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::PixelPack).GetBoundObject();
+        const SizeT pboOffset = reinterpret_cast<SizeT>(pixels);
+        if (pixelPackBufferObject && pboOffset + packedSize > pixelPackBufferObject->GetSize()) {
+            MGLOG_E_ONCE("ReadPixels: %s readback PBO is too small", what);
+            return false;
+        }
+        Vector<Uint8> rowBuf(rowBytes);
+        for (GLsizei row = 0; row < height; ++row) {
+            fillRow(row, rowBuf.data());
+            const SizeT rowOffset = dstOffset + static_cast<SizeT>(row) * dstRowStride;
+            if (pixelPackBufferObject) {
+                pixelPackBufferObject->WritebackFromBackend({rowBuf.data(), rowBytes}, pboOffset + rowOffset);
+            } else if (pixels != nullptr) {
+                Memcpy(static_cast<Uint8*>(pixels) + rowOffset, rowBuf.data(), rowBytes);
+            }
+        }
+        if (pixelPackBufferObject) {
+            // WritebackFromBackend bumps change serials with no backend op; re-open the
+            // buffer draw-clean memos (once for the whole row loop).
+            BufferImpl::BumpBufferMutationEpoch();
+        }
+        return true;
+    }
+
+    // A normalized depth scaled into the full range of an unsigned integer of `maxValue`
+    // (GL 4.6 core table 18.2), without ever rounding past the top of that range.
+    static Uint32 NormalizedDepthToUnsigned(Float depth, Double maxValue) {
+        const Double clamped = std::min(std::max(static_cast<Double>(depth), 0.0), 1.0);
+        const Double scaled = clamped * maxValue + 0.5;
+        return static_cast<Uint32>(scaled >= maxValue ? maxValue : scaled);
+    }
+
+    // ---------------------------------------------------------------------------------
+    // Depth / stencil readback by shader sampling
+    //
+    // Desktop GL reads depth and stencil back through glReadPixels; ES has no such call at
+    // all. GL_DEPTH_COMPONENT, GL_STENCIL_INDEX and GL_DEPTH_STENCIL are simply not
+    // accepted formats there, and the optional extensions that add them (GL_NV_read_depth,
+    // GL_NV_read_stencil, GL_NV_read_depth_stencil) are absent on both the Adreno device
+    // and Mesa's ES. Every native attempt therefore failed with a GL error and wrote
+    // NOTHING, so the caller kept whatever its buffer already held - which is how the CTS
+    // reports "expected DEPTH[0.25] but got DEPTH[0.2]": 0.2 is the poison value the test
+    // itself put there.
+    //
+    // What ES *can* do is sample a depth texture, so the emulation goes the long way round:
+    //
+    //   1. Stage. glBlitFramebuffer the requested rectangle out of the bound READ
+    //      framebuffer into a scratch depth(-stencil) TEXTURE of the very same sized
+    //      internal format. One staging copy serves every source kind uniformly - a
+    //      texture attachment of any target/level/layer, a renderbuffer (not samplable at
+    //      all), the default framebuffer, and a multisample attachment (the blit resolves
+    //      it on the way). ES rejects a depth/stencil blit between differing formats, so
+    //      the scratch has to match the source exactly; see DescribeReadDepthStencilSource.
+    //   2. Convert. Draw a full-screen triangle that samples the staged texture into a
+    //      scratch R32UI colour target: depth as floatBitsToUint (bit-exact for every depth
+    //      format, and an integer colour target needs no float-renderable extension),
+    //      stencil through GL_DEPTH_STENCIL_TEXTURE_MODE = GL_STENCIL_INDEX.
+    //   3. Read. glReadPixels the colour target with GL_RGBA_INTEGER / GL_UNSIGNED_INT -
+    //      the pair ES guarantees for an unsigned-integer attachment - and hand the values
+    //      to the existing re-encoders, which already own the client-side (format, type)
+    //      layout and the PACK pixel-store parameters.
+    //
+    // Both scratch images hold the rectangle at their own origin and the pass runs with a
+    // matching viewport, so GL's bottom-up row order survives untouched: scratch row 0 is
+    // source row `y`, which is exactly the first row glReadPixels(x, y, ...) owes the
+    // caller. No flip anywhere.
+    namespace DepthStencilSamplingReadImpl {
+        static Uint s_contextGeneration = ~0u;
+        static GLuint s_colorFramebuffer = 0;
+        static GLuint s_colorTexture = 0;
+        static GLsizei s_colorWidth = 0;
+        static GLsizei s_colorHeight = 0;
+        static GLuint s_vertexArray = 0;
+        static GLuint s_depthProgram = 0;
+        static GLuint s_stencilProgram = 0;
+        static GLint s_depthUvTransform = -1;
+        static GLint s_stencilUvTransform = -1;
+        static Bool s_programsFailed = false;
+
+        // One staging slot per aspect. A framebuffer is allowed to carry its depth and its
+        // stencil in two DIFFERENT objects with two different formats - the framebuffer_blit
+        // cases pair a DEPTH_COMPONENT* attachment with a separate STENCIL_INDEX8 one - and
+        // the two aspects are staged independently for exactly that reason. A single shared
+        // slot would also throw its immutable storage away and re-create it on every
+        // alternation between the two.
+        struct StageSlot {
+            // A framebuffer of its own, not a shared one. GL_DEPTH_STENCIL_ATTACHMENT sets
+            // the depth AND the stencil point, so a packed scratch staged for one aspect
+            // would leave the other aspect's point pointing at it; the next stage of that
+            // other aspect attaches its own (differently formatted) texture to its own point
+            // and the framebuffer is then incomplete - which reads as "no candidate format
+            // worked" and writes nothing at all.
+            GLuint framebuffer = 0;
+            GLuint texture = 0;
+            GLenum format = 0;
+            GLsizei width = 0;
+            GLsizei height = 0;
+            // The default framebuffer has no queryable internal format, so the one that turns
+            // out to be blit-compatible is remembered: it cannot change for the life of the
+            // context, and re-probing it on every read would cost a failed blit each time.
+            GLenum defaultFramebufferFormat = 0;
+        };
+        static StageSlot s_slots[2]; // [0] depth, [1] stencil
+
+        // `precision highp int` is not decoration: ESSL 3.00 defaults integers to mediump in
+        // the fragment language, which is allowed to be 16 bits - it would saw the top half
+        // off every depth bit pattern and every stencil fetch.
+        static const char* const kDepthFetchFragmentSource =
+            "#version 300 es\n"
+            "precision highp float;\n"
+            "precision highp int;\n"
+            "precision highp sampler2D;\n"
+            "uniform sampler2D uSource;\n"
+            "in vec2 vUv;\n"
+            "layout(location = 0) out uvec4 oBits;\n"
+            "void main() {\n"
+            "    oBits = uvec4(floatBitsToUint(texture(uSource, vUv).r), 0u, 0u, 0u);\n"
+            "}\n";
+
+        static const char* const kStencilFetchFragmentSource =
+            "#version 300 es\n"
+            "precision highp float;\n"
+            "precision highp int;\n"
+            "precision highp usampler2D;\n"
+            "uniform usampler2D uSource;\n"
+            "in vec2 vUv;\n"
+            "layout(location = 0) out uvec4 oBits;\n"
+            "void main() {\n"
+            "    oBits = uvec4(texture(uSource, vUv).r, 0u, 0u, 0u);\n"
+            "}\n";
+
+        static Bool EnsureResources() {
+            if (s_contextGeneration != g_backendContextGeneration) {
+                // The ids belonged to a dead context; the context reclaimed them with it.
+                s_colorFramebuffer = 0;
+                s_colorTexture = 0;
+                s_colorWidth = 0;
+                s_colorHeight = 0;
+                s_vertexArray = 0;
+                s_depthProgram = 0;
+                s_stencilProgram = 0;
+                s_programsFailed = false;
+                s_slots[0] = StageSlot{};
+                s_slots[1] = StageSlot{};
+                s_contextGeneration = g_backendContextGeneration;
+            }
+            if (s_programsFailed) {
+                return false;
+            }
+            if (s_depthProgram == 0) {
+                // Same full-screen vertex shader (and its uUvTransform) as the replicate
+                // blit: a staging slot is sized to the largest rectangle seen so far, so the
+                // quad's [0,1] coordinates have to be scaled down to the part it occupies.
+                s_depthProgram = ReplicateBlitImpl::BuildProgram(kDepthFetchFragmentSource);
+                s_stencilProgram = ReplicateBlitImpl::BuildProgram(kStencilFetchFragmentSource);
+                if (s_depthProgram == 0 || s_stencilProgram == 0) {
+                    s_programsFailed = true;
+                    MGLOG_E_ONCE("ReadPixels: could not build the depth/stencil readback programs");
+                    return false;
+                }
+                s_depthUvTransform = g_GLESFuncs.glGetUniformLocation(s_depthProgram, "uUvTransform");
+                s_stencilUvTransform = g_GLESFuncs.glGetUniformLocation(s_stencilProgram, "uUvTransform");
+            }
+            for (StageSlot& slot : s_slots) {
+                if (slot.framebuffer == 0) {
+                    g_GLESFuncs.glGenFramebuffers(1, &slot.framebuffer);
+                    if (slot.framebuffer == 0) return false;
+                }
+            }
+            if (s_colorFramebuffer == 0) {
+                g_GLESFuncs.glGenFramebuffers(1, &s_colorFramebuffer);
+                if (s_colorFramebuffer == 0) return false;
+            }
+            if (s_vertexArray == 0) {
+                g_GLESFuncs.glGenVertexArrays(1, &s_vertexArray);
+                if (s_vertexArray == 0) return false;
+            }
+            return true;
+        }
+
+        // Ordered guesses at the sized internal format backing one aspect. More than one
+        // entry only when the source's own format cannot be queried (the default
+        // framebuffer), in which case the reported channel sizes narrow it down and the
+        // staging blit picks the winner by being the only one that raises no GL error.
+        struct AspectCandidates {
+            GLenum formats[4] = {0, 0, 0, 0};
+            Uint count = 0;
+            void Push(GLenum format) {
+                for (Uint i = 0; i < count; ++i) {
+                    if (formats[i] == format) return;
+                }
+                if (count < 4) formats[count++] = format;
+            }
+        };
+
+        static GLenum AttachmentPointFor(Bool isDefault, Bool stencilAspect) {
+            // The default framebuffer names its buffers GL_DEPTH / GL_STENCIL; a user
+            // framebuffer names them GL_DEPTH_ATTACHMENT / GL_STENCIL_ATTACHMENT, and asking
+            // one for the other's spelling is GL_INVALID_ENUM.
+            if (isDefault) return stencilAspect ? GL_STENCIL : GL_DEPTH;
+            return stencilAspect ? GL_STENCIL_ATTACHMENT : GL_DEPTH_ATTACHMENT;
+        }
+
+        // Returns false when the bound READ framebuffer has no such aspect at all.
+        static Bool DescribeAspect(Bool stencilAspect, Bool* outIsDefault, AspectCandidates* out) {
+            GLint readFramebuffer = 0;
+            g_GLESFuncs.glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &readFramebuffer);
+            const Bool isDefault = readFramebuffer == 0;
+            if (outIsDefault) *outIsDefault = isDefault;
+            const GLenum point = AttachmentPointFor(isDefault, stencilAspect);
+
+            ClearGLErrors();
+            GLint objectType = GL_NONE;
+            g_GLESFuncs.glGetFramebufferAttachmentParameteriv(GL_READ_FRAMEBUFFER, point,
+                                                              GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, &objectType);
+            ClearGLErrors();
+
+            // The channel sizes are read before the "is there anything here" decision, because
+            // they are the more trustworthy witness. Adreno answers GL_NONE for OBJECT_TYPE on
+            // an attachment made by glFramebufferTexture (a layered cube/array attachment) while
+            // still reporting its depth and stencil bits correctly, and taking OBJECT_TYPE at
+            // its word there makes the whole readback report "no such aspect" for a framebuffer
+            // that plainly has one. The OTHER aspect's size matters as much as this one's - a
+            // depth buffer that also carries stencil has to be staged into a packed scratch,
+            // because ES only blits depth between identical formats.
+            GLint depthBits = 0;
+            GLint stencilBits = 0;
+            GLint componentType = GL_UNSIGNED_NORMALIZED;
+            ClearGLErrors();
+            g_GLESFuncs.glGetFramebufferAttachmentParameteriv(GL_READ_FRAMEBUFFER,
+                                                              AttachmentPointFor(isDefault, false),
+                                                              GL_FRAMEBUFFER_ATTACHMENT_DEPTH_SIZE, &depthBits);
+            g_GLESFuncs.glGetFramebufferAttachmentParameteriv(GL_READ_FRAMEBUFFER,
+                                                              AttachmentPointFor(isDefault, true),
+                                                              GL_FRAMEBUFFER_ATTACHMENT_STENCIL_SIZE, &stencilBits);
+            g_GLESFuncs.glGetFramebufferAttachmentParameteriv(
+                GL_READ_FRAMEBUFFER, AttachmentPointFor(isDefault, false),
+                GL_FRAMEBUFFER_ATTACHMENT_COMPONENT_TYPE, &componentType);
+            ClearGLErrors();
+
+            const GLint aspectBits = stencilAspect ? stencilBits : depthBits;
+            if (objectType == GL_NONE && aspectBits <= 0) {
+                return false;
+            }
+
+            if (!isDefault) {
+                // A real object: ask it directly and try that first. It is only a preference,
+                // not a verdict - the probe binds the attachment as GL_TEXTURE_2D, and a name
+                // whose target is not GL_TEXTURE_2D can leave it describing the wrong texture
+                // (see QueryAttachmentSizedFormat). The size-derived guesses below therefore
+                // stay in the list behind it, so a wrong first answer costs one rejected blit
+                // instead of the whole readback. The probe's own refusal must not be left on
+                // the error queue for the caller's next glGetError to pick up as its own.
+                //
+                // The cost of keeping the fallbacks: a source whose OWN format cannot back a
+                // staging texture (GL_STENCIL_INDEX8 without EXT/OES_texture_stencil8, say) no
+                // longer fails cleanly - it retries with a packed format, and a driver lax
+                // enough to accept the resulting mismatched depth/stencil blit would hand back
+                // data indistinguishable from a correct read. ES conformance forbids that blit,
+                // so this trades a spec-guaranteed rejection for a driver-bug-only wrong answer;
+                // the shapes it rescues (array and cube attachments) are otherwise unreadable.
+                const GLenum exact = ReplicateBlitImpl::QueryAttachmentSizedFormat(point);
+                ClearGLErrors();
+                if (exact != 0) {
+                    out->Push(exact);
+                }
+            } else if (s_slots[stencilAspect ? 1 : 0].defaultFramebufferFormat != 0) {
+                out->Push(s_slots[stencilAspect ? 1 : 0].defaultFramebufferFormat);
+            }
+
+            const Bool floatDepth = componentType == GL_FLOAT;
+            const Bool packed = depthBits > 0 && stencilBits > 0;
+            if (stencilAspect) {
+                if (packed) {
+                    out->Push(floatDepth ? GL_DEPTH32F_STENCIL8 : GL_DEPTH24_STENCIL8);
+                    out->Push(floatDepth ? GL_DEPTH24_STENCIL8 : GL_DEPTH32F_STENCIL8);
+                }
+                out->Push(GL_STENCIL_INDEX8);
+                if (!packed) {
+                    out->Push(GL_DEPTH24_STENCIL8);
+                }
+            } else if (packed) {
+                out->Push(floatDepth ? GL_DEPTH32F_STENCIL8 : GL_DEPTH24_STENCIL8);
+                out->Push(floatDepth ? GL_DEPTH24_STENCIL8 : GL_DEPTH32F_STENCIL8);
+            } else if (floatDepth) {
+                out->Push(GL_DEPTH_COMPONENT32F);
+                out->Push(GL_DEPTH32F_STENCIL8);
+            } else if (depthBits > 0 && depthBits <= 16) {
+                out->Push(GL_DEPTH_COMPONENT16);
+                out->Push(GL_DEPTH_COMPONENT24);
+            } else {
+                out->Push(GL_DEPTH_COMPONENT24);
+                out->Push(GL_DEPTH24_STENCIL8);
+                out->Push(GL_DEPTH_COMPONENT32F);
+            }
+            return out->count != 0;
+        }
+
+        // Point a staging slot at `format`, growing it if the rectangle needs it, and leave
+        // it bound on the borrowed texture unit.
+        static Bool EnsureStageTexture(StageSlot& slot, GLenum format, GLsizei width, GLsizei height) {
+            if (slot.texture != 0 && slot.format == format && slot.width >= width && slot.height >= height) {
+                g_GLESFuncs.glBindTexture(GL_TEXTURE_2D, slot.texture);
+                return true;
+            }
+            if (slot.texture != 0) {
+                g_GLESFuncs.glDeleteTextures(1, &slot.texture); // immutable storage cannot be resized
+                ScratchFBOImpl::NoteTextureIdDeleted(slot.texture);
+                slot.texture = 0;
+            }
+            slot.format = 0;
+            slot.width = std::max(slot.width, width);
+            slot.height = std::max(slot.height, height);
+            g_GLESFuncs.glGenTextures(1, &slot.texture);
+            if (slot.texture == 0) return false;
+            g_GLESFuncs.glBindTexture(GL_TEXTURE_2D, slot.texture);
+            ClearGLErrors();
+            g_GLESFuncs.glTexStorage2D(GL_TEXTURE_2D, 1, format, slot.width, slot.height);
+            const Bool ok = g_GLESFuncs.glGetError() == GL_NO_ERROR;
+            g_GLESFuncs.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            g_GLESFuncs.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+            g_GLESFuncs.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            g_GLESFuncs.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            // A depth texture left in compare mode samples to 0/1 instead of the stored value.
+            g_GLESFuncs.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_NONE);
+            ClearGLErrors();
+            slot.format = ok ? format : 0;
+            return ok;
+        }
+
+        static Bool EnsureColorTexture(GLsizei width, GLsizei height) {
+            if (s_colorTexture != 0 && s_colorWidth >= width && s_colorHeight >= height) {
+                return true;
+            }
+            if (s_colorTexture != 0) {
+                g_GLESFuncs.glDeleteTextures(1, &s_colorTexture);
+                ScratchFBOImpl::NoteTextureIdDeleted(s_colorTexture);
+                s_colorTexture = 0;
+            }
+            s_colorWidth = std::max(s_colorWidth, width);
+            s_colorHeight = std::max(s_colorHeight, height);
+            g_GLESFuncs.glGenTextures(1, &s_colorTexture);
+            if (s_colorTexture == 0) return false;
+            g_GLESFuncs.glBindTexture(GL_TEXTURE_2D, s_colorTexture);
+            ClearGLErrors();
+            // R32UI is colour-renderable in ES 3.0 core - no float-renderability extension
+            // needed - and carries a depth bit pattern or a stencil index without loss.
+            g_GLESFuncs.glTexStorage2D(GL_TEXTURE_2D, 1, GL_R32UI, s_colorWidth, s_colorHeight);
+            const Bool ok = g_GLESFuncs.glGetError() == GL_NO_ERROR;
+            g_GLESFuncs.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            g_GLESFuncs.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+            ClearGLErrors();
+            if (!ok) {
+                s_colorWidth = 0;
+                s_colorHeight = 0;
+            }
+            return ok;
+        }
+
+        // Copy one aspect of the requested rectangle out of the bound READ framebuffer into
+        // its staging slot, trying each candidate format until one is blit-compatible.
+        // Requires the slot's own framebuffer bound as DRAW.
+        static Bool StageAspect(StageSlot& slot, const AspectCandidates& candidates, Bool stencilAspect, Bool isDefault,
+                                GLint x, GLint y, GLsizei width, GLsizei height) {
+            const GLbitfield aspectBit = stencilAspect ? GL_STENCIL_BUFFER_BIT : GL_DEPTH_BUFFER_BIT;
+            for (Uint candidate = 0; candidate < candidates.count; ++candidate) {
+                const GLenum format = candidates.formats[candidate];
+                const Bool formatHasAspect = stencilAspect ? ReplicateBlitImpl::FormatHasStencil(format)
+                                                           : ReplicateBlitImpl::FormatHasDepth(format);
+                if (!formatHasAspect) {
+                    continue;
+                }
+                if (!EnsureStageTexture(slot, format, width, height)) {
+                    continue;
+                }
+                g_GLESFuncs.glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER,
+                                                   ReplicateBlitImpl::ScratchAttachmentFor(format), GL_TEXTURE_2D,
+                                                   slot.texture, 0);
+                if (g_GLESFuncs.glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+                    continue;
+                }
+                ClearGLErrors();
+                // Only this aspect: a packed scratch standing in for a separate attachment
+                // has a second half with nothing to copy into it.
+                g_GLESFuncs.glBlitFramebuffer(x, y, x + width, y + height, 0, 0, width, height, aspectBit, GL_NEAREST);
+                const GLenum blitErr = g_GLESFuncs.glGetError();
+                if (blitErr != GL_NO_ERROR) {
+                    continue;
+                }
+                if (isDefault) {
+                    slot.defaultFramebufferFormat = format;
+                }
+                return true;
+            }
+            return false;
+        }
+
+        // Runs one conversion pass over a staged slot and reads its colour target back.
+        // Requires the slot's texture bound on the borrowed unit and s_colorFramebuffer
+        // bound as DRAW.
+        static Bool ConvertAndRead(const StageSlot& slot, Bool stencilAspect, GLsizei width, GLsizei height,
+                                   Vector<Uint32>& outWords) {
+            if (ReplicateBlitImpl::FormatHasDepth(slot.format) && ReplicateBlitImpl::FormatHasStencil(slot.format)) {
+                g_GLESFuncs.glTexParameteri(GL_TEXTURE_2D, GL_DEPTH_STENCIL_TEXTURE_MODE,
+                                            stencilAspect ? GL_STENCIL_INDEX : GL_DEPTH_COMPONENT);
+            }
+            const Float uvScaleX = static_cast<Float>(width) / static_cast<Float>(slot.width);
+            const Float uvScaleY = static_cast<Float>(height) / static_cast<Float>(slot.height);
+            g_GLESFuncs.glUseProgram(stencilAspect ? s_stencilProgram : s_depthProgram);
+            g_GLESFuncs.glUniform4f(stencilAspect ? s_stencilUvTransform : s_depthUvTransform, uvScaleX, uvScaleY,
+                                    0.0f, 0.0f);
+            g_GLESFuncs.glViewport(0, 0, width, height);
+            ClearGLErrors();
+            g_GLESFuncs.glDrawArrays(GL_TRIANGLES, 0, 3);
+            if (g_GLESFuncs.glGetError() != GL_NO_ERROR) {
+                MGLOG_E_ONCE("ReadPixels: the %s conversion pass failed", stencilAspect ? "stencil" : "depth");
+                return false;
+            }
+
+            // GL_RGBA_INTEGER / GL_UNSIGNED_INT is the pair ES guarantees for an unsigned
+            // integer attachment whatever its channel count, so four words come back per
+            // pixel and only the first carries anything.
+            outWords.assign(static_cast<SizeT>(width) * static_cast<SizeT>(height) * 4u, 0u);
+            ScopedFramebufferBinding readBinding(/*saveRead=*/true, /*saveDraw=*/false);
+            FramebufferImpl::BindFramebufferId(GL_READ_FRAMEBUFFER, s_colorFramebuffer);
+            ScopedPixelPackBuffer packBuffer(0);
+            ScopedPackState packState(PixelStoreImpl::PackState{4, 0, 0, 0});
+            ClearGLErrors();
+            g_GLESFuncs.glReadPixels(0, 0, width, height, GL_RGBA_INTEGER, GL_UNSIGNED_INT, outWords.data());
+            const GLenum readError = g_GLESFuncs.glGetError();
+            if (readError != GL_NO_ERROR) {
+                MGLOG_E_ONCE("ReadPixels: could not read the %s conversion target back: %s",
+                        stencilAspect ? "stencil" : "depth", MG_Util::ConvertGLEnumToString(readError).c_str());
+                return false;
+            }
+            return true;
+        }
+
+        // Stage, convert and read one aspect. The caller owns the state guard and the DRAW
+        // framebuffer scope.
+        static Bool ReadAspect(Bool stencilAspect, GLint x, GLint y, GLsizei width, GLsizei height,
+                               Vector<Uint32>& outWords) {
+            Bool isDefault = false;
+            AspectCandidates candidates;
+            if (!DescribeAspect(stencilAspect, &isDefault, &candidates)) {
+                return false;
+            }
+            StageSlot& slot = s_slots[stencilAspect ? 1 : 0];
+
+            FramebufferImpl::BindFramebufferId(GL_DRAW_FRAMEBUFFER, slot.framebuffer);
+            if (!StageAspect(slot, candidates, stencilAspect, isDefault, x, y, width, height)) {
+                MGLOG_E_ONCE("ReadPixels: no ES-compatible scratch format for the %s source",
+                        stencilAspect ? "stencil" : "depth");
+                return false;
+            }
+
+            if (!EnsureColorTexture(width, height)) {
+                MGLOG_E_ONCE("ReadPixels: could not allocate the depth/stencil conversion target");
+                return false;
+            }
+            FramebufferImpl::BindFramebufferId(GL_DRAW_FRAMEBUFFER, s_colorFramebuffer);
+            g_GLESFuncs.glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                                               s_colorTexture, 0);
+            if (g_GLESFuncs.glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+                MGLOG_E_ONCE("ReadPixels: the depth/stencil conversion target is not renderable");
+                return false;
+            }
+
+            // EnsureColorTexture may have taken the borrowed unit for its own storage call.
+            VertexArrayImpl::BindBackendVAOId(s_vertexArray);
+            g_GLESFuncs.glBindTexture(GL_TEXTURE_2D, slot.texture);
+            return ConvertAndRead(slot, stencilAspect, width, height, outWords);
+        }
+
+        // Fills whichever of the two outputs the caller asked for from the bound READ
+        // framebuffer. Returns false when the emulation could not service the request at
+        // all, leaving the caller to report the failure the way it always has.
+        static Bool Read(GLint x, GLint y, GLsizei width, GLsizei height, Vector<Float>* outDepth,
+                         Vector<Uint8>* outStencil) {
+            if (width <= 0 || height <= 0 || (outDepth == nullptr && outStencil == nullptr)) {
+                return false;
+            }
+            // Sampling the stencil half of a packed texture goes through
+            // GL_DEPTH_STENCIL_TEXTURE_MODE, which is ES 3.1 state; on an older driver the
+            // pname would just raise GL_INVALID_ENUM and the shader would read depth bits as
+            // stencil.
+            const Bool supportsStencilTextureMode =
+                g_GLESCapabilities.GLESVersion.Major > 3 ||
+                (g_GLESCapabilities.GLESVersion.Major == 3 && g_GLESCapabilities.GLESVersion.Minor >= 1);
+            if (outStencil != nullptr && !supportsStencilTextureMode) {
+                return false;
+            }
+            if (!EnsureResources()) {
+                return false;
+            }
+
+            // Taken before the first scratch texture bind: the guard owns the borrowed
+            // texture unit as well as the pipeline, and it is what puts the scissor test out
+            // of the way of the staging blit.
+            ScopedEmulationDrawState emulationState;
+            ScopedFramebufferBinding drawBinding(/*saveRead=*/false, /*saveDraw=*/true);
+
+            const SizeT pixelCount = static_cast<SizeT>(width) * static_cast<SizeT>(height);
+            Vector<Uint32> words;
+            if (outDepth != nullptr) {
+                if (!ReadAspect(/*stencilAspect=*/false, x, y, width, height, words)) {
+                    return false;
+                }
+                outDepth->assign(pixelCount, 0.0f);
+                for (SizeT i = 0; i < pixelCount; ++i) {
+                    const Uint32 bits = words[i * 4u];
+                    Float value = 0.0f;
+                    Memcpy(&value, &bits, sizeof(value));
+                    (*outDepth)[i] = value;
+                }
+            }
+            if (outStencil != nullptr) {
+                if (!ReadAspect(/*stencilAspect=*/true, x, y, width, height, words)) {
+                    return false;
+                }
+                outStencil->assign(pixelCount, 0);
+                for (SizeT i = 0; i < pixelCount; ++i) {
+                    (*outStencil)[i] = static_cast<Uint8>(words[i * 4u] & 0xFFu);
+                }
+            }
+            return true;
+        }
+    } // namespace DepthStencilSamplingReadImpl
+
     // One normalized depth value per pixel, tightly packed. Which native read a driver
     // accepts depends on the attached format: a fixed-point depth buffer takes
     // GL_UNSIGNED_INT, while a floating-point one (DEPTH_COMPONENT32F,
@@ -5596,76 +7018,89 @@ namespace MobileGL::MG_Backend::DirectGLES {
         outDepth.assign(static_cast<SizeT>(width) * static_cast<SizeT>(height), 0.0f);
         ScopedPixelPackBuffer packBuffer(0);
         ScopedPackState packState(PixelStoreImpl::PackState{1, 0, 0, 0});
-        Vector<Uint32> raw(outDepth.size());
-        // Drain first: a stale flag some earlier best-effort call left queued
-        // must not be misattributed to this read (it would silently drop the
-        // whole readback in production builds where ErrorLopper is compiled out).
-        ClearGLErrors();
-        g_GLESFuncs.glReadPixels(x, y, width, height, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, raw.data());
-        if (g_GLESFuncs.glGetError() == GL_NO_ERROR) {
-            for (SizeT i = 0; i < outDepth.size(); ++i) {
-                outDepth[i] = static_cast<Float>(static_cast<Double>(raw[i]) / 4294967295.0);
+        GLenum floatError = GL_INVALID_OPERATION;
+        if (!MG_Config::Features.EsprytForceDepthStencilReadbackEmulation) {
+            Vector<Uint32> raw(outDepth.size());
+            // Drain first: a stale flag some earlier best-effort call left queued
+            // must not be misattributed to this read (it would silently drop the
+            // whole readback in production builds where ErrorLopper is compiled out).
+            ClearGLErrors();
+            g_GLESFuncs.glReadPixels(x, y, width, height, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, raw.data());
+            if (g_GLESFuncs.glGetError() == GL_NO_ERROR) {
+                for (SizeT i = 0; i < outDepth.size(); ++i) {
+                    outDepth[i] = static_cast<Float>(static_cast<Double>(raw[i]) / 4294967295.0);
+                }
+                return true;
             }
+
+            ClearGLErrors();
+            g_GLESFuncs.glReadPixels(x, y, width, height, GL_DEPTH_COMPONENT, GL_FLOAT, outDepth.data());
+            floatError = g_GLESFuncs.glGetError();
+            if (floatError == GL_NO_ERROR) {
+                return true;
+            }
+        }
+
+        // Neither native spelling exists on this driver (which is the ordinary case: ES has
+        // no depth readback in core and GL_NV_read_depth is rare), so sample the attachment
+        // instead. The scoped pack state above is irrelevant to that path - it reads its own
+        // scratch colour target - but harmless, and leaving it in place keeps the restore in
+        // one place.
+        if (DepthStencilSamplingReadImpl::Read(x, y, width, height, &outDepth, /*outStencil=*/nullptr)) {
             return true;
         }
-
-        ClearGLErrors();
-        g_GLESFuncs.glReadPixels(x, y, width, height, GL_DEPTH_COMPONENT, GL_FLOAT, outDepth.data());
-        const GLenum floatError = g_GLESFuncs.glGetError();
-        if (floatError != GL_NO_ERROR) {
-            MGLOG_E("ReadPixels: neither GL_UNSIGNED_INT nor GL_FLOAT depth readback is available: %s",
-                    MG_Util::ConvertGLEnumToString(floatError).c_str());
-            return false;
-        }
-        return true;
+        MGLOG_E_ONCE("ReadPixels: no depth readback path is available: native reads failed with %s and the "
+                "sampling emulation could not service the source",
+                MG_Util::ConvertGLEnumToString(floatError).c_str());
+        return false;
     }
 
-    static Bool ReadPixelsDepthFloatViaUnsignedInt(GLint x, GLint y, GLsizei width, GLsizei height, void* pixels) {
+    // GL_DEPTH_COMPONENT readback into the client's layout, honouring the PACK pixel-store
+    // parameters. GL 4.6 core 18.2.8: the normalized depth is written as-is for GL_FLOAT and
+    // scaled into the full range of whichever integer width the client asked for otherwise.
+    static Bool ReadPixelsDepthComponent(GLint x, GLint y, GLsizei width, GLsizei height, GLenum type,
+                                         void* pixels) {
+        SizeT dstPixelBytes = 0;
+        switch (type) {
+        case GL_UNSIGNED_BYTE: dstPixelBytes = sizeof(Uint8); break;
+        case GL_UNSIGNED_SHORT: dstPixelBytes = sizeof(Uint16); break;
+        case GL_UNSIGNED_INT: dstPixelBytes = sizeof(Uint32); break;
+        case GL_FLOAT: dstPixelBytes = sizeof(GLfloat); break;
+        default: return false;
+        }
         if (width <= 0 || height <= 0) {
             return true;
         }
 
-        Vector<Float> raw;
-        if (!ReadDepthValuesNative(x, y, width, height, raw)) {
-            return true;
+        Vector<Float> depth;
+        if (!ReadDepthValuesNative(x, y, width, height, depth)) {
+            return true; // already reported; nothing was written, as before
         }
 
-        const auto packParams = MG_State::pGLContext->GetPixelStoreParameters(false);
-        const SizeT rowPixels = static_cast<SizeT>(packParams.RowLength > 0 ? packParams.RowLength : width);
-        const SizeT dstPixelBytes = sizeof(Float);
-        const SizeT dstRowStride = AlignPixelRow(rowPixels * dstPixelBytes, packParams.Alignment);
-        const SizeT dstOffset = static_cast<SizeT>(std::max(packParams.SkipRows, 0)) * dstRowStride +
-                                static_cast<SizeT>(std::max(packParams.SkipPixels, 0)) * dstPixelBytes;
-        const SizeT packedSize = dstOffset + static_cast<SizeT>(height - 1) * dstRowStride +
-                                 static_cast<SizeT>(width) * dstPixelBytes;
-        // Only actual pixel rows are written so PACK skip/row-length gap regions stay untouched.
-        const auto& pixelPackBufferObject =
-            MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::PixelPack).GetBoundObject();
-        const SizeT pboOffset = reinterpret_cast<SizeT>(pixels);
-        if (pixelPackBufferObject && pboOffset + packedSize > pixelPackBufferObject->GetSize()) {
-            MGLOG_E("ReadPixels: depth GL_FLOAT fallback PBO is too small");
-            return true;
-        }
-        Vector<Float> rowBuf(static_cast<SizeT>(width));
-        for (GLsizei row = 0; row < height; ++row) {
-            const Float* srcRow = raw.data() + static_cast<SizeT>(row) * static_cast<SizeT>(width);
-            for (GLsizei col = 0; col < width; ++col) {
-                rowBuf[col] = srcRow[col];
-            }
-            const SizeT rowOffset = dstOffset + static_cast<SizeT>(row) * dstRowStride;
-            if (pixelPackBufferObject) {
-                pixelPackBufferObject->WritebackFromBackend(
-                    {rowBuf.data(), static_cast<SizeT>(width) * sizeof(Float)}, pboOffset + rowOffset);
-            } else if (pixels != nullptr) {
-                Memcpy(static_cast<Uint8*>(pixels) + rowOffset, rowBuf.data(),
-                       static_cast<SizeT>(width) * sizeof(Float));
-            }
-        }
-        if (pixelPackBufferObject) {
-            // WritebackFromBackend bumps change serials with no backend op; re-open
-            // the buffer draw-clean memos (once for the whole row loop).
-            BufferImpl::BumpBufferMutationEpoch();
-        }
+        StoreReadbackRowsToClient(width, height, dstPixelBytes, pixels, "depth",
+                                  [&](GLsizei row, Uint8* dst) {
+                                      const Float* srcRow =
+                                          depth.data() + static_cast<SizeT>(row) * static_cast<SizeT>(width);
+                                      for (GLsizei col = 0; col < width; ++col) {
+                                          switch (type) {
+                                          case GL_UNSIGNED_BYTE:
+                                              dst[col] = static_cast<Uint8>(
+                                                  NormalizedDepthToUnsigned(srcRow[col], 255.0));
+                                              break;
+                                          case GL_UNSIGNED_SHORT:
+                                              reinterpret_cast<Uint16*>(dst)[col] = static_cast<Uint16>(
+                                                  NormalizedDepthToUnsigned(srcRow[col], 65535.0));
+                                              break;
+                                          case GL_UNSIGNED_INT:
+                                              reinterpret_cast<Uint32*>(dst)[col] =
+                                                  NormalizedDepthToUnsigned(srcRow[col], 4294967295.0);
+                                              break;
+                                          default:
+                                              reinterpret_cast<GLfloat*>(dst)[col] = srcRow[col];
+                                              break;
+                                          }
+                                      }
+                                  });
         return true;
     }
 
@@ -5678,39 +7113,50 @@ namespace MobileGL::MG_Backend::DirectGLES {
         outStencil.assign(static_cast<SizeT>(width) * static_cast<SizeT>(height), 0);
         ScopedPixelPackBuffer packBuffer(0);
         ScopedPackState packState(PixelStoreImpl::PackState{1, 0, 0, 0});
-        // Drain first: see ReadPixelsDepthFloatViaUnsignedInt.
-        ClearGLErrors();
-        g_GLESFuncs.glReadPixels(x, y, width, height, GL_STENCIL_INDEX, GL_UNSIGNED_BYTE, outStencil.data());
-        if (g_GLESFuncs.glGetError() == GL_NO_ERROR) {
-            return true;
-        }
-
-        Vector<Uint32> packed(outStencil.size(), 0);
-        ClearGLErrors();
-        g_GLESFuncs.glReadPixels(x, y, width, height, GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8, packed.data());
-        if (g_GLESFuncs.glGetError() == GL_NO_ERROR) {
-            for (SizeT i = 0; i < outStencil.size(); ++i) {
-                outStencil[i] = static_cast<Uint8>(packed[i] & 0xFFu);
+        GLenum packedError = GL_INVALID_OPERATION;
+        if (!MG_Config::Features.EsprytForceDepthStencilReadbackEmulation) {
+            // Drain first: see ReadDepthValuesNative.
+            ClearGLErrors();
+            g_GLESFuncs.glReadPixels(x, y, width, height, GL_STENCIL_INDEX, GL_UNSIGNED_BYTE, outStencil.data());
+            if (g_GLESFuncs.glGetError() == GL_NO_ERROR) {
+                return true;
             }
-            return true;
+
+            Vector<Uint32> packed(outStencil.size(), 0);
+            ClearGLErrors();
+            g_GLESFuncs.glReadPixels(x, y, width, height, GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8, packed.data());
+            if (g_GLESFuncs.glGetError() == GL_NO_ERROR) {
+                for (SizeT i = 0; i < outStencil.size(); ++i) {
+                    outStencil[i] = static_cast<Uint8>(packed[i] & 0xFFu);
+                }
+                return true;
+            }
+
+            // A DEPTH32F_STENCIL8 attachment rejects the 24_8 type: its packed layout is a
+            // float depth followed by a padded stencil byte, eight bytes per pixel with the
+            // index at offset 4.
+            Vector<Uint8> packed32f(outStencil.size() * 8u, 0);
+            ClearGLErrors();
+            g_GLESFuncs.glReadPixels(x, y, width, height, GL_DEPTH_STENCIL, GL_FLOAT_32_UNSIGNED_INT_24_8_REV,
+                                     packed32f.data());
+            packedError = g_GLESFuncs.glGetError();
+            if (packedError == GL_NO_ERROR) {
+                for (SizeT i = 0; i < outStencil.size(); ++i) {
+                    outStencil[i] = packed32f[i * 8u + 4u];
+                }
+                return true;
+            }
         }
 
-        // A DEPTH32F_STENCIL8 attachment rejects the 24_8 type: its packed layout is a float depth
-        // followed by a padded stencil byte, eight bytes per pixel with the index at offset 4.
-        Vector<Uint8> packed32f(outStencil.size() * 8u, 0);
-        ClearGLErrors();
-        g_GLESFuncs.glReadPixels(x, y, width, height, GL_DEPTH_STENCIL, GL_FLOAT_32_UNSIGNED_INT_24_8_REV,
-                                 packed32f.data());
-        const GLenum packedError = g_GLESFuncs.glGetError();
-        if (packedError != GL_NO_ERROR) {
-            MGLOG_E("ReadPixels: no stencil readback path is available: %s",
-                    MG_Util::ConvertGLEnumToString(packedError).c_str());
-            return false;
+        // No native spelling worked, which is the ordinary case on ES: sample the stencil
+        // half of the attachment instead.
+        if (DepthStencilSamplingReadImpl::Read(x, y, width, height, /*outDepth=*/nullptr, &outStencil)) {
+            return true;
         }
-        for (SizeT i = 0; i < outStencil.size(); ++i) {
-            outStencil[i] = packed32f[i * 8u + 4u];
-        }
-        return true;
+        MGLOG_E_ONCE("ReadPixels: no stencil readback path is available: native reads failed with %s and the "
+                "sampling emulation could not service the source",
+                MG_Util::ConvertGLEnumToString(packedError).c_str());
+        return false;
     }
 
     // GL_STENCIL_INDEX readback into the client's integer layout, honouring the PACK
@@ -5743,54 +7189,75 @@ namespace MobileGL::MG_Backend::DirectGLES {
             return true;
         }
 
-        const auto packParams = MG_State::pGLContext->GetPixelStoreParameters(false);
-        const SizeT rowPixels = static_cast<SizeT>(packParams.RowLength > 0 ? packParams.RowLength : width);
-        const SizeT dstRowStride = AlignPixelRow(rowPixels * dstPixelBytes, packParams.Alignment);
-        const SizeT dstOffset = static_cast<SizeT>(std::max(packParams.SkipRows, 0)) * dstRowStride +
-                                static_cast<SizeT>(std::max(packParams.SkipPixels, 0)) * dstPixelBytes;
-        const SizeT packedSize = dstOffset + static_cast<SizeT>(height - 1) * dstRowStride +
-                                 static_cast<SizeT>(width) * dstPixelBytes;
-        // Only actual pixel rows are written so PACK skip/row-length gap regions stay untouched.
-        const auto& pixelPackBufferObject =
-            MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::PixelPack).GetBoundObject();
-        const SizeT pboOffset = reinterpret_cast<SizeT>(pixels);
-        if (pixelPackBufferObject && pboOffset + packedSize > pixelPackBufferObject->GetSize()) {
-            MGLOG_E("ReadPixels: stencil readback PBO is too small");
+        StoreReadbackRowsToClient(width, height, dstPixelBytes, pixels, "stencil",
+                                  [&](GLsizei row, Uint8* dst) {
+                                      const Uint8* srcRow =
+                                          raw.data() + static_cast<SizeT>(row) * static_cast<SizeT>(width);
+                                      for (GLsizei col = 0; col < width; ++col) {
+                                          switch (type) {
+                                          case GL_UNSIGNED_BYTE:
+                                          case GL_BYTE:
+                                              dst[static_cast<SizeT>(col)] = srcRow[col];
+                                              break;
+                                          case GL_UNSIGNED_SHORT:
+                                          case GL_SHORT:
+                                              reinterpret_cast<Uint16*>(dst)[col] = srcRow[col];
+                                              break;
+                                          case GL_FLOAT:
+                                              reinterpret_cast<GLfloat*>(dst)[col] = static_cast<GLfloat>(srcRow[col]);
+                                              break;
+                                          default:
+                                              reinterpret_cast<Uint32*>(dst)[col] = srcRow[col];
+                                              break;
+                                          }
+                                      }
+                                  });
+        return true;
+    }
+
+    // GL_DEPTH_STENCIL readback: the two aspects are fetched separately and woven into the
+    // packed layout the client asked for (GL 4.6 core table 8.6). This is what
+    // KHR-GL3x.packed_depth_stencil.verify_read_pixels / verify_get_tex_image /
+    // verify_copy_tex_image read their gradients with.
+    static Bool ReadPixelsDepthStencilPacked(GLint x, GLint y, GLsizei width, GLsizei height, GLenum type,
+                                             void* pixels) {
+        SizeT dstPixelBytes = 0;
+        switch (type) {
+        case GL_UNSIGNED_INT_24_8: dstPixelBytes = sizeof(Uint32); break;
+        case GL_FLOAT_32_UNSIGNED_INT_24_8_REV: dstPixelBytes = sizeof(Float) + sizeof(Uint32); break;
+        default: return false;
+        }
+        if (width <= 0 || height <= 0) {
             return true;
         }
-        const SizeT rowBytes = static_cast<SizeT>(width) * dstPixelBytes;
-        Vector<Uint8> rowBuf(rowBytes);
-        for (GLsizei row = 0; row < height; ++row) {
-            const Uint8* srcRow = raw.data() + static_cast<SizeT>(row) * static_cast<SizeT>(width);
-            for (GLsizei col = 0; col < width; ++col) {
-                switch (type) {
-                case GL_UNSIGNED_BYTE:
-                case GL_BYTE:
-                    rowBuf[static_cast<SizeT>(col)] = srcRow[col];
-                    break;
-                case GL_UNSIGNED_SHORT:
-                case GL_SHORT:
-                    reinterpret_cast<Uint16*>(rowBuf.data())[col] = srcRow[col];
-                    break;
-                case GL_FLOAT:
-                    reinterpret_cast<GLfloat*>(rowBuf.data())[col] = static_cast<GLfloat>(srcRow[col]);
-                    break;
-                default:
-                    reinterpret_cast<Uint32*>(rowBuf.data())[col] = srcRow[col];
-                    break;
+
+        Vector<Float> depth;
+        Vector<Uint8> stencil;
+        if (!ReadDepthValuesNative(x, y, width, height, depth)) {
+            return true;
+        }
+        if (!ReadStencilBytesNative(x, y, width, height, stencil)) {
+            return true;
+        }
+
+        StoreReadbackRowsToClient(
+            width, height, dstPixelBytes, pixels, "packed depth/stencil", [&](GLsizei row, Uint8* dst) {
+                const SizeT base = static_cast<SizeT>(row) * static_cast<SizeT>(width);
+                for (GLsizei col = 0; col < width; ++col) {
+                    const Uint32 stencilIndex = stencil[base + static_cast<SizeT>(col)];
+                    const Float depthValue = depth[base + static_cast<SizeT>(col)];
+                    if (type == GL_UNSIGNED_INT_24_8) {
+                        reinterpret_cast<Uint32*>(dst)[col] =
+                            (NormalizedDepthToUnsigned(depthValue, 16777215.0) << 8) | stencilIndex;
+                    } else {
+                        // Depth float first, then a word whose low octet is the index and
+                        // whose top 24 bits are unused.
+                        Uint8* pixel = dst + static_cast<SizeT>(col) * (sizeof(Float) + sizeof(Uint32));
+                        Memcpy(pixel, &depthValue, sizeof(depthValue));
+                        Memcpy(pixel + sizeof(Float), &stencilIndex, sizeof(stencilIndex));
+                    }
                 }
-            }
-            const SizeT rowOffset = dstOffset + static_cast<SizeT>(row) * dstRowStride;
-            if (pixelPackBufferObject) {
-                pixelPackBufferObject->WritebackFromBackend({rowBuf.data(), rowBytes}, pboOffset + rowOffset);
-            } else if (pixels != nullptr) {
-                Memcpy(static_cast<Uint8*>(pixels) + rowOffset, rowBuf.data(), rowBytes);
-            }
-        }
-        if (pixelPackBufferObject) {
-            // Serial bumps with no backend op; re-open the buffer draw-clean memos.
-            BufferImpl::BumpBufferMutationEpoch();
-        }
+            });
         return true;
     }
 
@@ -5931,10 +7398,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         data = std::move(expanded);
     }
 
-    static void DrainESErrors() {
-        for (Int i = 0; i < 32 && g_GLESFuncs.glGetError() != GL_NO_ERROR; ++i) {
-        }
-    }
+    static void DrainESErrors() { DrainDriverErrors("ReadPixels"); }
 
     static GLenum QueryReadAttachmentComponentType() {
         GLint framebufferId = 0;
@@ -5991,7 +7455,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         const Bool integerAttachment =
             attachmentComponentType == GL_INT || attachmentComponentType == GL_UNSIGNED_INT;
         if (mapping.isInteger != integerAttachment) {
-            MGLOG_E("Readback conversion: integer-ness of format %s does not match the read buffer, skipping",
+            MGLOG_E_ONCE("Readback conversion: integer-ness of format %s does not match the read buffer, skipping",
                     MG_Util::ConvertGLEnumToString(format).c_str());
             return true;
         }
@@ -6067,7 +7531,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             }
         }
         if (wideType == GL_NONE) {
-            MGLOG_E("Readback conversion: ES accepted no wide read type for format %s type %s, skipping readback",
+            MGLOG_E_ONCE("Readback conversion: ES accepted no wide read type for format %s type %s, skipping readback",
                     MG_Util::ConvertGLEnumToString(format).c_str(), MG_Util::ConvertGLEnumToString(type).c_str());
             return true;
         }
@@ -6181,6 +7645,22 @@ namespace MobileGL::MG_Backend::DirectGLES {
             return false;
         }
 
+        // glGetTexImage returns the stored texels, and for a packed internal format read with the
+        // matching client type the shadow word already IS the client word. Decoding it to float and
+        // re-encoding would canonicalize an RGB9_E5 shared exponent (0xf8fc0000 -> 0xe7e00000: the
+        // same value, different bits), so those pairs copy the words straight through.
+        if (MG_Util::PixelStoreProcessor::IsRawPackedPixelTransfer(
+                textureMipmapObject->GetFormat(), MG_Util::ConvertGLEnumToTextureInputFormat(format),
+                MG_Util::ConvertGLEnumToTexturePixelDataType(type))) {
+            if (!ReadbackImpl::StorePackedWordsToClient(static_cast<const Uint8*>(shadow), width, sliceHeight,
+                                                        sliceCount, type, pixels, applyPackImageParams)) {
+                return false;
+            }
+            MGLOG_D("GetTexImage: copied %s/%s verbatim from the CPU shadow copy",
+                    MG_Util::ConvertGLEnumToString(format).c_str(), MG_Util::ConvertGLEnumToString(type).c_str());
+            return true;
+        }
+
         Vector<Uint8> wide;
         Bool isInteger = false;
         Bool isSigned = false;
@@ -6204,6 +7684,149 @@ namespace MobileGL::MG_Backend::DirectGLES {
         return true;
     }
 
+    // ---- Bit-exact readback of a 32-bit packed colour level ---------------------------------------
+    //
+    // glGetTexImage of a packed format read with its OWN client type owes the application the words
+    // the image HOLDS, and neither of the two routes above can promise that once anything other than
+    // a glTexImage has written the level:
+    //
+    //   * the colour-attachment route reads GL_RGBA/GL_FLOAT and re-encodes, which canonicalizes an
+    //     RGB9_E5 shared exponent (0xf8fc0000 -> 0xe7e00000, same value, different bits) and
+    //     collapses an R11F_G11F_B10F NaN to the canonical payload 1
+    //     (MG_Util::EncodeFloatToUnsignedSmallFloat) - and a copy-image from RGB9_E5 lands exactly
+    //     such a NaN in the 10-bit blue field every time, because the source's shared-exponent
+    //     field is all ones;
+    //   * the CPU shadow only ever holds what was UPLOADED, so for a level glCopyImageSubData wrote
+    //     it answers with the PRE-COPY contents. MirrorCopyImageIntoDestinationShadow patches that
+    //     up for the shapes it can address texel-exactly and declines for the rest - a renderbuffer
+    //     source (which has no shadow to mirror from at all), a cube or 1D-array endpoint, a
+    //     self-copy - and the decline is silent, so the stale words are served as truth.
+    //
+    // glCopyImageSubData is a raw texel-block move and EXT_copy_image puts every 32-bit colour
+    // format in one compatibility class, so copying the level into a scratch GL_R32UI image and
+    // reading THAT back as unsigned integers hands over the stored words themselves, whoever wrote
+    // them. This is what lets the shadow stop being the authority for these formats: it is tried
+    // first, and every step reports rather than guesses, so a driver that turns any of it down
+    // simply leaves the old shadow/attachment fallbacks to run.
+    static GLuint g_packedWordScratchTextureId = 0;
+    static GLsizei g_packedWordScratchWidth = 0;
+    static GLsizei g_packedWordScratchHeight = 0;
+
+    // Grow-only, so a readback sweep over a mip chain allocates once. Zero when the driver refused
+    // the storage, which is a decline and not an error.
+    static GLuint EnsurePackedWordScratchTexture(GLsizei width, GLsizei height) {
+        if (g_packedWordScratchTextureId != 0 && g_packedWordScratchWidth >= width &&
+            g_packedWordScratchHeight >= height) {
+            return g_packedWordScratchTextureId;
+        }
+        const GLsizei newWidth = std::max(width, g_packedWordScratchWidth);
+        const GLsizei newHeight = std::max(height, g_packedWordScratchHeight);
+        if (g_packedWordScratchTextureId != 0) {
+            // A scratch FBO may still name the old id, and the driver is free to hand the same
+            // number back for the replacement - which would false-skip the re-attach.
+            ScratchFBOImpl::NoteTextureIdDeleted(g_packedWordScratchTextureId);
+            g_GLESFuncs.glDeleteTextures(1, &g_packedWordScratchTextureId);
+            g_packedWordScratchTextureId = 0;
+            g_packedWordScratchWidth = 0;
+            g_packedWordScratchHeight = 0;
+        }
+        GLuint texture = 0;
+        g_GLESFuncs.glGenTextures(1, &texture);
+        if (texture == 0) return 0;
+
+        ClearGLErrors();
+        TextureImpl::ActivateTextureUnit(TextureImpl::TempTextureUnit);
+        g_GLESFuncs.glBindTexture(GL_TEXTURE_2D, texture);
+        // Immutable single-level storage: glCopyImageSubData wants a complete image, and
+        // glTexStorage clamps TEXTURE_MAX_LEVEL, which is what makes a one-level texture complete
+        // under the default mipmapping filter.
+        g_GLESFuncs.glTexStorage2D(GL_TEXTURE_2D, 1, GL_R32UI, newWidth, newHeight);
+        const GLenum storageError = g_GLESFuncs.glGetError();
+        // Re-bind whatever the binding cache says lives on the temp unit, so the cache stays
+        // truthful without a driver query (same discipline as CopyR32FTexture2D).
+        auto* cachedBound = TextureImpl::g_boundTexturesCache[TextureImpl::TempTextureUnit]
+                                                            [static_cast<SizeT>(TextureTarget::Texture2D)];
+        g_GLESFuncs.glBindTexture(GL_TEXTURE_2D, cachedBound ? cachedBound->GetBackendTextureId() : 0);
+        if (storageError != GL_NO_ERROR) {
+            g_GLESFuncs.glDeleteTextures(1, &texture);
+            MGLOG_D("GetTexImage: no %dx%d GL_R32UI scratch image (%s); the verbatim word readback is unavailable",
+                    newWidth, newHeight, MG_Util::ConvertGLEnumToString(storageError).c_str());
+            return 0;
+        }
+        g_packedWordScratchTextureId = texture;
+        g_packedWordScratchWidth = newWidth;
+        g_packedWordScratchHeight = newHeight;
+        return texture;
+    }
+
+    static void ReleasePackedWordScratchTexture() {
+        // The ES context (and the name with it) is gone; deleting here would target a recycled
+        // name in the successor context.
+        g_packedWordScratchTextureId = 0;
+        g_packedWordScratchWidth = 0;
+        g_packedWordScratchHeight = 0;
+    }
+
+    // One slice of `backendTarget`'s level, as width*height stored 32-bit words in `outWords`.
+    static Bool ReadPackedLevelWordsViaScratch(GLuint texture, GLenum backendTarget, GLint level, GLint slice,
+                                               GLsizei width, GLsizei height, Uint32* outWords) {
+        if (texture == 0 || outWords == nullptr || width <= 0 || height <= 0 || level < 0 || slice < 0) return false;
+        if (!g_GLESFuncs.glCopyImageSubData) return false;
+
+        // Horizontal bands, so neither the scratch image nor the staging buffer scales with the
+        // level. The scratch is grow-only on purpose - a sweep down a mip chain must not
+        // reallocate per level - which without a band cap would leave a 4096x4096 readback's
+        // 64 MiB image parked for the rest of the process. The cap is 1 MiB of GL_R32UI, with
+        // 4 MiB of staging behind it because the read lands four words per texel.
+        constexpr SizeT kMaxScratchTexels = SizeT{1} << 18;
+        const GLsizei bandRows = std::max<GLsizei>(
+            1, static_cast<GLsizei>(std::min<SizeT>(kMaxScratchTexels / static_cast<SizeT>(width),
+                                                    static_cast<SizeT>(height))));
+        const GLuint scratch = EnsurePackedWordScratchTexture(width, bandRows);
+        if (scratch == 0) return false;
+
+        ScopedFramebufferBinding readBinding(/*saveRead=*/true, /*saveDraw=*/false);
+        auto& scratchFB = ScratchFBOImpl::BlitReadFramebuffer();
+        FramebufferImpl::BindFramebufferId(GL_READ_FRAMEBUFFER, ScratchFBOImpl::EnsureId(scratchFB));
+        ScratchFBOImpl::EnsureColorAttachment2D(scratchFB, GL_READ_FRAMEBUFFER, scratch, GL_TEXTURE_2D, 0);
+        ScratchFBOImpl::EnsureReadBuffer(scratchFB, GL_COLOR_ATTACHMENT0);
+        if (g_GLESFuncs.glCheckFramebufferStatus(GL_READ_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+            MGLOG_D("GetTexImage: the GL_R32UI scratch attachment is incomplete; falling back");
+            return false;
+        }
+
+        // GL_RGBA_INTEGER/GL_UNSIGNED_INT is the one combination ES guarantees for an integer
+        // colour buffer, so the read lands four words per texel and the red one is compacted out
+        // here. The PACK scope is the tight default rather than the application's, so a row comes
+        // back packed at exactly `width * 4` words. One glGetError covers the whole loop: it
+        // accumulates, and a failure anywhere means the caller falls back rather than trusting a
+        // partial result.
+        const SizeT wordsPerRow = static_cast<SizeT>(width) * 4;
+        Vector<Uint32> staging(static_cast<SizeT>(bandRows) * wordsPerRow);
+        ScopedPixelPackBuffer packBuffer(0);
+        ScopedPackState packState(PixelStoreImpl::PackState{4, 0, 0, 0});
+        ClearGLErrors();
+        for (GLsizei y = 0; y < height; y += bandRows) {
+            const GLsizei rows = std::min(bandRows, height - y);
+            g_GLESFuncs.glCopyImageSubData(texture, backendTarget, level, 0, y, slice, scratch, GL_TEXTURE_2D, 0, 0,
+                                           0, 0, width, rows, 1);
+            g_GLESFuncs.glReadPixels(0, 0, width, rows, GL_RGBA_INTEGER, GL_UNSIGNED_INT, staging.data());
+            for (GLsizei row = 0; row < rows; ++row) {
+                const Uint32* srcRow = staging.data() + static_cast<SizeT>(row) * wordsPerRow;
+                Uint32* dstRow = outWords + static_cast<SizeT>(y + row) * static_cast<SizeT>(width);
+                for (GLsizei x = 0; x < width; ++x) dstRow[x] = srcRow[static_cast<SizeT>(x) * 4];
+            }
+        }
+        const GLenum error = g_GLESFuncs.glGetError();
+        if (error != GL_NO_ERROR) {
+            MGLOG_D("GetTexImage: the GL_R32UI word readback of %s was refused (%s); falling back",
+                    MG_Util::ConvertGLEnumToString(backendTarget).c_str(),
+                    MG_Util::ConvertGLEnumToString(error).c_str());
+            return false;
+        }
+        return true;
+    }
+
     static Bool IsLegacyNativeReadPixelsFormat(GLenum format) {
         return format == GL_RGBA || format == GL_RGBA_INTEGER || format == GL_RED || format == GL_RED_INTEGER ||
                format == GL_DEPTH_COMPONENT || format == GL_STENCIL_INDEX || format == GL_DEPTH_STENCIL;
@@ -6218,6 +7841,25 @@ namespace MobileGL::MG_Backend::DirectGLES {
                type == GL_FLOAT_32_UNSIGNED_INT_24_8_REV;
     }
 
+    // The (format, type) pairs the depth/stencil helpers below can service. They are not
+    // covered by the colour tables above - GetReadbackChannelMapping has no entry for any
+    // depth or stencil format, so without this gate a read the helpers CAN serve (a
+    // GL_UNSIGNED_SHORT depth, a GL_SHORT stencil) is turned away before it reaches them.
+    static Bool IsSupportedDepthStencilReadPixelsPair(GLenum format, GLenum type) {
+        switch (format) {
+        case GL_DEPTH_COMPONENT:
+            return type == GL_UNSIGNED_BYTE || type == GL_UNSIGNED_SHORT || type == GL_UNSIGNED_INT ||
+                   type == GL_FLOAT;
+        case GL_STENCIL_INDEX:
+            return type == GL_UNSIGNED_BYTE || type == GL_BYTE || type == GL_UNSIGNED_SHORT || type == GL_SHORT ||
+                   type == GL_UNSIGNED_INT || type == GL_INT || type == GL_FLOAT;
+        case GL_DEPTH_STENCIL:
+            return type == GL_UNSIGNED_INT_24_8 || type == GL_FLOAT_32_UNSIGNED_INT_24_8_REV;
+        default:
+            return false;
+        }
+    }
+
     void ReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, void* pixels) {
         MGLOG_D("ReadPixels: x=%d y=%d w=%d h=%d format=%s type=%s pixels=%p", x, y, width, height,
                 MG_Util::ConvertGLEnumToString(format).c_str(), MG_Util::ConvertGLEnumToString(type).c_str(), pixels);
@@ -6225,12 +7867,13 @@ namespace MobileGL::MG_Backend::DirectGLES {
         // Combinations the ES driver has always handled directly keep the native path; other color layouts go
         // through the wide-format conversion path. Anything still uncovered degrades to a logged no-op instead
         // of killing the process; spec-invalid combinations are already rejected with GL errors at the state layer.
-        const Bool useNativeReadback = IsLegacyNativeReadPixelsFormat(format) && IsLegacyNativeReadPixelsType(type);
+        const Bool useNativeReadback = (IsLegacyNativeReadPixelsFormat(format) && IsLegacyNativeReadPixelsType(type)) ||
+                                       IsSupportedDepthStencilReadPixelsPair(format, type);
         ReadbackChannelMapping conversionMapping{};
         const Bool convertible = GetReadbackChannelMapping(format, conversionMapping) &&
                                  GetReadbackDstPixelSize(conversionMapping, type) != 0;
         if (!useNativeReadback && !convertible) {
-            MGLOG_E("ReadPixels: format %s with type %s is not implemented yet, skipping readback",
+            MGLOG_E_ONCE("ReadPixels: format %s with type %s is not implemented yet, skipping readback",
                     MG_Util::ConvertGLEnumToString(format).c_str(), MG_Util::ConvertGLEnumToString(type).c_str());
             return;
         }
@@ -6251,7 +7894,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         MGLOG_D("ReadPixels: GL_READ_FRAMEBUFFER status = %s", MG_Util::ConvertGLEnumToString(fbStatus).c_str());
 
         if (fbStatus != GL_FRAMEBUFFER_COMPLETE) {
-            MGLOG_E("ReadPixels: bound READ FBO is not complete");
+            MGLOG_E_ONCE("ReadPixels: bound READ FBO is not complete");
             return;
         }
         // ES only guarantees GL_RGBA/GL_UNSIGNED_BYTE and GL_RGBA_INTEGER/GL_(UNSIGNED_)INT for the
@@ -6276,20 +7919,24 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 MGLOG_D("ReadPixels: finished via client-format conversion");
                 return;
             }
-            MGLOG_E("ReadPixels: format %s with type %s is not implemented yet, skipping readback",
+            MGLOG_E_ONCE("ReadPixels: format %s with type %s is not implemented yet, skipping readback",
                     MG_Util::ConvertGLEnumToString(format).c_str(), MG_Util::ConvertGLEnumToString(type).c_str());
             return;
         }
-        if (format == GL_DEPTH_COMPONENT && type == GL_FLOAT &&
-            ReadPixelsDepthFloatViaUnsignedInt(x, y, width, height, pixels)) {
-            MGLOG_D("ReadPixels: finished via depth GL_FLOAT fallback");
+        // Every depth and stencil read goes through the helpers, not just the widening ones:
+        // ES has no guaranteed readback for either aspect, so even a byte-for-byte case
+        // needs the fallback chain (the other native spelling, then the sampling emulation)
+        // on a driver without GL_NV_read_depth / GL_NV_read_stencil.
+        if (format == GL_DEPTH_COMPONENT && ReadPixelsDepthComponent(x, y, width, height, type, pixels)) {
+            MGLOG_D("ReadPixels: finished via depth readback helper");
             return;
         }
-        // Every stencil read goes through the helper, not just the widening ones: ES has no
-        // guaranteed GL_STENCIL_INDEX readback, so even the byte-for-byte case needs the
-        // combined GL_DEPTH_STENCIL fallback when the driver lacks GL_NV_read_stencil.
         if (format == GL_STENCIL_INDEX && ReadPixelsStencilViaNative(x, y, width, height, type, pixels)) {
             MGLOG_D("ReadPixels: finished via stencil readback helper");
+            return;
+        }
+        if (format == GL_DEPTH_STENCIL && ReadPixelsDepthStencilPacked(x, y, width, height, type, pixels)) {
+            MGLOG_D("ReadPixels: finished via packed depth/stencil readback helper");
             return;
         }
 
@@ -6305,7 +7952,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             auto* backendResource = BufferImpl::EnsureBufferResource(pixelPackBufferObject);
             MGLOG_D("ReadPixels: Using PBO %u", pixelPackBufferObject->GetExternalIndex());
             if (!backendResource || backendResource->id == 0) {
-                MGLOG_E("ReadPixels: No backend buffer found for PBO %u.",
+                MGLOG_E_ONCE("ReadPixels: No backend buffer found for PBO %u.",
                         pixelPackBufferObject ? pixelPackBufferObject->GetExternalIndex() : 0);
                 return;
             }
@@ -6337,7 +7984,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 MGLOG_D("ReadPixels: finished via client-format conversion after native failure");
                 return;
             }
-            MGLOG_E("ReadPixels: native read of %s/%s failed (%s) and no conversion path covers it, "
+            MGLOG_E_ONCE("ReadPixels: native read of %s/%s failed (%s) and no conversion path covers it, "
                     "skipping readback",
                     MG_Util::ConvertGLEnumToString(format).c_str(), MG_Util::ConvertGLEnumToString(type).c_str(),
                     MG_Util::ConvertGLEnumToString(nativeReadError).c_str());
@@ -6357,7 +8004,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 MGLOG_D("ReadPixels: Unmapping PBO");
                 g_GLESFuncs.glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
             } else {
-                MGLOG_E("ReadPixels: glMapBufferRange returned nullptr");
+                MGLOG_E_ONCE("ReadPixels: glMapBufferRange returned nullptr");
             }
         }
         MGLOG_D("ReadPixels: finished");
@@ -6374,8 +8021,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
         if (format == GL_RGBA_INTEGER) {
             return type == GL_INT || type == GL_UNSIGNED_INT || type == GL_UNSIGNED_INT_2_10_10_10_REV;
         }
-        if (format == GL_DEPTH_STENCIL) {
-            return type == GL_UNSIGNED_INT_24_8 || type == GL_FLOAT_32_UNSIGNED_INT_24_8_REV;
+        if (format == GL_DEPTH_STENCIL || format == GL_DEPTH_COMPONENT) {
+            return IsSupportedDepthStencilReadPixelsPair(format, type);
         }
         return false;
     }
@@ -6393,7 +8040,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         const Bool convertible = GetReadbackChannelMapping(format, conversionMapping) &&
                                  GetReadbackDstPixelSize(conversionMapping, type) != 0;
         if (!useNativeReadback && !convertible) {
-            MGLOG_E("GetTexImage: format %s with type %s is not implemented yet, skipping readback",
+            MGLOG_E_ONCE("GetTexImage: format %s with type %s is not implemented yet, skipping readback",
                     MG_Util::ConvertGLEnumToString(format).c_str(), MG_Util::ConvertGLEnumToString(type).c_str());
             return;
         }
@@ -6421,7 +8068,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         auto* backendTextureSlot = TextureImpl::g_backendTextureObjects.Find(textureObject.get());
 
         if (!backendTextureSlot || !*backendTextureSlot) {
-            MGLOG_E("GetTexImage: No backend texture found for texture %u.",
+            MGLOG_E_ONCE("GetTexImage: No backend texture found for texture %u.",
                     textureObject ? textureObject->GetExternalIndex() : 0);
             return;
         }
@@ -6448,20 +8095,26 @@ namespace MobileGL::MG_Backend::DirectGLES {
         // GL_DEPTH_STENCIL can't be attached as a color attachment (glCheckFramebufferStatus
         // would report it incomplete); it has its own combined depth+stencil attachment point.
         // glReadBuffer only selects among color attachments, so it does not apply here.
-        if (format == GL_DEPTH_STENCIL) {
+        if (format == GL_DEPTH_STENCIL || format == GL_DEPTH_COMPONENT) {
             ScratchFBOImpl::EnsureDepthAttachment2D(
                 tempFB, GL_READ_FRAMEBUFFER, backendTexId,
-                backendAttachTarget == GL_UNKNOWN_MGL ? target : backendAttachTarget, level, /*withStencil=*/true);
-        } else if (backendAttachTarget == GL_TEXTURE_3D || backendAttachTarget == GL_TEXTURE_2D_ARRAY) {
-            // ES cannot attach 3D/array textures through glFramebufferTexture2D; read layer 0. Reads
-            // of deeper slices are served from the CPU shadow instead (see the shadow-first branch).
+                backendAttachTarget == GL_UNKNOWN_MGL ? target : backendAttachTarget, level,
+                /*withStencil=*/format == GL_DEPTH_STENCIL);
+        } else if (backendAttachTarget == GL_TEXTURE_3D || backendAttachTarget == GL_TEXTURE_2D_ARRAY ||
+                   backendAttachTarget == GL_TEXTURE_CUBE_MAP_ARRAY) {
+            // ES cannot attach 3D/array textures through glFramebufferTexture2D; layer 0 here, and
+            // the deeper slices one at a time in the per-layer loop below. A CUBE MAP ARRAY is in
+            // this list for the same reason its layer-faces are addressed as array layers:
+            // glFramebufferTexture2D has no target token for it, so the 2D attach it used to take
+            // left the scratch FBO incomplete and every read fell through to the (stale) CPU
+            // shadow - which is exactly the all-zero result the conformance suite saw.
             ScratchFBOImpl::EnsureColorAttachmentLayer(tempFB, GL_READ_FRAMEBUFFER, backendTexId, level, 0);
         } else {
             ScratchFBOImpl::EnsureColorAttachment2D(
                 tempFB, GL_READ_FRAMEBUFFER, backendTexId,
                 backendAttachTarget == GL_UNKNOWN_MGL ? target : backendAttachTarget, level);
         }
-        if (format != GL_DEPTH_STENCIL) {
+        if (format != GL_DEPTH_STENCIL && format != GL_DEPTH_COMPONENT) {
             MGLOG_D("GetTexImage: glReadBuffer(GL_COLOR_ATTACHMENT0)");
             ScratchFBOImpl::EnsureReadBuffer(tempFB, GL_COLOR_ATTACHMENT0);
         }
@@ -6488,7 +8141,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         MGLOG_D("GetTexImage: texture storage type = %d", (int)storageType);
 
         if (storageType == TextureStorageType::Buffer) {
-            MGLOG_E("GetTexImage: Texture storage type Buffer is not supported.");
+            MGLOG_E_ONCE("GetTexImage: Texture storage type Buffer is not supported.");
             return;
         }
 
@@ -6500,12 +8153,24 @@ namespace MobileGL::MG_Backend::DirectGLES {
         // levelRange.y() is GL_TEXTURE_MAX_LEVEL, an inclusive level index — a single-level
         // texture has range [0, 0] and level 0 must be readable.
         if (static_cast<Uint>(level) < levelRange.x() || static_cast<Uint>(level) > levelRange.y()) {
-            MGLOG_E("GetTexImage: Requested level %d is out of range (base level %u, max level %u), skipping readback",
+            MGLOG_E_ONCE("GetTexImage: Requested level %d is out of range (base level %u, max level %u), skipping readback",
                     level, levelRange.x(), levelRange.y());
             return;
         }
 
         auto size = textureMipmapObject->GetMipmapTexelSize(MG_Util::ConvertGLEnumToTextureUploadTarget(target), level);
+
+        // GL_TEXTURE_1D_ARRAY keeps its LAYERS in the state-side height (that is what
+        // glTexImage2D(GL_TEXTURE_1D_ARRAY, w, layers) means), while the ES texture behind it is a
+        // 2D array of height 1 with the layers in depth - GetBackendUploadSize performs exactly
+        // that swap on the way in. Everything below addresses the ES image, so the same swap has
+        // to happen here: without it the readback asked layer 0 for a `layers`-row rectangle it
+        // does not have, and every layer but the first came back undefined (all zeroes on Adreno,
+        // KHR-GL4x.shader_image_load_store.basic-allTargets-*).
+        const Bool oneDimensionalArray = textureObject->GetTarget() == TextureTarget::Texture1DArray;
+        if (oneDimensionalArray) {
+            size = TextureImpl::GetBackendUploadSize(TextureTarget::Texture1DArray, size);
+        }
 
         MGLOG_D("GetTexImage: mip level %d size = %dx%d", level, size.x(), size.y());
 
@@ -6520,12 +8185,75 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 TextureImpl::BackendTextureFormatAddsAlpha(textureObject->GetFormat(), textureObject->GetTarget());
             // GL_PACK_IMAGE_HEIGHT/GL_PACK_SKIP_IMAGES only apply to 3D/array image
             // readbacks (cube-map arrays address as arrays); 2D targets must ignore
-            // them (GL 3.3 section 6.1.4).
-            const Bool applyPackImageParams = backendAttachTarget == GL_TEXTURE_3D ||
-                                              backendAttachTarget == GL_TEXTURE_2D_ARRAY ||
-                                              backendAttachTarget == GL_TEXTURE_CUBE_MAP_ARRAY;
+            // them (GL 3.3 section 6.1.4). A 1D ARRAY is one of those 2D targets: GL hands it back
+            // as a single two-dimensional image whose ROWS are the layers, so the layer stride is
+            // one packed row and the image parameters do not enter into it - even though the ES
+            // texture underneath is an array and is read one layer at a time.
+            const Bool applyPackImageParams = !oneDimensionalArray &&
+                                              (backendAttachTarget == GL_TEXTURE_3D ||
+                                               backendAttachTarget == GL_TEXTURE_2D_ARRAY ||
+                                               backendAttachTarget == GL_TEXTURE_CUBE_MAP_ARRAY);
             const GLsizei sliceCount = std::max(size.z(), 1);
             const Bool multiSlice = size.z() > 1;
+            // glGetTexImage answers with the STORED texels, and for a packed format whose encoding
+            // is not unique the GPU route below cannot: it reads GL_RGBA/GL_FLOAT and re-encodes,
+            // which canonicalizes an RGB9_E5 shared exponent (0xf8fc0000 -> 0xe7e00000 - the same
+            // value 8064, different words), and the conformance suite compares the words
+            // ("CopyImageSubData modified contents of source image"). The scratch FBO does NOT
+            // decide this for us: Adreno reports an RGB9_E5 colour attachment complete, so the
+            // shadow branch further down was unreachable. Every other format still prefers the
+            // GPU, so a rendered-into texture is unaffected.
+            const Bool rawPackedWordRead = MG_Util::PixelStoreProcessor::IsRawPackedPixelTransfer(
+                textureObject->GetFormat(), MG_Util::ConvertGLEnumToTextureInputFormat(format),
+                MG_Util::ConvertGLEnumToTexturePixelDataType(type));
+            // ...and the GPU CAN answer with the stored words after all, for any 32-bit packed
+            // format and whoever wrote the level, by going through a scratch GL_R32UI image (see
+            // ReadPackedLevelWordsViaScratch). Preferred over both routes below because it is the
+            // only one that is right for a level glCopyImageSubData wrote: the shadow may never
+            // have seen that write, and re-encoding the attachment cannot reproduce an RGB9_E5
+            // shared exponent or an R11F_G11F_B10F NaN payload. A multisample image is excluded
+            // because copy-image requires matching sample counts.
+            if (rawPackedWordRead && textureObject->GetSamples() == 0) {
+                // Copy-image addresses a cube map as ONE image with the face on z, where
+                // glGetTexImage names the face in its target.
+                const auto readUploadTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
+                const GLint copyBaseSlice =
+                    (readUploadTarget >= TextureUploadTarget::CubeMapPositiveX &&
+                     readUploadTarget <= TextureUploadTarget::CubeMapNegativeZ)
+                        ? static_cast<GLint>(readUploadTarget) -
+                              static_cast<GLint>(TextureUploadTarget::CubeMapPositiveX)
+                        : 0;
+                const GLenum copyTarget =
+                    TextureImpl::ConvertTextureTargetToBackendGLEnum(textureObject->GetTarget());
+                const SizeT sliceWords = static_cast<SizeT>(size.x()) * static_cast<SizeT>(size.y());
+                Vector<Uint32> words(sliceWords * static_cast<SizeT>(sliceCount));
+                Bool allSlicesRead = true;
+                for (GLsizei slice = 0; slice < sliceCount && allSlicesRead; ++slice) {
+                    allSlicesRead = ReadPackedLevelWordsViaScratch(backendTexId, copyTarget, level,
+                                                                   copyBaseSlice + slice, size.x(), size.y(),
+                                                                   words.data() + sliceWords * static_cast<SizeT>(slice));
+                }
+                if (allSlicesRead &&
+                    ReadbackImpl::StorePackedWordsToClient(reinterpret_cast<const Uint8*>(words.data()), size.x(),
+                                                           size.y(), sliceCount, type, pixels,
+                                                           applyPackImageParams)) {
+                    MGLOG_D("GetTexImage: finished %d slice(s) via the bit-exact GL_R32UI word readback", sliceCount);
+                    return;
+                }
+            }
+            // The last resort for the one format the attachment route can never answer for: the
+            // shadow is only right while nothing but a glTexImage has written the level, which is
+            // why CopyImageSubData mirrors itself into it where it can.
+            const Bool verbatimPackedShadowRead =
+                MG_Util::PixelStoreProcessor::HasRedundantPackedEncoding(textureObject->GetFormat()) &&
+                rawPackedWordRead;
+            if (verbatimPackedShadowRead &&
+                GetTexImageViaShadowConversion(textureMipmapObject,
+                                               MG_Util::ConvertGLEnumToTextureUploadTarget(target), level, size.x(),
+                                               size.y(), sliceCount, format, type, pixels, applyPackImageParams)) {
+                MGLOG_D("GetTexImage: finished via shadow conversion (verbatim packed words)");
+                return;
+            }
             // A multi-slice read used to go to the CPU shadow outright, on the grounds that the
             // scratch FBO can only expose one layer at a time. But the shadow only holds what was
             // uploaded, so every slice that was rendered to came back stale - which is exactly what
@@ -6533,7 +8261,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
             // Attach the layers one at a time instead and read each off the GPU, keeping the shadow
             // for the formats the FBO cannot represent at all.
             if (multiSlice && tempFBOComplete &&
-                (backendAttachTarget == GL_TEXTURE_3D || backendAttachTarget == GL_TEXTURE_2D_ARRAY)) {
+                (backendAttachTarget == GL_TEXTURE_3D || backendAttachTarget == GL_TEXTURE_2D_ARRAY ||
+                 backendAttachTarget == GL_TEXTURE_CUBE_MAP_ARRAY)) {
                 // Each slice is packed as its own 2D image, so the per-slice call must not apply
                 // GL_PACK_SKIP_IMAGES / GL_PACK_IMAGE_HEIGHT itself - this walks the destination
                 // over them, using the same layout StoreWideRowsToClient computes.
@@ -6597,15 +8326,29 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 return;
             }
             if (!tempFBOComplete) {
-                MGLOG_E("GetTexImage: READ FBO incomplete and no shadow copy available, skipping readback");
+                MGLOG_E_ONCE("GetTexImage: READ FBO incomplete and no shadow copy available, skipping readback");
                 return;
             }
-            MGLOG_E("GetTexImage: format %s with type %s is not implemented yet, skipping readback",
+            MGLOG_E_ONCE("GetTexImage: format %s with type %s is not implemented yet, skipping readback",
                     MG_Util::ConvertGLEnumToString(format).c_str(), MG_Util::ConvertGLEnumToString(type).c_str());
             return;
         }
         if (!tempFBOComplete) {
-            MGLOG_E("GetTexImage: bound READ FBO is not complete");
+            MGLOG_E_ONCE("GetTexImage: bound READ FBO is not complete");
+            return;
+        }
+
+        // The level is attached to the scratch READ framebuffer above, so the depth and
+        // stencil aspects are read with exactly the same helpers glReadPixels uses - native
+        // where the driver has it, shader sampling where it does not. ES accepts neither
+        // spelling natively, which is why glGetTexImage(GL_DEPTH_STENCIL) used to leave
+        // packed_depth_stencil.verify_get_tex_image reading its own zero-filled buffer.
+        if (format == GL_DEPTH_COMPONENT && ReadPixelsDepthComponent(0, 0, size.x(), size.y(), type, pixels)) {
+            MGLOG_D("GetTexImage: finished via depth readback helper");
+            return;
+        }
+        if (format == GL_DEPTH_STENCIL && ReadPixelsDepthStencilPacked(0, 0, size.x(), size.y(), type, pixels)) {
+            MGLOG_D("GetTexImage: finished via packed depth/stencil readback helper");
             return;
         }
 
@@ -6619,7 +8362,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             auto* backendResource = BufferImpl::EnsureBufferResource(pixelPackBufferObject);
             MGLOG_D("GetTexImage: Using PBO %u", pixelPackBufferObject->GetExternalIndex());
             if (!backendResource || backendResource->id == 0) {
-                MGLOG_E("GetTexImage: No backend buffer found for PBO %u.",
+                MGLOG_E_ONCE("GetTexImage: No backend buffer found for PBO %u.",
                         pixelPackBufferObject ? pixelPackBufferObject->GetExternalIndex() : 0);
                 return;
             }
@@ -6655,7 +8398,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 MGLOG_D("ReadPixels: Unmapping PBO");
                 g_GLESFuncs.glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
             } else {
-                MGLOG_E("ReadPixels: glMapBufferRange returned nullptr");
+                MGLOG_E_ONCE("ReadPixels: glMapBufferRange returned nullptr");
             }
         }
 
@@ -6700,6 +8443,110 @@ namespace MobileGL::MG_Backend::DirectGLES {
         outWidth = static_cast<Int>(width);
         outHeight = static_cast<Int>(height);
         return true;
+    }
+
+    // The frontend's default framebuffer is a placeholder FramebufferObject whose attachments
+    // carry a format and nothing else (MG_Impl/Init.cpp), and it is built before any surface
+    // exists - so it starts on a guess, GL_DEPTH32F_STENCIL8. Every attachment query about the
+    // default framebuffer is answered out of that guess, and being wrong is not cosmetic: GL
+    // blits depth/stencil only between IDENTICAL formats, so a caller that reads
+    // GL_FRAMEBUFFER_ATTACHMENT_DEPTH_SIZE, allocates the buffer it was told about and blits
+    // gets GL_INVALID_OPERATION and a silently dropped blit - colour bits included, because a
+    // rejected glBlitFramebuffer transfers nothing at all. DirectVulkan already publishes its
+    // real format when it creates the swapchain (SwapchainObject::Create); this is the
+    // DirectGLES half, and here the answer can simply be asked of the ES default framebuffer.
+    //
+    // Only the format is published. The placeholder's 512x512 extent is left alone: all three
+    // attachments share it, and FramebufferObject::CheckCompleteness requires them to agree, so
+    // resizing depth/stencil without colour would report the default framebuffer incomplete.
+    static void PublishDefaultFramebufferDepthStencilFormat() {
+        auto& defaultFBOInfo = MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo;
+        if (!defaultFBOInfo || !g_GLESFuncs.glGetFramebufferAttachmentParameteriv) return;
+
+        // GL_DEPTH / GL_STENCIL are the default framebuffer's spellings; a user framebuffer
+        // would need GL_DEPTH_ATTACHMENT / GL_STENCIL_ATTACHMENT and answers GL_INVALID_ENUM
+        // for these. Nothing else can be bound this early, but bind explicitly so the answer
+        // describes the default framebuffer even if this is ever called later.
+        GLint previousDrawFramebuffer = 0;
+        g_GLESFuncs.glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &previousDrawFramebuffer);
+        if (previousDrawFramebuffer != 0) {
+            g_GLESFuncs.glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+        }
+
+        ClearGLErrors();
+        GLint depthBits = 0;
+        GLint stencilBits = 0;
+        GLint depthComponentType = GL_UNSIGNED_NORMALIZED;
+        g_GLESFuncs.glGetFramebufferAttachmentParameteriv(GL_DRAW_FRAMEBUFFER, GL_DEPTH,
+                                                          GL_FRAMEBUFFER_ATTACHMENT_DEPTH_SIZE, &depthBits);
+        g_GLESFuncs.glGetFramebufferAttachmentParameteriv(GL_DRAW_FRAMEBUFFER, GL_STENCIL,
+                                                          GL_FRAMEBUFFER_ATTACHMENT_STENCIL_SIZE, &stencilBits);
+        g_GLESFuncs.glGetFramebufferAttachmentParameteriv(GL_DRAW_FRAMEBUFFER, GL_DEPTH,
+                                                          GL_FRAMEBUFFER_ATTACHMENT_COMPONENT_TYPE,
+                                                          &depthComponentType);
+        ClearGLErrors();
+
+        if (previousDrawFramebuffer != 0) {
+            g_GLESFuncs.glBindFramebuffer(GL_DRAW_FRAMEBUFFER, static_cast<GLuint>(previousDrawFramebuffer));
+        }
+        FramebufferImpl::InvalidateFramebufferBindingCache();
+
+        // A driver that refuses the query leaves both at 0. Fall back to what the EGL config
+        // was chosen with, which is what the surface actually has.
+        if (depthBits == 0 && stencilBits == 0 && g_EGLFuncs.eglGetConfigAttrib && g_Display != EGL_NO_DISPLAY &&
+            g_Config != nullptr) {
+            EGLint eglDepth = 0;
+            EGLint eglStencil = 0;
+            if (g_EGLFuncs.eglGetConfigAttrib(g_Display, g_Config, EGL_DEPTH_SIZE, &eglDepth)) {
+                depthBits = static_cast<GLint>(eglDepth);
+            }
+            if (g_EGLFuncs.eglGetConfigAttrib(g_Display, g_Config, EGL_STENCIL_SIZE, &eglStencil)) {
+                stencilBits = static_cast<GLint>(eglStencil);
+            }
+        }
+
+        if (depthBits <= 0 && stencilBits <= 0) {
+            // Nothing usable came back from either witness. Returning here leaves whatever a
+            // PREVIOUS surface published in place, which would be stale - this function runs
+            // once per surface activation, not once per process. It is written this way anyway
+            // because the branch is unreachable for a surface MobileGL chose itself:
+            // InitDisplayAndContext asks eglChooseConfig for EGL_DEPTH_SIZE 24 and
+            // EGL_STENCIL_SIZE 8, and so does its alpha-free retry, so g_Config always has both
+            // and the EGL fallback above always answers. A caller that supplies its own
+            // depth-less config would keep the previous surface's description; publishing a
+            // guess instead would be a different lie, and the placeholder attachment model has
+            // no way to say "this buffer does not exist" short of detaching it.
+            MGLOG_D("DirectGLES: default framebuffer reports no depth or stencil; leaving the "
+                    "placeholder attachment formats untouched");
+            return;
+        }
+
+        const Bool floatDepth = depthComponentType == GL_FLOAT;
+        TextureInternalFormat depthFormat = TextureInternalFormat::Depth24Stencil8;
+        TextureInternalFormat stencilFormat = TextureInternalFormat::Depth24Stencil8;
+        if (depthBits > 0 && stencilBits > 0) {
+            // Packed: both frontend attachments name the same combined format, as DirectVulkan does.
+            depthFormat = (floatDepth || depthBits > 24) ? TextureInternalFormat::Depth32FStencil8
+                                                         : TextureInternalFormat::Depth24Stencil8;
+            stencilFormat = depthFormat;
+        } else if (depthBits > 0) {
+            depthFormat = floatDepth              ? TextureInternalFormat::DepthComponent32F
+                          : (depthBits <= 16)     ? TextureInternalFormat::DepthComponent16
+                                                  : TextureInternalFormat::DepthComponent24;
+            stencilFormat = depthFormat;
+        } else {
+            depthFormat = TextureInternalFormat::StencilIndex8;
+            stencilFormat = TextureInternalFormat::StencilIndex8;
+        }
+
+        auto* depthTexture = defaultFBOInfo->depthAttachment.get();
+        auto* stencilTexture = defaultFBOInfo->stencilAttachment.get();
+        if (depthTexture) depthTexture->SetInternalFormat(depthFormat);
+        if (stencilTexture) stencilTexture->SetInternalFormat(stencilFormat);
+        MGLOG_D("DirectGLES: default framebuffer depth=%d stencil=%d float=%d; published attachment "
+                "formats depth=%d stencil=%d",
+                depthBits, stencilBits, floatDepth ? 1 : 0, static_cast<int>(depthFormat),
+                static_cast<int>(stencilFormat));
     }
 
 #if defined(__linux__) && !defined(__ANDROID__)
@@ -6938,7 +8785,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             if (g_requestedSwapInterval < 0) return;
             if (!g_EGLFuncs.eglSwapInterval || g_Display == EGL_NO_DISPLAY || g_Surface == EGL_NO_SURFACE) return;
             const EGLBoolean ok = g_EGLFuncs.eglSwapInterval(g_Display, g_requestedSwapInterval);
-            MGLOG_I("DirectGLES: applied native swap interval %d (%s)", g_requestedSwapInterval,
+            MGLOG_D("DirectGLES: applied native swap interval %d (%s)", g_requestedSwapInterval,
                     ok ? "ok" : "failed");
         }
     } // namespace
@@ -6959,6 +8806,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         if (!MakeCurrent()) return false;
 
         ApplyRequestedSwapInterval();
+        PublishDefaultFramebufferDepthStencilFormat();
 
         MGLOG_D("EGL context created successfully: display=%p, surface=%p, context=%p. window=%p", g_Display, g_Surface,
                 g_Context, window);
@@ -6974,6 +8822,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
         if (g_Surface == EGL_NO_SURFACE) return false;
 
         if (!MakeCurrent()) return false;
+
+        PublishDefaultFramebufferDepthStencilFormat();
 
         MGLOG_D("EGL pbuffer context created successfully: display=%p, surface=%p, context=%p. size=%dx%d", g_Display,
                 g_Surface, g_Context, width, height);
@@ -7046,12 +8896,12 @@ namespace MobileGL::MG_Backend::DirectGLES {
     Bool MakeCurrent() {
         if (!g_EGLFuncs.eglMakeCurrent || g_Display == EGL_NO_DISPLAY || g_Surface == EGL_NO_SURFACE ||
             g_Context == EGL_NO_CONTEXT) {
-            MGLOG_E("DirectGLES::MakeCurrent failed: EGL display/surface/context is not initialized");
+            MGLOG_E_ONCE("DirectGLES::MakeCurrent failed: EGL display/surface/context is not initialized");
             return false;
         }
         if (!g_EGLFuncs.eglMakeCurrent(g_Display, g_Surface, g_Surface, g_Context)) {
             const EGLint error = g_EGLFuncs.eglGetError ? g_EGLFuncs.eglGetError() : EGL_SUCCESS;
-            MGLOG_E("DirectGLES::MakeCurrent failed: native eglMakeCurrent returned error 0x%04x", error);
+            MGLOG_E_ONCE("DirectGLES::MakeCurrent failed: native eglMakeCurrent returned error 0x%04x", error);
             return false;
         }
         InvalidateEglVerifiedStamp();
@@ -7062,6 +8912,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
         // Conservatively drop the redundant-glUseProgram guard: re-issuing one bind
         // after a MakeCurrent is cheaper than trusting a possibly-reset context.
         PrgramImpl::g_lastUsedBackendProgramId = 0;
+        // The GLContext becoming current may be a fresh one whose slot versions
+        // restarted at zero; the broadcast memo's key is only monotonic within one.
+        PrgramImpl::InvalidateBroadcastMemo();
         BufferImpl::InvalidateIndexedBufferBindingCache();
         BufferImpl::InvalidatePixelBufferBindingCaches();
         FramebufferImpl::InvalidateFramebufferBindingCache();
@@ -7084,7 +8937,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         }
         if (!g_EGLFuncs.eglMakeCurrent(g_Display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT)) {
             const EGLint error = g_EGLFuncs.eglGetError ? g_EGLFuncs.eglGetError() : EGL_SUCCESS;
-            MGLOG_E("DirectGLES::ReleaseCurrent failed: native eglMakeCurrent returned error 0x%04x", error);
+            MGLOG_E_ONCE("DirectGLES::ReleaseCurrent failed: native eglMakeCurrent returned error 0x%04x", error);
             return false;
         }
         // Clearing the global owner works from ANY thread (a release request can
@@ -7587,9 +9440,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
         XfbImpl::OnBackendContextDestroyed();
         MultiDrawImpl::OnBackendContextDestroyed();
         ScratchFBOImpl::OnBackendContextDestroyed();
+        ReleasePackedWordScratchTexture();
         FramebufferImpl::InvalidateFramebufferBindingCache();
         VertexArrayImpl::InvalidateVAOBindingCache();
         PixelStoreImpl::InvalidatePackStateCache();
+        PrgramImpl::InvalidateBroadcastMemo();
         // Texture ids belong to the dying context; wrappers destroyed later must
         // not glDeleteTextures a recycled name in a successor context.
         ++g_backendContextGeneration;

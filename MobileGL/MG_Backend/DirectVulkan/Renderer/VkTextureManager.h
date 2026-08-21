@@ -22,6 +22,25 @@ class ITextureObject;
 namespace MobileGL::MG_Backend::DirectVulkan {
 enum class SamplerNumericDomain : Uint8;
 
+// A GL 1D-ARRAY level keeps its LAYER COUNT in the state-side HEIGHT: that is what
+// glTexImage2D(GL_TEXTURE_1D_ARRAY, width, layers) means, and the frontend records the level
+// as {width, layers, 1} (see GL_Texture.cpp's AllocateStorage and the completeness walk in
+// TextureObject.cpp, which shrinks only x down the chain). Vulkan packs it the other way: a
+// 1D array is a VK_IMAGE_TYPE_1D image whose extent.height MUST be 1 and whose layers live in
+// arrayLayers - i.e. in the slot this backend reads out of z. So every place that turns a GL
+// level size into Vulkan image geometry has to move the count across first, and every GL-space
+// sub-box that rides along with it has to move its y the same way. DirectGLES performs the
+// identical remap onto the ES 2D array it maps 1D arrays to (GetBackendUploadSize).
+//
+// Applied to nothing else: a 2D array, a cube array and a 3D texture all already carry their
+// depth/layer count in z, which is where the Vulkan side expects it.
+inline IntVec3 ToVulkanLevelExtent(TextureTarget stateTarget, const IntVec3& glTexelSize) {
+    if (stateTarget == TextureTarget::Texture1DArray) {
+        return {glTexelSize.x(), 1, glTexelSize.y()};
+    }
+    return glTexelSize;
+}
+
 class VkTextureManager {
 public:
     // Monotonic epoch bumped whenever a texture VkImage is (re)created. The render-pass
@@ -206,6 +225,12 @@ public:
         // as defense-in-depth: any path that grows the level set (which resizes the sampled view)
         // busts the skip even if it failed to bump the content version.
         Uint32 syncedMipLevelCount = 0;
+        // Snapshot of ITextureObject::GetShapeVersion() at the last successful sync. The content
+        // version alone does NOT cover a re-specification: glTexImage2D(..., nullptr) on an
+        // already-defined level changes its size or format and dirties no texel, so it moves the
+        // shape version and nothing else. Without this in the early-out key the image, its views
+        // and therefore imageSize() all keep answering with the texture's PREVIOUS shape.
+        Uint64 syncedShapeVersion = 0;
 
         TextureResource() = default;
         TextureResource(const TextureResource&) = delete;
@@ -237,6 +262,7 @@ public:
             std::swap(this->lastRecordingGeneration, that.lastRecordingGeneration);
             std::swap(this->syncedContentVersion, that.syncedContentVersion);
             std::swap(this->syncedMipLevelCount, that.syncedMipLevelCount);
+            std::swap(this->syncedShapeVersion, that.syncedShapeVersion);
         }
 
         void Reset() {
@@ -300,6 +326,7 @@ public:
             syncedTextureParamsVersion = 0;
             syncedContentVersion = 0;
             syncedMipLevelCount = 0;
+            syncedShapeVersion = 0;
         }
 
         ~TextureResource() {
@@ -308,6 +335,11 @@ public:
 
         static inline VkDevice s_device = VK_NULL_HANDLE;
         static inline VmaAllocator s_allocator = VK_NULL_HANDLE;
+    };
+
+    struct SampledTextureSnapshot {
+        VkImageView imageView = VK_NULL_HANDLE;
+        VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
     };
 
     Bool Initialize(const InitInfo& initInfo);
@@ -343,6 +375,13 @@ public:
                                                       VkImageLayout newLayout);
     Bool TransitionTextureForSampling(VkCommandBuffer commandBuffer, MG_State::GLState::ITextureObject& texture);
     Bool TransitionTextureForStorageImage(VkCommandBuffer commandBuffer, MG_State::GLState::ITextureObject& texture);
+    // Copies the complete sampler-visible mip range into a transient sampled image. The source is
+    // restored to its prior layout, so image-store descriptors continue to name the original image.
+    // The transient ownership is tied to the current frame slot and is safe through its submission.
+    Bool SnapshotTextureForSampling(VkCommandBuffer commandBuffer, MG_State::GLState::ITextureObject& texture,
+                                    SamplerNumericDomain numericDomain,
+                                    VkPipelineStageFlags consumerShaderStageMask,
+                                    SampledTextureSnapshot& outSnapshot);
 
     // Recording-generation bookkeeping for the pre-pass command stream. The
     // generation advances every time the frame command buffer (re)begins
@@ -379,17 +418,33 @@ public:
     // true - a false positive merely ends the render pass, a false negative would skip a barrier.
     Bool NeedsStorageImagePreparation(MG_State::GLState::ITextureObject& texture) const;
 
-    static VkImageAspectFlags ResolveSampledImageViewAspectMask(VkImageAspectFlags imageAspect);
+    // `depthStencilTextureMode` is the texture's GL_DEPTH_STENCIL_TEXTURE_MODE; it only decides
+    // anything for an image that carries both aspects. Defaulted so the call sites that have no
+    // texture in hand keep the depth-aspect answer they have always given.
+    static VkImageAspectFlags ResolveSampledImageViewAspectMask(VkImageAspectFlags imageAspect,
+                                                                GLenum depthStencilTextureMode = GL_DEPTH_COMPONENT);
     static VkFormat ResolveSampledImageViewFormat(VkFormat imageFormat, SamplerNumericDomain numericDomain);
     static Bool AreSampledImageViewFormatsCompatible(VkFormat imageFormat, VkFormat viewFormat);
     static Bool AreStorageImageViewFormatsCompatible(VkFormat imageFormat, VkFormat viewFormat);
 
+    // Moves `image` to `newLayout` and writes the new layout back through `trackedLayout`.
+    //
+    // The barrier covers EVERY array layer of the image, and there is deliberately no layer
+    // parameter to say otherwise: layout here is tracked per IMAGE (one `TextureResource::layout`,
+    // or one caller-owned variable), so a barrier narrower than the image would leave the layers it
+    // skipped in the old layout while the tracker claims they moved. Every transfer against a
+    // framebuffer attachment above layer 0 - glReadPixels, glBlitFramebuffer, glCopyTexSubImage,
+    // glCopyImageSubData - then ran its copy on a layer no barrier had transitioned.
+    //
+    // The mip range IS a parameter, because mip levels really are transitioned piecewise (see
+    // UpdateTrackedImageLayoutAfterAttachmentWrite and the mipmap generation loops): those callers
+    // move the complement of the level they wrote so the whole image converges on one layout again.
+    // Nothing does, or can, do that per layer.
     static Bool TransitionImageLayout(VkCommandBuffer commandBuffer, VkImage image, VkImageLayout& trackedLayout,
                                VkImageLayout newLayout, VkPipelineStageFlags srcStageMask,
                                VkPipelineStageFlags dstStageMask, VkAccessFlags srcAccessMask,
                                VkAccessFlags dstAccessMask, VkImageAspectFlags aspectMask,
-                               Uint32 baseMipLevel = 0, Uint32 levelCount = 1,
-                               Uint32 layerCount = 1);
+                               Uint32 baseMipLevel = 0, Uint32 levelCount = 1);
 
     SizeT CollectGarbage();
 

@@ -42,6 +42,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             Bool primitiveRestartEnable = false;
             // GL_PATCH_VERTICES; only read for a PATCH_LIST topology.
             Uint32 patchControlPoints = 3;
+            // How many of ARB_viewport_array's viewports this pipeline rasterizes into. 1 for
+            // every program that never assigns gl_ViewportIndex, which is all of them outside the
+            // conformance suite - the wide shape costs a longer vkCmdSetViewport/Scissor per state
+            // change and can cost hardware fast paths, so it is opt-in per program. Baked into the
+            // pipeline (viewportCount is not dynamic without VK_EXT_extended_dynamic_state) and
+            // therefore hashed; the DYNAMIC viewport/scissor arrays the draw pushes must have
+            // exactly this many elements (VUID-vkCmdDraw-viewportCount-03417/-03418).
+            Uint32 viewportCount = 1;
             VkPolygonMode polygonMode = VK_POLYGON_MODE_FILL;
             VkCullModeFlags cullMode = VK_CULL_MODE_BACK_BIT;
             VkFrontFace frontFace = VK_FRONT_FACE_CLOCKWISE;
@@ -71,6 +79,17 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             Bool fragmentReplacesDepth = false;
             Array<VkPipelineColorBlendAttachmentState, kMaxColorAttachments> colorBlendAttachments{};
             const Vector<VkPipelineShaderStageCreateInfo>* stages = nullptr;
+            // The tessellation control stage this renderer synthesized for a program that has
+            // an evaluation stage and none of its own (GL 4.6 core 11.2.2 gives such a program a
+            // fixed-function pass-through; Vulkan has no such thing and
+            // VUID-VkGraphicsPipelineCreateInfo-pStages-00730 forbids the half-tessellated
+            // pipeline outright). Appended to `stages` at creation. A null module means the
+            // renderer could not build one, and CreatePipeline refuses the pipeline - the same
+            // refusal it applies when `stages` itself is half-tessellated.
+            //
+            // NOT hashed: it is a pure function of the program and of patchControlPoints, both
+            // of which ComputeHash already mixes in.
+            VkPipelineShaderStageCreateInfo passthroughTessControlStage{};
             const VkPipelineVertexInputStateCreateInfo* vertexInputState = nullptr;
             // Diagnostic only; may be null. Read solely from the pipeline-creation failure path.
             const Vector<ShaderStageSpirvDigest>* stageSpirvDigests = nullptr;
