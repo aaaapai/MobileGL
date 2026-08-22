@@ -2413,6 +2413,235 @@ void main() {
     EXPECT_EQ(GetError(), GL_NO_ERROR);
 }
 
+namespace {
+    // One program carrying all four block/uniform kinds at once: a real uniform block, a
+    // shader storage block, an atomic counter (which the transpiler lowers onto a synthesized
+    // gl_AtomicCounterBlock_N buffer block) and plain default-block uniforms.
+    //
+    // MobileGL does not pass EShReflectionSeparateBuffers to glslang's buildReflection, so
+    // glslang routes BUFFER blocks through indexToUniformBlock alongside the uniform blocks -
+    // which is why every one of these has to be classified explicitly rather than taken at
+    // face value from the reflection list.
+    // The storage block and the counter are declared FIRST on purpose: that pushes both
+    // uniform blocks off the front of the block list, so the GL uniform-block index and the
+    // internal block index of every one of them differ. A translation that quietly reused one
+    // space for the other would answer with the storage block's name, size and binding here.
+    const char* kMixedBlockKindsFs = R"(#version 430
+layout(std430, binding = 0) buffer AVeryLongStorageBlockName {
+    vec4 storageVec;
+};
+layout(binding = 1, offset = 0) uniform atomic_uint counter;
+layout(std140) uniform Blk {
+    vec4 uboVec;
+};
+layout(std140) uniform Blk2 {
+    vec4 uboVec2[3];
+};
+uniform float uScale;
+out vec4 o_color;
+void main() {
+    o_color = uboVec * uScale + uboVec2[1] + storageVec + vec4(float(atomicCounterIncrement(counter)));
+})";
+
+    const char* kMixedBlockKindsVs = R"(#version 430
+void main() { gl_Position = vec4(0.0); })";
+} // namespace
+
+// GL 4.6 core 7.6: GL_ACTIVE_UNIFORM_BLOCKS and the glGetActiveUniformBlock* /
+// glGetUniformBlockIndex family enumerate ACTUAL uniform blocks. An atomic counter buffer is
+// enumerated by GL_ACTIVE_ATOMIC_COUNTER_BUFFERS and a shader storage block by the
+// GL_SHADER_STORAGE_BLOCK program interface; neither may appear in the uniform-block list.
+TEST_F(ProgramTest, UniformBlockListExcludesStorageAndAtomicCounterBlocks) {
+    GLuint program = LinkVsFsProgram(kMixedBlockKindsVs, kMixedBlockKindsFs);
+
+    GLint activeBlocks = -1;
+    GetProgramiv(program, GL_ACTIVE_UNIFORM_BLOCKS, &activeBlocks);
+    ASSERT_EQ(activeBlocks, 2) << "only 'Blk' and 'Blk2' are GL uniform blocks";
+
+    // GL_ACTIVE_UNIFORM_BLOCK_MAX_NAME_LENGTH is measured over that same list, so the far
+    // longer storage-block name must not raise it.
+    GLint maxBlockNameLength = -1;
+    GetProgramiv(program, GL_ACTIVE_UNIFORM_BLOCK_MAX_NAME_LENGTH, &maxBlockNameLength);
+    EXPECT_EQ(maxBlockNameLength, static_cast<GLint>(std::strlen("Blk2") + 1));
+
+    const GLuint blk = GetUniformBlockIndex(program, "Blk");
+    const GLuint blk2 = GetUniformBlockIndex(program, "Blk2");
+    ASSERT_NE(blk, GL_INVALID_INDEX);
+    ASSERT_NE(blk2, GL_INVALID_INDEX);
+    EXPECT_LT(blk, 2u);
+    EXPECT_LT(blk2, 2u);
+    EXPECT_NE(blk, blk2);
+    EXPECT_EQ(GetUniformBlockIndex(program, "AVeryLongStorageBlockName"), GL_INVALID_INDEX);
+    EXPECT_EQ(GetUniformBlockIndex(program, "gl_AtomicCounterBlock_1"), GL_INVALID_INDEX);
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+
+    // Every index in the list names one of the two, and each index answers with ITS OWN
+    // block's properties - the storage block sits ahead of both in the internal block space,
+    // so a query answered in the wrong space reports "AVeryLongStorageBlockName" here.
+    char nameBuf[128] = "";
+    GLsizei nameLen = 0;
+    GetActiveUniformBlockName(program, blk, sizeof(nameBuf), &nameLen, nameBuf);
+    EXPECT_STREQ(nameBuf, "Blk");
+    GetActiveUniformBlockName(program, blk2, sizeof(nameBuf), &nameLen, nameBuf);
+    EXPECT_STREQ(nameBuf, "Blk2");
+
+    GLint dataSize = -1;
+    GetActiveUniformBlockiv(program, blk, GL_UNIFORM_BLOCK_DATA_SIZE, &dataSize);
+    EXPECT_EQ(dataSize, 16) << "Blk is one vec4";
+    GetActiveUniformBlockiv(program, blk2, GL_UNIFORM_BLOCK_DATA_SIZE, &dataSize);
+    EXPECT_EQ(dataSize, 48) << "Blk2 is a vec4[3]";
+
+    GLint nameLengthProp = -1;
+    GetActiveUniformBlockiv(program, blk2, GL_UNIFORM_BLOCK_NAME_LENGTH, &nameLengthProp);
+    EXPECT_EQ(nameLengthProp, static_cast<GLint>(std::strlen("Blk2") + 1));
+
+    // glUniformBlockBinding lands on the block the GL index names, and reads back through the
+    // same index.
+    UniformBlockBinding(program, blk2, 7);
+    GLint binding = -1;
+    GetActiveUniformBlockiv(program, blk2, GL_UNIFORM_BLOCK_BINDING, &binding);
+    EXPECT_EQ(binding, 7);
+    GetActiveUniformBlockiv(program, blk, GL_UNIFORM_BLOCK_BINDING, &binding);
+    EXPECT_NE(binding, 7) << "the rebind must not have leaked onto the neighbouring block";
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+
+    // An index past the end of the (now shorter) list is GL_INVALID_VALUE, not a silently
+    // answered query about a storage block.
+    GLint sink = -12345;
+    GetActiveUniformBlockiv(program, static_cast<GLuint>(activeBlocks), GL_UNIFORM_BLOCK_BINDING, &sink);
+    EXPECT_EQ(GetError(), GL_INVALID_VALUE);
+    EXPECT_EQ(sink, -12345);
+    UniformBlockBinding(program, static_cast<GLuint>(activeBlocks), 1);
+    EXPECT_EQ(GetError(), GL_INVALID_VALUE);
+    GetActiveUniformBlockName(program, static_cast<GLuint>(activeBlocks), sizeof(nameBuf), &nameLen, nameBuf);
+    EXPECT_EQ(GetError(), GL_INVALID_VALUE);
+
+    // Each block's own member resolves against the block index this list hands out.
+    const GLuint uboVec = UniformIndexByName(program, "uboVec");
+    const GLuint uboVec2 = UniformIndexByName(program, "uboVec2[0]");
+    ASSERT_NE(uboVec, GL_INVALID_INDEX);
+    ASSERT_NE(uboVec2, GL_INVALID_INDEX);
+    EXPECT_EQ(QueryUniformiv(program, uboVec, GL_UNIFORM_BLOCK_INDEX), static_cast<GLint>(blk));
+    EXPECT_EQ(QueryUniformiv(program, uboVec2, GL_UNIFORM_BLOCK_INDEX), static_cast<GLint>(blk2));
+
+    GLint blockMemberCount = -1;
+    GetActiveUniformBlockiv(program, blk, GL_UNIFORM_BLOCK_ACTIVE_UNIFORMS, &blockMemberCount);
+    EXPECT_EQ(blockMemberCount, 1);
+    GLint blockMemberIndex = -1;
+    GetActiveUniformBlockiv(program, blk, GL_UNIFORM_BLOCK_ACTIVE_UNIFORM_INDICES, &blockMemberIndex);
+    EXPECT_EQ(static_cast<GLuint>(blockMemberIndex), uboVec);
+    GetActiveUniformBlockiv(program, blk2, GL_UNIFORM_BLOCK_ACTIVE_UNIFORM_INDICES, &blockMemberIndex);
+    EXPECT_EQ(static_cast<GLuint>(blockMemberIndex), uboVec2);
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+}
+
+// The GL_UNIFORM_BLOCK program interface hands out indices that are usable with
+// glUniformBlockBinding / glGetActiveUniformBlockiv (ARB_program_interface_query), so it has
+// to enumerate exactly the same list - not the internal block space that also carries the
+// storage and atomic counter blocks.
+TEST_F(ProgramTest, UniformBlockProgramInterfaceMatchesTheUniformBlockList) {
+    GLuint program = LinkVsFsProgram(kMixedBlockKindsVs, kMixedBlockKindsFs);
+
+    GLint interfaceBlocks = -1;
+    GetProgramInterfaceiv(program, GL_UNIFORM_BLOCK, GL_ACTIVE_RESOURCES, &interfaceBlocks);
+    GLint activeBlocks = -1;
+    GetProgramiv(program, GL_ACTIVE_UNIFORM_BLOCKS, &activeBlocks);
+    EXPECT_EQ(interfaceBlocks, activeBlocks);
+    ASSERT_EQ(interfaceBlocks, 2);
+
+    // The storage block is enumerated by its OWN interface instead.
+    GLint storageBlocks = -1;
+    GetProgramInterfaceiv(program, GL_SHADER_STORAGE_BLOCK, GL_ACTIVE_RESOURCES, &storageBlocks);
+    EXPECT_EQ(storageBlocks, 1);
+    EXPECT_EQ(GetProgramResourceIndex(program, GL_UNIFORM_BLOCK, "AVeryLongStorageBlockName"), GL_INVALID_INDEX);
+    EXPECT_NE(GetProgramResourceIndex(program, GL_SHADER_STORAGE_BLOCK, "AVeryLongStorageBlockName"),
+              GL_INVALID_INDEX);
+    // ... and the buffer variable by GL_BUFFER_VARIABLE, not GL_UNIFORM.
+    EXPECT_NE(GetProgramResourceIndex(program, GL_BUFFER_VARIABLE, "storageVec"), GL_INVALID_INDEX);
+    EXPECT_EQ(GetProgramResourceIndex(program, GL_UNIFORM, "storageVec"), GL_INVALID_INDEX);
+
+    for (const char* blockName : {"Blk", "Blk2"}) {
+        const GLuint interfaceIndex = GetProgramResourceIndex(program, GL_UNIFORM_BLOCK, blockName);
+        ASSERT_NE(interfaceIndex, GL_INVALID_INDEX) << blockName;
+        EXPECT_EQ(interfaceIndex, GetUniformBlockIndex(program, blockName)) << blockName;
+
+        // GL_NUM_ACTIVE_VARIABLES / GL_ACTIVE_VARIABLES must reach the same member the
+        // glGetActiveUniformBlockiv spelling does.
+        const GLenum numActive = GL_NUM_ACTIVE_VARIABLES;
+        GLint memberCount = -1;
+        GetProgramResourceiv(program, GL_UNIFORM_BLOCK, interfaceIndex, 1, &numActive, 1, nullptr, &memberCount);
+        ASSERT_EQ(memberCount, 1) << blockName;
+        const GLenum activeVariables = GL_ACTIVE_VARIABLES;
+        GLint memberIndex = -1;
+        GetProgramResourceiv(program, GL_UNIFORM_BLOCK, interfaceIndex, 1, &activeVariables, 1, nullptr,
+                             &memberIndex);
+        GLint viaBlockiv = -1;
+        GetActiveUniformBlockiv(program, interfaceIndex, GL_UNIFORM_BLOCK_ACTIVE_UNIFORM_INDICES, &viaBlockiv);
+        EXPECT_EQ(memberIndex, viaBlockiv) << blockName;
+    }
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+}
+
+// GL 4.6 core 7.3.1 / 7.6: a buffer variable is not a uniform - it lives in the
+// GL_BUFFER_VARIABLE interface - so it must not appear in GL_ACTIVE_UNIFORMS,
+// glGetActiveUniform, glGetUniformIndices or glGetActiveUniformsiv. An ATOMIC COUNTER, by
+// contrast, IS a uniform (of type GL_UNSIGNED_INT_ATOMIC_COUNTER) and must stay enumerated.
+TEST_F(ProgramTest, ActiveUniformsExcludeBufferVariablesButKeepAtomicCounters) {
+    GLuint program = LinkVsFsProgram(kMixedBlockKindsVs, kMixedBlockKindsFs);
+
+    GLint activeUniforms = -1;
+    GetProgramiv(program, GL_ACTIVE_UNIFORMS, &activeUniforms);
+    ASSERT_EQ(activeUniforms, 4)
+        << "uboVec, uboVec2[0], uScale and counter - storageVec is a buffer variable";
+
+    // Neither spelling of the buffer variable is a uniform index.
+    EXPECT_EQ(UniformIndexByName(program, "storageVec"), GL_INVALID_INDEX);
+    EXPECT_EQ(UniformIndexByName(program, "AVeryLongStorageBlockName.storageVec"), GL_INVALID_INDEX);
+    // The location half of the same rule (already landed) must stay consistent with it.
+    EXPECT_EQ(GetUniformLocation(program, "storageVec"), -1);
+
+    char nameBuf[128] = "";
+    for (GLint i = 0; i < activeUniforms; ++i) {
+        GLsizei nameLen = 0;
+        GLint size = 0;
+        GLenum type = 0;
+        GetActiveUniform(program, static_cast<GLuint>(i), sizeof(nameBuf), &nameLen, &size, &type, nameBuf);
+        EXPECT_EQ(std::string(nameBuf).find("storageVec"), std::string::npos)
+            << "buffer variable enumerated as active uniform " << i << ": " << nameBuf;
+    }
+
+    // The counter is still a uniform, still reports the atomic-counter type, has no owning
+    // uniform block, and still points at its atomic counter BUFFER.
+    const GLuint counter = UniformIndexByName(program, "counter");
+    ASSERT_NE(counter, GL_INVALID_INDEX);
+    EXPECT_EQ(QueryUniformiv(program, counter, GL_UNIFORM_TYPE),
+              static_cast<GLint>(GL_UNSIGNED_INT_ATOMIC_COUNTER));
+    EXPECT_EQ(QueryUniformiv(program, counter, GL_UNIFORM_BLOCK_INDEX), -1);
+    EXPECT_EQ(QueryUniformiv(program, counter, GL_UNIFORM_ATOMIC_COUNTER_BUFFER_INDEX), 0);
+    EXPECT_EQ(QueryUniformiv(program, counter, GL_UNIFORM_OFFSET), 0);
+    EXPECT_EQ(GetUniformLocation(program, "counter"), -1);
+
+    // GL_ACTIVE_ATOMIC_COUNTER_BUFFERS indexes into the GL uniform index space, so the
+    // counter index it reports has to be the one glGetUniformIndices just handed out.
+    GLint counterBuffers = -1;
+    GetProgramiv(program, GL_ACTIVE_ATOMIC_COUNTER_BUFFERS, &counterBuffers);
+    ASSERT_EQ(counterBuffers, 1);
+    GLint counterCount = -1;
+    GetActiveAtomicCounterBufferiv(program, 0, GL_ATOMIC_COUNTER_BUFFER_ACTIVE_ATOMIC_COUNTERS, &counterCount);
+    ASSERT_EQ(counterCount, 1);
+    GLint counterIndex = -1;
+    GetActiveAtomicCounterBufferiv(program, 0, GL_ATOMIC_COUNTER_BUFFER_ACTIVE_ATOMIC_COUNTER_INDICES,
+                                   &counterIndex);
+    EXPECT_EQ(static_cast<GLuint>(counterIndex), counter);
+    GLint counterBinding = -1;
+    GetActiveAtomicCounterBufferiv(program, 0, GL_ATOMIC_COUNTER_BUFFER_BINDING, &counterBinding);
+    EXPECT_EQ(counterBinding, 1);
+
+    // The default-block uniform is untouched by either filter.
+    EXPECT_NE(GetUniformLocation(program, "uScale"), -1);
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+}
+
 TEST_F(ProgramTest, DeleteShaderWhileAttachedKeepsNameUsableUntilDetach) {
     // GL CTS compiles through exactly this sequence (create, attach, DELETE, source,
     // compile): glDeleteShader on an attached shader only flags it, and the name must
@@ -2940,9 +3169,9 @@ void main() { fragColor = vec4(pow(uBase, 2.2), 1.0); }
 //   Layer 1 - the same shader object re-sourced with byte-identical text keeps its
 //             compiled state, and glCompileShader on it is a no-op.
 //   Layer 2 - two DIFFERENT shader objects holding byte-identical text share the
-//             source-only half of the pipeline (preprocess + lexical checks +
-//             side-channel extraction) through the context's ShaderPreprocessCache,
-//             while each still gets its own glslang parse.
+//             source-only half of the pipeline (preprocess + the lexical rejection
+//             checks) through the context's ShaderPreprocessCache, while each still
+//             gets its own glslang parse.
 // ---------------------------------------------------------------------------
 namespace {
     const char* kP0bVs = R"(#version 330 core
@@ -3398,6 +3627,185 @@ void main() { fragColor = vec4(1.0); }
                               ") uniform vec4 uSpill[8];\nvoid main() { gl_Position = uSpill[0]; }\n";
         const GLuint vs = CompileShaderChecked(GL_VERTEX_SHADER, source.c_str());
         (void)LinkVsFs(vs, fs, GL_FALSE);
+    }
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+}
+
+// GL 4.6 core 7.6: an atomic counter is a default-block uniform that addresses an ATOMIC COUNTER
+// buffer, where every counter is a tightly packed 4-byte value. MobileGL lowers each atomic_uint
+// onto a synthesized block, which used to drag the whole array-stride query onto the std140 rule
+// that rounds an element stride up to a vec4 - so an atomic counter array reported 16
+// (KHR-GL43.shader_atomic_counters.basic-program-query: "GL_UNIFORM_ARRAY_STRIDE is 16 should be
+// 4"). The offsets, matrix stride and row-major flag are pinned alongside it because the same
+// synthesized block feeds all four queries.
+TEST_F(ProgramTest, AtomicCounterArrayReportsThePackedFourByteStride) {
+    const char* vsSource = R"(#version 430 core
+void main() { gl_Position = vec4(1.0); }
+)";
+    const char* fsSource = R"(#version 430 core
+layout(location = 0) out vec4 o_color;
+layout(binding = 0, offset = 0) uniform atomic_uint ac_counter0;
+layout(binding = 0, offset = 4) uniform atomic_uint ac_counter1;
+layout(binding = 0) uniform atomic_uint ac_counter2;
+layout(binding = 0) uniform atomic_uint ac_counter67[2];
+layout(binding = 0) uniform atomic_uint ac_counter3;
+void main() {
+  uint c = 0u;
+  c += atomicCounterIncrement(ac_counter0);
+  c += atomicCounterIncrement(ac_counter1);
+  c += atomicCounterIncrement(ac_counter2);
+  c += atomicCounterIncrement(ac_counter3);
+  c += atomicCounterIncrement(ac_counter67[0]);
+  c += atomicCounterIncrement(ac_counter67[1]);
+  o_color = vec4(float(c));
+}
+)";
+    const GLuint vs = CompileShaderChecked(GL_VERTEX_SHADER, vsSource);
+    const GLuint fs = CompileShaderChecked(GL_FRAGMENT_SHADER, fsSource);
+    const GLuint program = LinkVsFs(vs, fs, GL_TRUE);
+
+    GLint activeUniforms = 0;
+    GetProgramiv(program, GL_ACTIVE_UNIFORMS, &activeUniforms);
+    ASSERT_EQ(activeUniforms, 5);
+
+    // Declared offset -> expected {array size, array stride}. layout(offset=) pins the first two;
+    // the rest are packed after them in declaration order, the array taking two 4-byte slots.
+    struct Expectation {
+        const char* name;
+        GLint size;
+        GLint offset;
+        GLint arrayStride;
+    };
+    const Expectation expectations[] = {
+        {"ac_counter0", 1, 0, 0},       {"ac_counter1", 1, 4, 0},  {"ac_counter2", 1, 8, 0},
+        {"ac_counter67[0]", 2, 12, 4},  {"ac_counter3", 1, 20, 0},
+    };
+
+    for (const auto& expected : expectations) {
+        const char* queryName = expected.name;
+        GLuint index = GL_INVALID_INDEX;
+        GetUniformIndices(program, 1, &queryName, &index);
+        ASSERT_NE(index, GL_INVALID_INDEX) << expected.name << " is not an active uniform";
+
+        GLint value = -2;
+        GetActiveUniformsiv(program, 1, &index, GL_UNIFORM_TYPE, &value);
+        EXPECT_EQ(value, static_cast<GLint>(GL_UNSIGNED_INT_ATOMIC_COUNTER)) << expected.name;
+        GetActiveUniformsiv(program, 1, &index, GL_UNIFORM_SIZE, &value);
+        EXPECT_EQ(value, expected.size) << expected.name;
+        // An atomic counter is a default-block uniform however it was lowered.
+        GetActiveUniformsiv(program, 1, &index, GL_UNIFORM_BLOCK_INDEX, &value);
+        EXPECT_EQ(value, -1) << expected.name;
+        GetActiveUniformsiv(program, 1, &index, GL_UNIFORM_OFFSET, &value);
+        EXPECT_EQ(value, expected.offset) << expected.name;
+        GetActiveUniformsiv(program, 1, &index, GL_UNIFORM_ARRAY_STRIDE, &value);
+        EXPECT_EQ(value, expected.arrayStride) << expected.name;
+        GetActiveUniformsiv(program, 1, &index, GL_UNIFORM_MATRIX_STRIDE, &value);
+        EXPECT_EQ(value, 0) << expected.name;
+        GetActiveUniformsiv(program, 1, &index, GL_UNIFORM_IS_ROW_MAJOR, &value);
+        EXPECT_EQ(value, 0) << expected.name;
+        GetActiveUniformsiv(program, 1, &index, GL_UNIFORM_ATOMIC_COUNTER_BUFFER_INDEX, &value);
+        EXPECT_EQ(value, 0) << expected.name;
+    }
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+}
+
+// GL 4.6 core 7.6.1: a uniform LOCATION is a property of the default uniform block. A member of
+// a named uniform block or a buffer block has none, and glGetUniformLocation must answer -1 for
+// it - which is what glGetProgramResourceLocation(GL_UNIFORM, ...) already did, so the two used
+// to disagree. The location such a member was handed was not merely reported, it was CONSUMED:
+// it came out of the same first-fit table the default-block uniforms draw from.
+TEST_F(ProgramTest, BlockMembersConsumeNoUniformLocation) {
+    const char* csSource = R"(#version 430 core
+layout(local_size_x = 1) in;
+layout(std430, binding = 1) buffer ResultBuffer { vec4 bufferMember; };
+layout(std140, binding = 2) uniform SettingsBlock { vec4 blockMember; };
+layout(location = 0) uniform float uDead[3];
+uniform float uImplicit;
+void main() { bufferMember = blockMember * uImplicit; }
+)";
+    const GLuint cs = CompileShaderChecked(GL_COMPUTE_SHADER, csSource);
+    const GLuint program = CreateProgram();
+    AttachShader(program, cs);
+    LinkProgram(program);
+    GLint linkStatus = GL_FALSE;
+    GetProgramiv(program, GL_LINK_STATUS, &linkStatus);
+    char infoLog[1024] = "";
+    GetProgramInfoLog(program, sizeof(infoLog), nullptr, infoLog);
+    ASSERT_EQ(linkStatus, GL_TRUE) << infoLog;
+
+    for (const char* member : {"bufferMember", "blockMember"}) {
+        EXPECT_EQ(GetUniformLocation(program, member), -1) << member << " is a block member, not a GL uniform";
+        EXPECT_EQ(GetProgramResourceLocation(program, GL_UNIFORM, member), -1)
+            << member << ": the two location queries must agree";
+    }
+
+    // uDead[3] reserves 0..2 without becoming visible, so the first location left for the one
+    // default-block uniform is 3. It used to be 4, because a block member took 3 first.
+    EXPECT_EQ(GetUniformLocation(program, "uImplicit"), 3)
+        << "a block member consumed a location the default-block uniform was entitled to";
+    EXPECT_EQ(GetUniformLocation(program, "uDead"), -1);
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+}
+
+// The same defect at the boundary, which is where the conformance suite catches it. The location
+// table's ceiling is raised to hold every uniform it must place; counting block members into that
+// raise pushed the ceiling to GL_MAX_UNIFORM_LOCATIONS itself, and the first-fit pass then handed
+// out the one location past the legal 0..MAX-1 range
+// (KHR-GL43.explicit_uniform_location.uniform-loc-mix-with-implicit-max, whose compute program
+// carries an SSBO: "Uniform u2 returned location (4095) is greater than implementation dependent
+// limit (4095)"). Its -array sibling shares the root cause and failed one step further along, with
+// the pool reported exhausted and no link at all.
+TEST_F(ProgramTest, ImplicitLocationStaysInRangeWhenABufferBlockSharesTheProgram) {
+    GLint maxLocations = 0;
+    GetIntegerv(GL_MAX_UNIFORM_LOCATIONS, &maxLocations);
+    ASSERT_GE(maxLocations, 1024) << "GL 4.3 requires at least 1024 uniform locations";
+
+    // The CTS shape: explicit unused arrays fill the pool except for a hole of `implicitCount`
+    // locations at `holeBase`, and the one implicit uniform must land exactly in that hole.
+    const auto runCase = [&](int holeBase, int implicitCount) {
+        String decls;
+        int nextName = 0;
+        if (holeBase > 0) {
+            decls += "layout(location = 0) uniform float u" + std::to_string(nextName++) + "[" +
+                     std::to_string(holeBase) + "];\n";
+        }
+        const int tailBase = holeBase + implicitCount;
+        if (tailBase < maxLocations) {
+            decls += "layout(location = " + std::to_string(tailBase) + ") uniform float u" +
+                     std::to_string(nextName++) + "[" + std::to_string(maxLocations - tailBase) + "];\n";
+        }
+        const String implicitName = "u" + std::to_string(nextName);
+        decls += "uniform float " + implicitName + "[" + std::to_string(implicitCount) + "];\n";
+
+        // The buffer block is the whole point: it is one more uniform the table has to seat, and
+        // seating it inside the location space is what used to push the implicit uniform out.
+        const String csSource = "#version 430 core\n"
+                                "layout(local_size_x = 1) in;\n"
+                                "layout(std430, binding = 1) buffer ResultBuffer { vec4 cs_result; };\n" +
+                                decls + "void main() { cs_result = vec4(" + implicitName + "[0]); }\n";
+        const GLuint cs = CompileShaderChecked(GL_COMPUTE_SHADER, csSource.c_str());
+        const GLuint program = CreateProgram();
+        AttachShader(program, cs);
+        LinkProgram(program);
+        GLint linkStatus = GL_FALSE;
+        GetProgramiv(program, GL_LINK_STATUS, &linkStatus);
+        char infoLog[1024] = "";
+        GetProgramInfoLog(program, sizeof(infoLog), nullptr, infoLog);
+        ASSERT_EQ(linkStatus, GL_TRUE) << "hole at " << holeBase << " x" << implicitCount << ": " << infoLog;
+
+        const GLint location = GetUniformLocation(program, implicitName.c_str());
+        EXPECT_EQ(location, holeBase) << "the implicit uniform must take the one free span left";
+        EXPECT_LT(location + implicitCount, maxLocations + 1)
+            << "locations " << location << ".." << (location + implicitCount - 1)
+            << " must stay inside 0.." << (maxLocations - 1);
+        EXPECT_EQ(GetUniformLocation(program, "cs_result"), -1);
+    };
+
+    // The three holes the CTS walks, for its single-uniform and its 3-element-array subcase.
+    for (const int implicitCount : {1, 3}) {
+        runCase(0, implicitCount);
+        runCase(3, implicitCount);
+        runCase(maxLocations - implicitCount, implicitCount);
     }
     EXPECT_EQ(GetError(), GL_NO_ERROR);
 }

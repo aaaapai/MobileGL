@@ -101,16 +101,10 @@ namespace MobileGL {
             const SharedPtr<glslang::TShader>& GetCompiledShader() const { return Compiled().shader; }
             const String& GetInfoLog() const { return Compiled().infoLog; }
             // Explicit layout(location = N) qualifiers on this shader's default-block
-            // uniforms, captured lexically at Compile() because the relaxed parse drops
-            // them from reflection (see ExtractExplicitUniformLocations).
+            // uniforms, as glslang recorded them at the point its Vulkan-relaxed remap
+            // discarded them (see CollectExplicitUniformLocations).
             const UnorderedMap<String, Int>& GetExplicitUniformLocations() const {
                 return Compiled().explicitUniformLocations;
-            }
-            // Explicit layout(binding = N) on sampler/image uniforms - their initial
-            // texture/image units - captured lexically for the same reason (see
-            // ExtractExplicitOpaqueBindings).
-            const UnorderedMap<String, Uint>& GetExplicitOpaqueBindings() const {
-                return Compiled().explicitOpaqueBindings;
             }
             Bool GetCompileStatus() const { return Compiled().compileStatus; }
             Bool GetDeleteStatus() const { return m_deleteStatus; }

@@ -33,7 +33,9 @@
 #include "SpirvPasses/FixIterationRPSubgroupScratchPass.h"
 #include "SpirvPasses/NormalizeRectCoordinatesPass.h"
 #include "SpirvPasses/Lower1DArrayImagesPass.h"
+#include "SpirvPasses/Lower1DSampledImagesPass.h"
 #include "SpirvPasses/BakeImageFormatsPass.h"
+#include "SpirvPasses/WidenImageFormatsPass.h"
 #include "SpirvPasses/ClampMultisampleFetchPass.h"
 #include "SpirvPasses/PrivateToEntryLocalPass.h"
 #include "SpirvPasses/StripUniformLocationsPass.h"
@@ -41,7 +43,7 @@
 #include "SpirvPasses/StripNoPerspectivePass.h"
 #include "SpirvPasses/EmulateNoPerspectivePass.h"
 #include "SpirvPasses/LegalizeFragmentOutputIndexPass.h"
-#include "SpirvPasses/LegalizeStorageBlockArrayIndexPass.h"
+#include "SpirvPasses/LegalizeResourceArrayIndexPass.h"
 #include "SpirvPasses/FlattenAtomicCounterBlockPass.h"
 #include "spirv-tools/libspirv.h"
 #include "spirv-tools/optimizer.hpp"
@@ -356,6 +358,107 @@ namespace MobileGL {
                 glslang::SetThreadPoolAllocator(nullptr);
             }
 
+            namespace {
+                // glslang reflects an array-of-arrays default-block uniform as ONE RECORD PER
+                // outer-index tuple, carrying the innermost array type: `float u[2][3]` becomes
+                // "u[0][0]" and "u[1][0]" (that last "[0]" is EShReflectionBasicArraySuffix). The
+                // linker resolves such a name by stripping the single trailing "[0]", so it looks
+                // up "u[1]" - a key the root entry alone cannot answer, and the whole declaration
+                // silently loses its explicit location.
+                //
+                // Emit those pre-flattened keys next to the root, so the result is
+                // order-independent: each carries the location its own element starts at (element
+                // i of `float u[2][3]` at location L starts at L + i*3). Identifiers cannot
+                // contain brackets, so a synthesized key never collides with a real uniform name,
+                // and a 1-D array needs none of this - stripping "[0]" already reaches the root.
+                void RecordArrayOfArraysElementLocations(const String& name, const std::vector<int>& dimensions,
+                                                         const long long baseLocation,
+                                                         UnorderedMap<String, Int>& locations) {
+                    if (dimensions.size() < 2) return;
+                    // A pathological declaration must not be able to blow up the map; past the cap
+                    // only the root entry stands, which is what every case used to get.
+                    constexpr long long kMaxSynthesizedKeys = 4096;
+                    const long long innerSpan = dimensions.back();
+                    const SizeT outerDimensions = dimensions.size() - 1;
+                    long long elementCount = 1;
+                    for (SizeT d = 0; d < outerDimensions; ++d) {
+                        elementCount *= dimensions[d];
+                        if (elementCount > kMaxSynthesizedKeys) return;
+                    }
+                    for (long long element = 0; element < elementCount; ++element) {
+                        String key = name;
+                        long long remainder = element;
+                        for (SizeT d = 0; d < outerDimensions; ++d) {
+                            long long stride = 1;
+                            for (SizeT inner = d + 1; inner < outerDimensions; ++inner) stride *= dimensions[inner];
+                            key += "[" + std::to_string(remainder / stride) + "]";
+                            remainder %= stride;
+                        }
+                        locations.emplace(key, static_cast<Int>(std::min(baseLocation + element * innerSpan,
+                                                                         static_cast<long long>(INT_MAX / 2))));
+                    }
+                }
+            } // namespace
+
+            UnorderedMap<String, Int> CollectExplicitUniformLocations(const glslang::TShader& shader) {
+                UnorderedMap<String, Int> locations;
+                const glslang::TIntermediate* intermediate = shader.getIntermediate();
+                if (intermediate == nullptr) return locations;
+
+                // Half one: the uniforms the relaxed remap swallowed, out of the snapshot it
+                // takes on the way past.
+                for (const glslang::TIntermediate::TUniformLocation& record :
+                     intermediate->getUniformLocations()) {
+                    if (record.location < 0) continue;
+                    // Keep the first sighting. Two records for one name mean the parser saw the
+                    // declaration twice, and the first is the one the symbol table kept.
+                    locations.emplace(record.name, record.location);
+                    RecordArrayOfArraysElementLocations(record.name, record.arraySizes, record.location,
+                                                        locations);
+                }
+
+                // Half two: the OPAQUE uniforms, which the remap never touches (the guard in
+                // vkRelaxedRemapUniformVariable admits only types containing something
+                // non-opaque, atomic_uint, or a sampler inside a struct) and which therefore
+                // still carry their qualifier here.
+                //
+                // They belong in the same map even though reflection could also answer for them,
+                // and the distinction is not cosmetic: this map is what marks a location as
+                // SOURCE-EXPLICIT, i.e. API contract under ARB_explicit_uniform_location. A
+                // location that only reaches DoReflection through glslang's own layoutLocation()
+                // is treated as implementation-chosen and quietly moved on a collision, which is
+                // the wrong answer for one the shader declared.
+                //
+                // Read BEFORE any link: mapIO writes its own choices into these same qualifiers
+                // (iomapper.cpp:240), so this is only truthful while the shader is unlinked -
+                // which is exactly where ShaderCompileTask calls it.
+                const glslang::TIntermAggregate* linkerObjects = intermediate->findLinkerObjects();
+                if (linkerObjects == nullptr) return locations;
+                for (TIntermNode* node : linkerObjects->getSequence()) {
+                    const glslang::TIntermSymbol* symbol = node ? node->getAsSymbolNode() : nullptr;
+                    if (symbol == nullptr) continue;
+                    const glslang::TType& type = symbol->getType();
+                    const glslang::TQualifier& qualifier = type.getQualifier();
+                    if (qualifier.storage != glslang::EvqUniform || !qualifier.hasLocation()) continue;
+                    // A BLOCK has no glGetUniformLocation of its own, and its members are
+                    // addressed through the block. Only loose uniforms take locations.
+                    if (type.getBasicType() == glslang::EbtBlock || type.isBuiltIn()) continue;
+
+                    std::vector<int> arraySizes;
+                    if (type.isArray() && type.getArraySizes() != nullptr) {
+                        const glslang::TArraySizes& sizes = *type.getArraySizes();
+                        for (int dim = 0; dim < sizes.getNumDims(); ++dim) {
+                            arraySizes.push_back(sizes.getDimSize(dim));
+                        }
+                    }
+                    const String name = symbol->getAccessName().c_str();
+                    const Int location = static_cast<Int>(qualifier.layoutLocation);
+                    locations.emplace(name, location);
+                    RecordArrayOfArraysElementLocations(name, arraySizes, location, locations);
+                }
+                return locations;
+            }
+
             Result<SharedPtr<glslang::TProgram>> ShaderCompiler::LinkProgram(const ProgramAttrib& attrib) {
                 SharedPtr<glslang::TProgram> program = MakeShared<glslang::TProgram>();
                 for (auto& s : attrib.shaders) {
@@ -381,7 +484,8 @@ namespace MobileGL {
                         MakeUnique<TMglGlslIoResolver>(*program, (EShLanguage)stage, attrib.explicitVertexInLocations,
                                                        attrib.explicitFragmentOutLocations,
                                                        attrib.explicitFragmentOutIndices,
-                                                       attrib.explicitOpaqueUniformBindings);
+                                                       attrib.explicitOpaqueUniformBindings,
+                                                       attrib.storageBlocksWithoutBinding);
                     break;
                 }
                 auto ioMapper = UniquePtr<glslang::TIoMapper>(glslang::GetGlslIoMapper());
@@ -596,6 +700,43 @@ namespace MobileGL {
                 return false;
             }
 
+            Bool ShaderCompiler::ModuleReadsLocatedInput(const Vector<Uint32>& spirv) {
+                if (spirv.empty()) {
+                    return false;
+                }
+                std::unique_ptr<spvtools::opt::IRContext> context = spvtools::BuildModule(
+                    SPV_ENV_VULKAN_1_1, MakeSpirvMessageConsumer("ModuleReadsLocatedInput"), spirv.data(),
+                    spirv.size());
+                if (!context) {
+                    return false;
+                }
+                // A LOCATION is exactly the property that separates a user-defined varying (or a
+                // per-patch input) from a built-in: gl_in, gl_TessCoord, gl_PatchVerticesIn,
+                // gl_PrimitiveID and the tessellation levels carry none, and every one of them is
+                // either forwarded by the pass-through or generated by the tessellator itself.
+                //
+                // Decided on the OpVariable's own Location decoration rather than on any
+                // built-in classification, for the reason DirectVulkan's
+                // ReflectPassthroughTessControlNeed records at length: gl_in is an ARRAY OF
+                // INTERFACE BLOCKS, and a member walk of one reads back as BuiltIn::Position for
+                // every member, so classifying by built-in would accept anything.
+                for (auto& variable : context->module()->types_values()) {
+                    if (variable.opcode() != spv::Op::OpVariable || variable.NumInOperands() < 1) {
+                        continue;
+                    }
+                    if (static_cast<spv::StorageClass>(variable.GetSingleWordInOperand(0)) !=
+                        spv::StorageClass::Input) {
+                        continue;
+                    }
+                    Bool located = false;
+                    context->get_decoration_mgr()->ForEachDecoration(
+                        variable.result_id(), static_cast<uint32_t>(spv::Decoration::Location),
+                        [&located](const spvtools::opt::Instruction&) { located = true; });
+                    if (located) return true;
+                }
+                return false;
+            }
+
             bool ShaderCompiler::DemoteFloat64ToFloat32(const Vector<Uint32>& inputBinary,
                                                         Vector<uint32_t>& outputBinary,
                                                         const bool enableSpirvValidation) {
@@ -771,6 +912,39 @@ namespace MobileGL {
                     BakeImageFormatsPass::SpirvImageFormatFromGLInternalFormat(glInternalFormat));
             }
 
+            bool ShaderCompiler::WidenImageFormatsForEssl(const Vector<Uint32>& inputBinary,
+                                                          Vector<uint32_t>& outputBinary,
+                                                          const bool onlyFormatsSpirvCrossRefusesToPrint,
+                                                          const bool enableSpirvValidation) {
+                using namespace spvtools;
+                Optimizer optimizer(SPV_ENV_VULKAN_1_1);
+                optimizer.RegisterPass(
+                    WidenImageFormatsPass::CreateWidenImageFormatsPass(onlyFormatsSpirvCrossRefusesToPrint));
+                // Two image types that differed only in a format the widening collapses -
+                // `layout(rg32f)` and `layout(rgba32f)` in one module - are one type afterwards,
+                // and duplicate non-aggregate type declarations are invalid SPIR-V. This joins
+                // them, and cascades to the pointer and array types that named them; the pass
+                // itself deliberately does not carry a join of its own.
+                optimizer.RegisterPass(CreateRemoveDuplicatesPass());
+
+                return RunOptimizerChecked("WidenImageFormatsForEssl", optimizer, inputBinary, outputBinary,
+                                           true, enableSpirvValidation);
+            }
+
+            bool ShaderCompiler::DeclaresWidenableImageFormat(const Vector<Uint32>& binary,
+                                                              const bool onlyFormatsSpirvCrossRefusesToPrint) {
+                return WidenImageFormatsPass::DeclaresWidenableImageFormat(binary,
+                                                                           onlyFormatsSpirvCrossRefusesToPrint);
+            }
+
+            Uint ShaderCompiler::WidenedCoreEsslImageFormat(Uint glInternalFormat) {
+                return WidenImageFormatsPass::WidenedCoreEsslImageFormat(glInternalFormat);
+            }
+
+            Uint ShaderCompiler::ImageFormatChannelCount(Uint glInternalFormat) {
+                return WidenImageFormatsPass::ImageFormatChannelCount(glInternalFormat);
+            }
+
             bool ShaderCompiler::FlattenXfbInterfaceBlocksForEssl(const Vector<Uint32>& inputBinary,
                                                                   const std::set<String>& blockNames,
                                                                   std::set<String>& flattenedBlockNames,
@@ -943,16 +1117,16 @@ namespace MobileGL {
                 return true;
             }
 
-            bool ShaderCompiler::LegalizeStorageBlockArrayIndexingForEssl(
+            bool ShaderCompiler::LegalizeResourceArrayIndexingForEssl(
                 const Vector<Uint32>& inputBinary, Vector<uint32_t>& outputBinary,
                 const bool enableSpirvValidation) {
                 using namespace spvtools;
 
-                // Detection gates everything: a module that declares no array of storage
-                // blocks, or indexes one only with constants - every shader but a handful -
-                // pays one BuildModule and is handed back byte for byte, so the folding chain
-                // can never perturb a shader that did not need it.
-                if (!LegalizeStorageBlockArrayIndexPass::BinaryHasDynamicStorageBlockArrayIndexing(
+                // Detection gates everything: a module that declares no array of storage blocks
+                // and no array of images, or indexes one only with constants - every shader but
+                // a handful - pays one BuildModule and is handed back byte for byte, so the
+                // folding chain can never perturb a shader that did not need it.
+                if (!LegalizeResourceArrayIndexPass::BinaryHasDynamicResourceArrayIndexing(
                         inputBinary)) {
                     outputBinary = inputBinary;
                     return true;
@@ -968,7 +1142,7 @@ namespace MobileGL {
                 // induction variable as an OpPhi, and glslang emits it as loads and stores of
                 // a Function variable.
                 folder.RegisterPass(CreateLocalMultiStoreElimPass());
-                folder.RegisterPass(LegalizeStorageBlockArrayIndexPass::CreateMarkLoopsForUnrollPass());
+                folder.RegisterPass(LegalizeResourceArrayIndexPass::CreateMarkLoopsForUnrollPass());
                 folder.RegisterPass(CreateLoopUnrollPass(true));
                 // Fold the unrolled induction values into the access chains, then clear out
                 // what constant conditions leave behind.
@@ -978,14 +1152,14 @@ namespace MobileGL {
                 folder.RegisterPass(CreateBlockMergePass());
 
                 Vector<uint32_t> folded;
-                if (!RunOptimizerChecked("LegalizeStorageBlockArrayIndexingForEssl.fold", folder,
+                if (!RunOptimizerChecked("LegalizeResourceArrayIndexingForEssl.fold", folder,
                                          inputBinary, folded, true, enableSpirvValidation) ||
                     folded.empty()) {
                     // Fail open onto the fallback rather than onto the illegal module.
                     folded = inputBinary;
                 }
 
-                if (!LegalizeStorageBlockArrayIndexPass::BinaryHasDynamicStorageBlockArrayIndexing(
+                if (!LegalizeResourceArrayIndexPass::BinaryHasDynamicResourceArrayIndexing(
                         folded)) {
                     outputBinary = folded;
                     return true;
@@ -994,25 +1168,25 @@ namespace MobileGL {
                 // Genuinely dynamic (uniform-derived, non-constant trip count, ...): lower it.
                 Optimizer lowerer(SPV_ENV_VULKAN_1_1);
                 lowerer.RegisterPass(
-                    LegalizeStorageBlockArrayIndexPass::CreateLowerToConstantSwitchPass());
+                    LegalizeResourceArrayIndexPass::CreateLowerToConstantSwitchPass());
                 // The chains the lowering replaced are dead now; remove_outputs must stay
                 // false here for the same reason it does in SanitizeAndOptimizeBinary.
                 lowerer.RegisterPass(CreateAggressiveDCEPass(false));
 
-                if (!RunOptimizerChecked("LegalizeStorageBlockArrayIndexingForEssl.lower", lowerer, folded,
+                if (!RunOptimizerChecked("LegalizeResourceArrayIndexingForEssl.lower", lowerer, folded,
                                          outputBinary, true, enableSpirvValidation) ||
                     outputBinary.empty()) {
                     outputBinary = folded;
                     return true;
                 }
 
-                if (LegalizeStorageBlockArrayIndexPass::BinaryHasDynamicStorageBlockArrayIndexing(
+                if (LegalizeResourceArrayIndexPass::BinaryHasDynamicResourceArrayIndexing(
                         outputBinary)) {
                     // MGLOG_W, latched, for the same reason the fragment-output one is: this
                     // runs per shader compile and shader packs compile lazily mid-session.
-                    MGLOG_W_ONCE("[spirv] LegalizeStorageBlockArrayIndexingForEssl: an array of storage "
-                                 "blocks is still indexed dynamically; a strict ES driver will reject "
-                                 "this shader");
+                    MGLOG_W_ONCE("[spirv] LegalizeResourceArrayIndexingForEssl: an array of storage "
+                                 "blocks or of images is still indexed dynamically; a strict ES "
+                                 "driver will reject this shader");
                 }
                 return true;
             }
@@ -1092,6 +1266,39 @@ namespace MobileGL {
                 optimizer.RegisterPass(CreateRemoveDuplicatesPass());
 
                 return RunOptimizerChecked("Lower1DArrayImagesForEssl", optimizer, inputBinary, outputBinary, true, enableSpirvValidation);
+            }
+
+            bool ShaderCompiler::Lower1DSampledImagesForEssl(const Vector<Uint32>& inputBinary,
+                                                             Vector<uint32_t>& outputBinary,
+                                                             const bool enableSpirvValidation) {
+                using namespace spvtools;
+
+                // The overwhelmingly common answer, and the reason the probe exists: no 1D sampler
+                // is reached by an offset or a gradient, so the module is handed back byte for
+                // byte without an Optimizer ever being built. Every ESSL shader in the process
+                // passes through here, so the cost of the case with nothing to do is the cost of
+                // this pass. Note the probe is deliberately NARROWER than "declares a 1D sampler":
+                // SPIRV-Cross emits the plain sample and fetch forms correctly, and taking those
+                // over would be a regression looking for somewhere to happen.
+                if (!Lower1DSampledImagesPass::BinaryHasOffsetOrGrad1DSampledImage(inputBinary)) {
+                    outputBinary = inputBinary;
+                    return true;
+                }
+
+                Optimizer optimizer(SPV_ENV_VULKAN_1_1);
+                optimizer.RegisterPass(Lower1DSampledImagesPass::CreateLower1DSampledImagesPass());
+                // Mandatory, not tidying - the same collision Lower1DArrayImagesForEssl documents
+                // one screen up. Rewriting a 1D sampled image type to the 2D one makes it
+                // structurally IDENTICAL to any real 2D sampled image of the same sampled type the
+                // module already declared, and SPIR-V forbids duplicate non-aggregate type
+                // declarations. That is not exotic here: it is the exact shape of the headline
+                // case, whose compute shader declares sampler1D and sampler2D side by side. The
+                // same applies to the OpTypeSampledImage and OpTypePointer instructions above
+                // them, and to the Sampled1D capability the rewrite turns into a second Shader.
+                optimizer.RegisterPass(CreateRemoveDuplicatesPass());
+
+                return RunOptimizerChecked("Lower1DSampledImagesForEssl", optimizer, inputBinary,
+                                           outputBinary, true, enableSpirvValidation);
             }
 
             bool ShaderCompiler::RebaseInstanceIndexForVulkan(const Vector<Uint32>& inputBinary,

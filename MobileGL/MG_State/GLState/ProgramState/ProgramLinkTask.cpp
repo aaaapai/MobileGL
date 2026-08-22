@@ -129,6 +129,34 @@ namespace {
         return element;
     }
 
+    // Blocks come out of reflection in three kinds and only one of them is a GL uniform block.
+    // The same split ProgramInterface::ClassifyBlock makes (it reads the flattened
+    // TypeFacts::isBuffer, which is this very qualifier), reachable here from the live TProgram
+    // because the block index spaces are built before the reflection snapshot exists.
+
+    // The transpiler lowers every atomic_uint onto a synthesized "gl_AtomicCounterBlock_<binding>"
+    // buffer block, which reflection then reports as an ordinary block. It is not one: GL
+    // enumerates it through GL_ACTIVE_ATOMIC_COUNTER_BUFFERS instead.
+    static MobileGL::Bool IsAtomicCounterBlockName(const MobileGL::String& name) {
+        namespace Transpiler = MobileGL::MG_Util::ShaderTranspiler;
+        const MobileGL::SizeT prefixLength = std::strlen(Transpiler::ATOMIC_COUNTER_BLOCK_PREFIX);
+        return name.compare(0, prefixLength, Transpiler::ATOMIC_COUNTER_BLOCK_PREFIX) == 0;
+    }
+
+    // A shader storage block: GL enumerates it through GL_SHADER_STORAGE_BLOCK and its members
+    // through GL_BUFFER_VARIABLE. The counter blocks above are buffer blocks too, hence the
+    // exclusion. A block whose type reflection did not survive is treated as a uniform block,
+    // which is what every caller assumed before this classification existed.
+    static MobileGL::Bool IsStorageBlock(const glslang::TObjectReflection& block) {
+        if (IsAtomicCounterBlockName(block.name)) return false;
+        const glslang::TType* type = block.getType();
+        return type != nullptr && type->getQualifier().storage == glslang::EvqBuffer;
+    }
+
+    static MobileGL::Bool IsGlUniformBlock(const glslang::TObjectReflection& block) {
+        return !IsAtomicCounterBlockName(block.name) && !IsStorageBlock(block);
+    }
+
     // GL 4.6 core 7.7 / ARB_shader_atomic_counters: within one binding no two atomic counters
     // may occupy the same bytes, every offset is a multiple of 4, and no counter may reach past
     // GL_MAX_ATOMIC_COUNTER_BUFFER_SIZE. glslang enforces all three in fixOffset(), which the
@@ -551,8 +579,9 @@ namespace MobileGL::MG_State::GLState {
 
         if (!ValidateAttachedShaders()) return;
 
-        // The two merges below read the COMPILE snapshots only - no parsed shader - so they
-        // run before the L1 probe, which needs the merged opaque bindings in its key.
+        // Reads the COMPILE snapshots only - no parsed shader - so it runs before the L1
+        // probe: a conflicting explicit uniform location must fail the link whether or not
+        // the memo has an answer for this program's sources.
         MergeShaderSideChannels();
         if (!artifacts.infoLog.empty()) return; // a conflicting explicit uniform location
 
@@ -589,11 +618,16 @@ namespace MobileGL::MG_State::GLState {
             }
         }
 
+        // The last two are OUT parameters that mapIO fills, not requests it honours: the IO
+        // mapper's collect callback is the last point at which a resource's qualifier still
+        // says what the SHADER declared rather than what glslang assigned, so both captures
+        // have to be taken from inside the link. See TMglGlslIoResolver::reserverResourceSlot.
         ProgramAttrib attrib{.shaders = Move(shaders),
                              .explicitVertexInLocations = in.explicitAttribLocations,
                              .explicitFragmentOutLocations = in.explicitFragDataLocation,
                              .explicitFragmentOutIndices = in.explicitFragDataIndex,
-                             .explicitOpaqueUniformBindings = &artifacts.explicitOpaqueUniformBindings};
+                             .explicitOpaqueUniformBindings = &artifacts.explicitOpaqueUniformBindings,
+                             .storageBlocksWithoutBinding = &artifacts.storageBlocksWithoutBinding};
 
         MGLOG_D("ProgramObject %u: Calling ShaderCompiler::LinkProgram", in.externalIndex);
         auto result = ShaderCompiler::LinkProgram(attrib);
@@ -610,6 +644,7 @@ namespace MobileGL::MG_State::GLState {
                                  artifacts.infoLog));
             return;
         }
+
 
         // A compute program must have a fixed local group size, and GL states that as a
         // property of the PROGRAM: "at least one" of its compute shaders declares it (GL 4.6
@@ -786,7 +821,6 @@ namespace MobileGL::MG_State::GLState {
         keyInputs.explicitVertexInLocations = &in.explicitAttribLocations;
         keyInputs.explicitFragmentOutLocations = &in.explicitFragDataLocation;
         keyInputs.explicitFragmentOutIndices = &in.explicitFragDataIndex;
-        keyInputs.explicitOpaqueUniformBindings = &artifacts.explicitOpaqueUniformBindings;
         // In the key ONLY because the payload now carries the reflection: transform feedback
         // is resolved by reading the linked intermediates and never perturbs the generated
         // SPIR-V, but it does shape xfbVaryings / xfbStrides / xfbBufferMode /
@@ -798,17 +832,18 @@ namespace MobileGL::MG_State::GLState {
         return BuildSpirvTranslationKey(keyInputs);
     }
 
-    // The link rejections that need nothing but the compile snapshots. They run before the
+    // The one link rejection that needs nothing but the compile snapshots. It runs before the
     // L1 memo is consulted, so a hit can never paper over a program that must fail to link.
-    // The two lexical side channels the relaxed parse cannot provide, merged across stages:
-    // explicit default-block uniform locations (which must agree, or the link fails) and
-    // sampler/image layout(binding = N) initial units. Reads the COMPILE snapshots only, so
-    // it is legal - and necessary - before any shader is parsed: the merged bindings are part
-    // of the L1 memo key.
+    //
+    // Only the explicit default-block uniform locations are merged here, and only because they
+    // are the one piece of relaxed-parse wreckage that has to be recovered at COMPILE time:
+    // the snapshot is taken inside the parse, so it is per-shader by construction, and the
+    // same uniform declared in several stages must agree or the program cannot link. The
+    // opaque bindings and the unqualified storage blocks used to be merged alongside them;
+    // both now arrive from mapIO during LinkProgram below, straight into `artifacts`, which is
+    // both later and strictly better informed - the IO mapper sees macro-expanded declarations
+    // and a per-shader lexer never could.
     void ProgramLinkTask::MergeShaderSideChannels() {
-        // Merge the shaders' lexically extracted explicit uniform locations. The same
-        // uniform declared in several stages must agree on its location (config-A glslang
-        // enforced this at mapIO; the relaxed parse no longer sees the qualifiers).
         for (const auto& shader : in.shaders) {
             const ShaderCompileArtifacts& compiled = CompiledArtifacts(shader.compiled);
             for (const auto& [name, location] : compiled.explicitUniformLocations) {
@@ -822,14 +857,7 @@ namespace MobileGL::MG_State::GLState {
                     return;
                 }
             }
-            // Sampler/image layout(binding = N) initial units, likewise invisible to the
-            // relaxed parse. Stage order matches the old per-stage mapIO capture, so a
-            // name declared in several stages keeps the last stage's binding as before.
-            for (const auto& [name, binding] : compiled.explicitOpaqueBindings) {
-                artifacts.explicitOpaqueUniformBindings[name] = binding;
-            }
         }
-
     }
 
     // An L1 hit: the entire front end, published without constructing a TShader or a
@@ -1002,6 +1030,30 @@ namespace MobileGL::MG_State::GLState {
             artifacts.glBlockIndexToTProgram.push_back(i);
         }
 
+        // The GL_UNIFORM_BLOCK subsequence of that space. MobileGL does not pass
+        // EShReflectionSeparateBuffers to buildReflection above, so glslang files BUFFER blocks
+        // under indexToUniformBlock as well and the list just built also holds every shader
+        // storage block and every synthesized gl_AtomicCounterBlock_N. GL 4.6 core 7.6 says
+        // GL_ACTIVE_UNIFORM_BLOCKS / glGetActiveUniformBlockiv / glGetUniformBlockIndex see
+        // uniform blocks and nothing else; an atomic counter buffer is enumerated by
+        // GL_ACTIVE_ATOMIC_COUNTER_BUFFERS and a storage block by GL_SHADER_STORAGE_BLOCK.
+        //
+        // A SECOND space rather than a filter of the first, deliberately: the block space is
+        // what the backends walk (DirectGLES hands out one ESSL uniform-buffer binding point per
+        // entry as it goes) and what "tProgramBlockIndexToGl[i] < 0 means MGL_GLOBAL_UBO" reads,
+        // and neither may move.
+        artifacts.blockIndexToGlUniformBlock.assign(artifacts.glBlockIndexToTProgram.size(), -1);
+        artifacts.glUniformBlockIndexToBlock.clear();
+        for (SizeT blockIndex = 0; blockIndex < artifacts.glBlockIndexToTProgram.size(); ++blockIndex) {
+            const auto& block = artifacts.program->getUniformBlock(artifacts.glBlockIndexToTProgram[blockIndex]);
+            if (!IsGlUniformBlock(block)) continue;
+            artifacts.blockIndexToGlUniformBlock[blockIndex] =
+                static_cast<Int>(artifacts.glUniformBlockIndexToBlock.size());
+            artifacts.glUniformBlockIndexToBlock.push_back(static_cast<Int>(blockIndex));
+        }
+        MGLOG_D("ProgramObject %u: Reflection - %zu block(s), %zu of them GL uniform blocks", in.externalIndex,
+                artifacts.glBlockIndexToTProgram.size(), artifacts.glUniformBlockIndexToBlock.size());
+
         // ------------ Uniforms (GL Plain) ----------------
         // The relaxed parse sweeps every DECLARED default-block uniform into
         // MGL_GLOBAL_UBO whether or not any stage reads it. GL requires a
@@ -1016,10 +1068,36 @@ namespace MobileGL::MG_State::GLState {
             return uniform.index >= 0 && uniform.index < static_cast<Int>(artifacts.tProgramBlockIndexToGl.size()) &&
                    artifacts.tProgramBlockIndexToGl[uniform.index] < 0;
         };
+        // Member of a block GL can see - a named uniform block, a buffer block, or the
+        // synthesized atomic-counter block. GL locations are a property of the DEFAULT uniform
+        // block alone (GL 4.6 core 7.6.1), so these take none.
+        const auto isNamedBlockMember = [&isGlobalUboMember](const glslang::TObjectReflection& uniform) {
+            return uniform.index >= 0 && !isGlobalUboMember(uniform);
+        };
+        // A member of a BUFFER block is a buffer variable, not a uniform: GL 4.6 core 7.3.1
+        // gives it the GL_BUFFER_VARIABLE interface and 7.6 keeps it out of GL_ACTIVE_UNIFORMS,
+        // glGetActiveUniform, glGetUniformIndices and glGetActiveUniformsiv. The relaxed parse
+        // reflects it as a uniform anyway (no EShReflectionSeparateBuffers), so drop it from the
+        // GL index space here - the same place the dead default-block uniforms are dropped, and
+        // the counterpart of the location half already handled by isNamedBlockMember below.
+        //
+        // Atomic counters are NOT in this set even though their synthesized owner is a buffer
+        // block: an atomic_uint IS a uniform (of type GL_UNSIGNED_INT_ATOMIC_COUNTER), and
+        // KHR-GL43.shader_atomic_counters.basic-program-query enumerates it as one.
+        const auto isBufferVariable = [this](const glslang::TObjectReflection& uniform) {
+            if (uniform.index < 0 || uniform.index >= artifacts.program->getNumUniformBlocks()) return false;
+            return IsStorageBlock(artifacts.program->getUniformBlock(uniform.index));
+        };
         for (Int i = 0; i < tProgramUniformCount; i++) {
             const auto& uniform = artifacts.program->getUniform(i);
             if (isGlobalUboMember(uniform) && uniform.stages == 0) {
                 MGLOG_D("ProgramObject %u: Reflection - dead default-block uniform '%s' filtered from the GL "
+                        "surface",
+                        in.externalIndex, uniform.name.c_str());
+                continue;
+            }
+            if (isBufferVariable(uniform)) {
+                MGLOG_D("ProgramObject %u: Reflection - buffer variable '%s' filtered from the GL uniform "
                         "surface",
                         in.externalIndex, uniform.name.c_str());
                 continue;
@@ -1032,7 +1110,7 @@ namespace MobileGL::MG_State::GLState {
                 artifacts.activeUniformCount, tProgramUniformCount);
 
         // Effective explicit location per TProgram uniform, from two sources:
-        //  - the lexical side-channel for default-block uniforms - the relaxed parse
+        //  - the parse-time snapshot for default-block uniforms - the relaxed parse
         //    dropped their layout(location = N) qualifiers when collecting them into
         //    MGL_GLOBAL_UBO, so reflection cannot provide them ("source-explicit");
         //  - glslang's layoutLocation() for opaque uniforms, where the qualifier
@@ -1062,8 +1140,7 @@ namespace MobileGL::MG_State::GLState {
         for (const Int i : artifacts.glUniformIndexToTProgram) {
             const auto& uniform = artifacts.program->getUniform(i);
             const glslang::TType* type = uniform.getType();
-            const Bool inNamedBlock = uniform.index >= 0 && !isGlobalUboMember(uniform);
-            if (inNamedBlock) continue; // block members never take glUniform locations
+            if (isNamedBlockMember(uniform)) continue; // block members never take glUniform locations
 
             if (const Int* explicitLocation = findExplicitLocation(uniform.name)) {
                 effectiveLocation[i] = static_cast<Uint>(*explicitLocation);
@@ -1138,20 +1215,23 @@ namespace MobileGL::MG_State::GLState {
                     in.externalIndex, uniform.name.c_str(), location, location + locationSpan - 1);
         }
 
+        // Counts ONLY default-block uniforms, which is the whole of what a GL uniform location
+        // is and the whole of what GL_MAX_UNIFORM_LOCATIONS bounds (GL 4.6 core 7.6.1). A
+        // named-block member used to be counted here too and used to be handed a location by the
+        // first-fit pass below, which is a spec violation twice over: glGetUniformLocation must
+        // answer -1 for it (glGetProgramResourceLocation already did), and every slot it took
+        // pushed a real default-block uniform one location further up. On a program with a
+        // buffer block that is exactly how a location EQUAL to the advertised maximum got minted
+        // - the table's ceiling is raised to hold this count, so one extra block member raised it
+        // to MAX and the first-fit pass then filled the last slot
+        // (KHR-GL43.explicit_uniform_location.uniform-loc-mix-with-implicit-max, whose compute
+        // program carries an SSBO; its -max-array sibling ran the pool out and failed to link).
         Int requiredUniformLocations = deadReservedLocationCount;
-        // The same count restricted to DEFAULT-BLOCK uniforms, which is the only thing
-        // GL_MAX_UNIFORM_LOCATIONS bounds. requiredUniformLocations cannot serve: it also carries
-        // named-block members, which take a slot in this allocator's table (an implementation
-        // detail) but consume no GL uniform location at all, so a big UBO array would otherwise
-        // fail a link the spec allows.
-        Int defaultBlockLocationDemand = deadReservedLocationCount;
         for (const Int i : artifacts.glUniformIndexToTProgram) {
             auto& uniform = artifacts.program->getUniform(i);
             const Uint location = effectiveLocation[i];
             const Int locationSpan = GetUniformLocationSpan(uniform);
-            requiredUniformLocations += locationSpan;
-            const Bool inNamedBlock = uniform.index >= 0 && !isGlobalUboMember(uniform);
-            if (!inNamedBlock) defaultBlockLocationDemand += locationSpan;
+            if (!isNamedBlockMember(uniform)) requiredUniformLocations += locationSpan;
             if (location != kNoLocation) {
                 artifacts.maxUniformLocation = std::max(artifacts.maxUniformLocation, location + locationSpan - 1);
             }
@@ -1170,11 +1250,11 @@ namespace MobileGL::MG_State::GLState {
         // (KHR-GL43.explicit_uniform_location.uniform-loc-negative-link-max-num-of-locations).
         // A single uniform whose own span passes the ceiling was already rejected above; this is
         // the aggregate half of the same rule.
-        if (defaultBlockLocationDemand > static_cast<Int>(kMaxUniformLocations)) {
+        if (requiredUniformLocations > static_cast<Int>(kMaxUniformLocations)) {
             artifacts.infoLog =
                 std::format("Uniform locations exhausted: the default-block uniforms need {} locations but "
                             "GL_MAX_UNIFORM_LOCATIONS is {}.",
-                            defaultBlockLocationDemand, kMaxUniformLocations);
+                            requiredUniformLocations, kMaxUniformLocations);
             DeferLog(std::format("ProgramObject {}: Link failed - {}", in.externalIndex, artifacts.infoLog));
             ProgramObject::ResetLinkArtifacts(artifacts);
             return false;
@@ -1247,6 +1327,10 @@ namespace MobileGL::MG_State::GLState {
         // is demoted to the first-fit pass below instead of failing the link.
         for (const Int i : artifacts.glUniformIndexToTProgram) {
             auto& uniform = artifacts.program->getUniform(i);
+            // Same rule the effective-location loop applies: a block member has no GL location,
+            // so it must not reach the first-fit pass either. Its uniformLocations entry stays
+            // at kNoLocation, which glGetUniformLocation reads back as the -1 the spec wants.
+            if (isNamedBlockMember(uniform)) continue;
             if (locationIsSourceExplicit[i]) continue;
             const Uint location = effectiveLocation[i];
             if (location == kNoLocation) {
@@ -1453,14 +1537,21 @@ namespace MobileGL::MG_State::GLState {
         }
 
         // ---------- UBO ----------
-        // GL-visible blocks only (MGL_GLOBAL_UBO was filtered out above).
+        // The BLOCK space (MGL_GLOBAL_UBO was filtered out above, storage and atomic counter
+        // blocks were not): these tables are what the backends index, and what the GL
+        // uniform-block entry points reach after translating out of the GL_UNIFORM_BLOCK space.
         const Int uboCount = static_cast<Int>(artifacts.glBlockIndexToTProgram.size());
         MGLOG_D("ProgramObject %u: Reflection - uniform block count (UBO) = %d", in.externalIndex, uboCount);
         artifacts.uniformBlockBinding.resize(uboCount, -1);
         for (Int i = 0; i < uboCount; i++) {
             auto& ubo = artifacts.program->getUniformBlock(artifacts.glBlockIndexToTProgram[i]);
-            artifacts.uniformBlockNameMaxLength =
-                std::max(artifacts.uniformBlockNameMaxLength, (Int)ubo.name.length());
+            // GL_ACTIVE_UNIFORM_BLOCK_MAX_NAME_LENGTH is measured over the names
+            // glGetActiveUniformBlockName can report, so only the GL uniform blocks count -
+            // a long storage-block name must not size the caller's buffer.
+            if (artifacts.blockIndexToGlUniformBlock[i] >= 0) {
+                artifacts.uniformBlockNameMaxLength =
+                    std::max(artifacts.uniformBlockNameMaxLength, (Int)ubo.name.length());
+            }
             artifacts.uniformBlockIndexByName[ubo.name] = i;
             // if there's binding defined in shader as layout(binding = ...),
             // retrieve it here.
@@ -1505,6 +1596,7 @@ namespace MobileGL::MG_State::GLState {
         for (Int i = 0; i < blockCount; ++i) {
             artifacts.blockReflection.push_back(MakeResourceReflection(program.getUniformBlock(i)));
         }
+        SeedDefaultStorageBlockBindings();
 
         const Int uniformCount = program.getNumUniformVariables();
         artifacts.uniformReflection.clear();
@@ -1551,6 +1643,67 @@ namespace MobileGL::MG_State::GLState {
                 "%zu output(s)",
                 in.externalIndex, artifacts.uniformReflection.size(), artifacts.blockReflection.size(),
                 artifacts.pipeInputReflection.size(), artifacts.pipeOutputReflection.size());
+    }
+
+    // GL 4.3 core 7.8: a shader storage block declared without a layout(binding = N) qualifier
+    // has a buffer binding of ZERO. MobileGL could not report that, because by the time this
+    // reflection is built the number in the block's qualifier is one glslang INVENTED.
+    //
+    // Every shader is parsed as a Vulkan client, so glslang's IO mapper takes the `set = openGl
+    // ? resource : ent.newSet` branch with openGl == 0 (iomapper.cpp resolveBinding) - i.e. it
+    // allocates out of ONE flat binding space shared by every sampler, image, uniform block,
+    // storage block and the synthesized MGL_GLOBAL_UBO - and then writes the result back into
+    // the type's qualifier (iomapper.cpp, `base->getWritableType().getQualifier().layoutBinding =
+    // at->second.newBinding`). getBinding() therefore answers with the auto-assigned slot and
+    // cannot be distinguished from a declared one. An unqualified block lands on 0 only when
+    // nothing else in the program claimed 0 first, which is why a lone storage block in a
+    // trivial shader looked correct and KHR-GL43.compute_shader.resource-ubo - whose shader also
+    // declares twelve uniform blocks - wrote everything to a binding nothing was bound at.
+    //
+    // THE FLAT SPACE IS LEFT ALONE. It is load-bearing: DirectVulkan indexes bindingKinds[],
+    // uniformBlockIndexByBinding[] and storageBlockIndexByBinding[] by that one number and
+    // asserts when two resources collide on it, so forcing the SPIR-V decoration to 0 would
+    // collide an unqualified block with the global UBO and take working programs down. What is
+    // repaired is the GL-VISIBLE binding, through the record GL already has for exactly this -
+    // the same per-name map glShaderStorageBlockBinding writes, which both backends already
+    // consult (ProgramInterface's GL_BUFFER_BINDING, DirectGLES's SPIRV-Cross binding rewrite,
+    // DirectVulkan's GetShaderStorageBlockBinding). Seeding it here means the default and a
+    // later rebind travel the same path, and basic-noBindingLayout - which rebinds all three of
+    // its unqualified blocks - keeps working because a rebind simply overwrites the seed.
+    //
+    // Seeded INSIDE `artifacts`, so an L1 translation-cache hit that republishes the artifacts
+    // wholesale carries it too; a seed applied outside them would silently vanish on a hit.
+    //
+    // The blocks are named by TMglGlslIoResolver at mapIO's collect callback, which runs over
+    // every declared block of every stage BEFORE the write-back above happens - so "declared no
+    // binding" is a fact read off the AST, not a guess made about the text. The lexical scanner
+    // this replaced could only report positively, dropping any declaration whose grammar it did
+    // not fully recognise, and could not read `binding = SOME_MACRO` at all (it ran on
+    // macro-unexpanded source, and reading "no literal" as "no binding" once aliased eight
+    // Flywheel storage blocks onto 0).
+    //
+    // THE COLLISION IS DELIBERATE, and it is GL's. Several unqualified blocks all default to 0
+    // and alias there until the application rebinds them; a real GL driver does the same, which
+    // is why every program that has more than one either rebinds or uses one of them.
+    // basic-noBindingLayout is that regression test - it rebinds all three of its blocks
+    // immediately after linking, and the DirectGLES transpile is lazy (first use, not link), so
+    // the ESSL it eventually emits already carries the rebound 0/1/2 and never the aliased seed.
+    // What this replaces was not a safer arrangement, only an accidental one: the three blocks
+    // got glslang's 0/1/2 and an application that rebound them to anything else still wrote to
+    // the wrong buffers.
+    void ProgramLinkTask::SeedDefaultStorageBlockBindings() {
+        if (artifacts.storageBlocksWithoutBinding.empty()) return;
+        for (const ProgramObject::BlockReflection& block : artifacts.blockReflection) {
+            if (!block.type.isBuffer) continue;
+            // An instance array reflects as "B[0]", "B[1]", ... and each element is its own GL
+            // resource with its own binding; the scanner keys on the block TYPE name, so the
+            // subscript is stripped before the lookup. GL gives element k of an unqualified
+            // array binding 0 + k, the same base + element rule a declared binding follows.
+            const String base = StripArrayElementSuffix(block.name);
+            if (!artifacts.storageBlocksWithoutBinding.contains(base)) continue;
+            // First writer wins: never overwrite a binding the application has already chosen.
+            artifacts.shaderStorageBlockBinding.emplace(block.name, BlockArrayElement(block.name));
+        }
     }
 
     Bool ProgramLinkTask::ValidateFragmentOutputLocations() {

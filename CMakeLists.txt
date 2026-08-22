@@ -262,7 +262,9 @@ set(SOURCE_FILES
     MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/EmulateSubgroupsPass.cpp
     MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/NormalizeRectCoordinatesPass.cpp
     MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/Lower1DArrayImagesPass.cpp
+    MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/Lower1DSampledImagesPass.cpp
     MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/BakeImageFormatsPass.cpp
+    MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/WidenImageFormatsPass.cpp
     MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/ClampMultisampleFetchPass.cpp
     MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/PrivateToEntryLocalPass.cpp
     MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/StripUniformLocationsPass.cpp
@@ -270,7 +272,7 @@ set(SOURCE_FILES
     MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/StripNoPerspectivePass.cpp
     MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/EmulateNoPerspectivePass.cpp
     MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/LegalizeFragmentOutputIndexPass.cpp
-    MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/LegalizeStorageBlockArrayIndexPass.cpp
+    MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/LegalizeResourceArrayIndexPass.cpp
     MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/FlattenAtomicCounterBlockPass.cpp
 
     MobileGL/MG_Util/BackendLoaders/OpenGL/Loader.cpp

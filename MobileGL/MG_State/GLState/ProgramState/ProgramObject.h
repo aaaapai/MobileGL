@@ -155,6 +155,46 @@ namespace MobileGL::MG_State::GLState {
         // The last link's full input set; empty when this program has never linked (or its
         // last link had no shaders attached). GL-thread-owned, rebuilt in Link()'s prologue.
         const Vector<LinkedShaderRef>& GetLinkedShaderSnapshot() const { return m_linkedShaderSnapshot; }
+        // "Does this program's EXECUTABLE have this stage" - the only form of the question a
+        // draw may ask. GetShaderIndexByStage answers it of the live attach list, which by the
+        // rule above is a different set: glAttachShader adds to that list immediately while
+        // leaving the executable (and LINK_STATUS) alone, and glDetachShader defers the removal
+        // to the next Link(), so between an attach and the relink the two disagree in both
+        // directions. A draw-time stage test that reads the live list therefore starts rejecting
+        // draws GL requires to execute, against an executable that does not carry the stage at
+        // all - and stays wrong until the application happens to relink.
+        Bool HasLinkedShaderStage(ShaderStage stage) const {
+            return std::any_of(m_linkedShaderSnapshot.begin(), m_linkedShaderSnapshot.end(),
+                               [stage](const LinkedShaderRef& ref) {
+                                   return ref.shader && ref.shader->GetShaderStage() == stage;
+                               });
+        }
+        // The stage of each module of GetGeneratedSpirv(), at the SAME index and with the same
+        // size: phase B emits exactly one module per entry of the snapshot above, in that order
+        // (Link() fills ProgramLinkTask::in.shaders from the snapshot loop, phase A copies the
+        // stages straight across into SpirvHandoff::shaderTypes, and GetSpirvBinaryFromProgram
+        // walks that list). This - never GetAttachedShaders() - is what a consumer of the
+        // generated SPIR-V must size its loop by and index alongside.
+        //
+        // The two lists are NOT interchangeable and cannot be made so: the attach list is live
+        // and the SPIR-V is a link artifact, so a glAttachShader after a link grows one and not
+        // the other, with no link in between at which they could be reconciled. A loop that runs
+        // over the attach list and indexes the SPIR-V therefore reads off the end of it - which
+        // is a plain out-of-bounds Vector read, not a wrong answer.
+        //
+        // Deliberately a Vector<ShaderStage> and not the shader objects: every consumer wants
+        // only the stage, and a distinct type is what makes handing it the attach list by
+        // mistake a compile error rather than a segfault. Built on demand because these callers
+        // are program-BUILD paths (a backend rebuild, a pipeline cache miss), each of which then
+        // spends milliseconds compiling the very modules this indexes.
+        Vector<ShaderStage> GetLinkedShaderStages() const {
+            Vector<ShaderStage> stages;
+            stages.reserve(m_linkedShaderSnapshot.size());
+            for (const LinkedShaderRef& ref : m_linkedShaderSnapshot) {
+                stages.push_back(ref.shader ? ref.shader->GetShaderStage() : ShaderStage::Unknown);
+            }
+            return stages;
+        }
         // Pipeline-composite attach: AttachShader plus a pin that makes THIS program's
         // Link() consume ref's (source, node) instead of the shader's current ones, so a
         // post-link recompile of the stage program's shader cannot leak into the composite.
@@ -239,17 +279,52 @@ namespace MobileGL::MG_State::GLState {
             if (tIndex < 0 || tIndex >= static_cast<Int>(Artifacts().tProgramUniformIndexToGl.size())) return -1;
             return Artifacts().tProgramUniformIndexToGl[tIndex];
         }
-        // GL uniform-block index -> glslang TProgram block index (the inverse of
+        // Block index -> glslang TProgram block index (the inverse of
         // GlBlockIndexFromTProgram). The interface-query layer needs it to reach block
         // properties glslang exposes but no typed getter here does.
-        Int TProgramBlockIndex(Uint glBlockIndex) const {
-            return glBlockIndex < Artifacts().glBlockIndexToTProgram.size()
-                ? Artifacts().glBlockIndexToTProgram[glBlockIndex]
+        Int TProgramBlockIndex(Uint blockIndex) const {
+            return blockIndex < Artifacts().glBlockIndexToTProgram.size()
+                ? Artifacts().glBlockIndexToTProgram[blockIndex]
                 : -1;
         }
         Int GlBlockIndexFromTProgram(Int tBlockIndex) const {
             if (tBlockIndex < 0 || tBlockIndex >= static_cast<Int>(Artifacts().tProgramBlockIndexToGl.size())) return -1;
             return Artifacts().tProgramBlockIndexToGl[tBlockIndex];
+        }
+
+        // ---- GL_UNIFORM_BLOCK index <-> block index translation ----
+        // The block index space above carries the storage blocks and the synthesized atomic
+        // counter blocks as well; GL_ACTIVE_UNIFORM_BLOCKS counts only actual uniform blocks
+        // (GL 4.6 core 7.6). Every glGetActiveUniformBlock* / glGetUniformBlockIndex /
+        // glUniformBlockBinding entry point speaks THIS space and translates into the block
+        // space before touching any of the block-keyed tables; the backends keep speaking the
+        // block space directly. See LinkArtifacts::glUniformBlockIndexToBlock.
+        Int GetGlUniformBlockCount() const {
+            return static_cast<Int>(Artifacts().glUniformBlockIndexToBlock.size());
+        }
+        Bool IsActiveGlUniformBlock(Uint glUniformBlockIndex) const {
+            return glUniformBlockIndex < Artifacts().glUniformBlockIndexToBlock.size();
+        }
+        Int BlockIndexFromGlUniformBlock(Uint glUniformBlockIndex) const {
+            return glUniformBlockIndex < Artifacts().glUniformBlockIndexToBlock.size()
+                ? Artifacts().glUniformBlockIndexToBlock[glUniformBlockIndex]
+                : -1;
+        }
+        Int GlUniformBlockIndexFromBlock(Int blockIndex) const {
+            if (blockIndex < 0 || blockIndex >= static_cast<Int>(Artifacts().blockIndexToGlUniformBlock.size())) {
+                return -1;
+            }
+            return Artifacts().blockIndexToGlUniformBlock[blockIndex];
+        }
+        // glGetUniformBlockIndex: GL_INVALID_INDEX for a name that is not an active UNIFORM
+        // block, which includes every storage block and every atomic counter block even though
+        // GetUniformBlockIndex() below resolves them (it answers in the block space, which the
+        // backends need to keep reaching them by name).
+        Uint GetGlUniformBlockIndex(const char* name) const {
+            const Uint blockIndex = GetUniformBlockIndex(name);
+            if (blockIndex == 0xFFFFFFFFu) return 0xFFFFFFFFu;
+            const Int glIndex = GlUniformBlockIndexFromBlock(static_cast<Int>(blockIndex));
+            return glIndex < 0 ? 0xFFFFFFFFu : static_cast<Uint>(glIndex);
         }
 
         Int GetActiveUniformIndex(const String& name) const {
@@ -300,12 +375,22 @@ namespace MobileGL::MG_State::GLState {
             return GetUniformArraySizeByTIndex(TProgramUniformIndex(index));
         }
 
-        Int GetActiveUniformBlockIndex(Uint index) const {
+        // The BLOCK index of the block owning this active uniform, or -1 when it owns none as
+        // far as GL is concerned. Internal: pair it with another block-space index, never with
+        // a GL_UNIFORM_BLOCK one (GetActiveUniformBlockIndex below is that one).
+        Int GetActiveUniformOwnerBlockIndex(Uint index) const {
             // An atomic counter is a DEFAULT-BLOCK uniform to GL, whatever block the
             // transpiler lowered it onto (GL 4.6 core 7.6, table 7.6): -1.
             if (IsActiveUniformAtomicCounter(index)) return -1;
             // Members of the synthesized global UBO are default-block uniforms to GL: -1.
             return GlBlockIndexFromTProgram(UniformAt(TProgramUniformIndex(index)).index);
+        }
+
+        // GL_UNIFORM_BLOCK_INDEX: an index into the GL_ACTIVE_UNIFORM_BLOCKS list, or -1. A
+        // buffer variable owns a storage block, which is not in that list, so it answers -1 too
+        // (and after the enumeration filter it is not an active uniform in the first place).
+        Int GetActiveUniformBlockIndex(Uint index) const {
+            return GlUniformBlockIndexFromBlock(GetActiveUniformOwnerBlockIndex(index));
         }
 
         // The transpiler lowers every atomic_uint onto a synthesized gl_AtomicCounterBlock_N
@@ -373,6 +458,13 @@ namespace MobileGL::MG_State::GLState {
             const auto& uniform = UniformAt(TProgramUniformIndex(index));
             if (GlBlockIndexFromTProgram(uniform.index) < 0) return -1;
             if (!uniform.type.isArray) return 0;
+            // An atomic counter reaches the std140 branch below only because the transpiler
+            // lowered it onto a synthesized block; the buffer it actually addresses is an
+            // ATOMIC COUNTER buffer, whose elements are tightly packed uints (GL 4.6 core 7.6:
+            // "each counter is a single 4-byte value"). Its array stride is therefore 4, not the
+            // vec4 round-up std140 would apply
+            // (KHR-GL43.shader_atomic_counters.basic-program-query wants 4 for ac_counter67[0]).
+            if (IsActiveUniformAtomicCounter(index)) return 4;
             if (uniform.type.isMatrix) {
                 const bool rowMajor = GetActiveUniformIsRowMajor(index) != 0;
                 const int vectors = rowMajor ? uniform.type.matrixRows : uniform.type.matrixCols;
@@ -828,14 +920,19 @@ namespace MobileGL::MG_State::GLState {
         Int GetActiveAttributesCount() const {
             return static_cast<Int>(Artifacts().pipeInputReflection.size());
         }
-        // GL-visible uniform blocks only: the synthesized MGL_GLOBAL_UBO the relaxed parse
-        // materializes for default-block uniforms is filtered out by DoReflection.
+        // Size of the BLOCK index space - every block the relaxed parse produced except the
+        // synthesized MGL_GLOBAL_UBO, which DoReflection filters out. NOT the answer to
+        // glGetProgramiv(GL_ACTIVE_UNIFORM_BLOCKS): storage blocks and atomic counter blocks
+        // live in here too, and GetGlUniformBlockCount() is the one that excludes them.
         Int GetActiveUniformBlocksCount() const { return static_cast<Int>(Artifacts().glBlockIndexToTProgram.size()); }
         GLuint GetComputeLocalSize(Uint dim) const {
             return dim < 3u ? Artifacts().computeLocalSize[dim] : 0u;
         }
         Int GetActiveAttributesMaxLength() const { return Artifacts().attribInNameMaxLength; }
         Int GetActiveUniformBlocksMaxNameLength() const { return Artifacts().uniformBlockNameMaxLength; }
+        // Answers in the BLOCK space, so it resolves storage and atomic counter blocks too -
+        // the backends reach those by name. glGetUniformBlockIndex must NOT: use
+        // GetGlUniformBlockIndex() for the GL entry point.
         Uint GetUniformBlockIndex(const char* name) const {
             auto it = Artifacts().uniformBlockIndexByName.find(name);
             if (it != Artifacts().uniformBlockIndexByName.end()) return it->second;
@@ -846,12 +943,11 @@ namespace MobileGL::MG_State::GLState {
             if (it != Artifacts().uniformBlockIndexByName.end()) return it->second;
             return 0xFFFFFFFFu; // GL_INVALID_INDEX
         }
-        Bool IsActiveUniformBlock(Uint index) const {
-            if (index >= GetActiveUniformBlocksCount()) return false;
-            return true;
-        }
+        // Takes a BLOCK index. The GL entry points validate their argument against the
+        // GL_UNIFORM_BLOCK space with IsActiveGlUniformBlock() first and translate; the bound
+        // test here is only the range of the space this index actually lives in.
         Uint GetUBOSizeAt(Uint index) const {
-            if (!IsActiveUniformBlock(index)) return 0;
+            if (index >= Artifacts().glBlockIndexToTProgram.size()) return 0;
             // glslang reports the unpadded end offset of the last member, but a std140 block
             // (like a std140 struct) occupies a vec4-rounded size, and that is what the
             // backend compiles: ES drivers reject draws whose bound UBO range is smaller
@@ -881,11 +977,14 @@ namespace MobileGL::MG_State::GLState {
         // fills GL_UNIFORM_BLOCK_ACTIVE_UNIFORM_INDICES, so the two queries always agree
         // (glslang's numMembers counts declared members, which diverges from the reflected
         // entry list for struct arrays and arrayed block instances).
+        // Takes a BLOCK index, and scans in the block space: GetUniformBlockMemberOwnerIndex
+        // answers there, so pairing it with the GL_UNIFORM_BLOCK-space
+        // GetActiveUniformBlockIndex would compare two different numberings.
         Int GetUniformBlockActiveUniformCount(Uint index) const {
             const Int ownerIndex = static_cast<Int>(GetUniformBlockMemberOwnerIndex(index));
             Int count = 0;
             for (Uint uniformIndex = 0; uniformIndex < Artifacts().activeUniformCount; ++uniformIndex) {
-                if (GetActiveUniformBlockIndex(uniformIndex) == ownerIndex) ++count;
+                if (GetActiveUniformOwnerBlockIndex(uniformIndex) == ownerIndex) ++count;
             }
             return count;
         }
@@ -1084,9 +1183,32 @@ namespace MobileGL::MG_State::GLState {
             Vector<Int> tProgramUniformIndexToGl;
             Vector<Int> glBlockIndexToTProgram;
             Vector<Int> tProgramBlockIndexToGl;
-            // Per-link merged snapshot of the attached shaders' lexically extracted
-            // layout(location = N) default-block uniform qualifiers (the relaxed parse drops
-            // them from reflection; the DoReflection assigner restores them from here).
+            // GL_UNIFORM_BLOCK index space: ACTUAL uniform blocks only, a strict subsequence of
+            // glBlockIndexToTProgram above.
+            //
+            // That list is the BLOCK space - everything the relaxed parse produced except
+            // MGL_GLOBAL_UBO - and it is what the backends walk and what every block-keyed table
+            // here (uniformBlockBinding, uniformBlockIndexByName, blockReflection ordering) is
+            // indexed by. It is NOT the GL uniform-block list: MobileGL does not pass
+            // EShReflectionSeparateBuffers to buildReflection, so glslang routes BUFFER blocks
+            // through indexToUniformBlock too, and the list therefore also carries every shader
+            // storage block and every synthesized gl_AtomicCounterBlock_N. GL 4.6 core 7.6 gives
+            // those their own enumerations (GL_SHADER_STORAGE_BLOCK and
+            // GL_ACTIVE_ATOMIC_COUNTER_BUFFERS respectively), and GL_ACTIVE_UNIFORM_BLOCKS /
+            // glGetActiveUniformBlock*/glGetUniformBlockIndex must not see either.
+            //
+            // Kept as a SECOND space rather than filtering the first in place: DirectGLES assigns
+            // one ESSL uniform-buffer binding point per entry of the block list as it walks it
+            // (Managers.cpp CacheResourceLocations and the matching per-draw loop in
+            // DirectGLES.cpp), so compacting that list would renumber every backend binding
+            // point, and tProgramBlockIndexToGl[i] < 0 is what DoReflection and
+            // BuildGlobalUboRouting read as "member of the synthesized global UBO".
+            Vector<Int> glUniformBlockIndexToBlock; // GL uniform-block index -> block index
+            Vector<Int> blockIndexToGlUniformBlock; // block index -> GL uniform-block index (-1)
+            // Per-link merged snapshot of the layout(location = N) qualifiers the attached
+            // shaders' default-block uniforms declared, as glslang recorded them at the point
+            // its relaxed remap dropped them (the relaxed parse drops them from reflection; the
+            // DoReflection assigner restores them from here).
             UnorderedMap<String, Int> linkedExplicitUniformLocations;
             // Per-link snapshot of the default-block uniform INITIALIZERS the attached shaders
             // declared ("uniform int i = 1;"). Desktop GLSL says that value is what the uniform
@@ -1111,6 +1233,10 @@ namespace MobileGL::MG_State::GLState {
             Vector<Int> uniformIndexInTProgram;
             // ditto. Will be set at glUniform1i
             Vector<Int> uniformSamplerOrImageUnitIndex;
+            // Sampler/image layout(binding = N) initial texture/image units, captured by
+            // TMglGlslIoResolver at mapIO's collect callback - the last point at which the
+            // qualifier still says what the shader declared. An OUTPUT of the link, not an
+            // input to it: nothing supplies this map, the resolver fills it.
             UnorderedMap<String, Uint> explicitOpaqueUniformBindings;
 
             // Ordered by uniform block index
@@ -1125,7 +1251,21 @@ namespace MobileGL::MG_State::GLState {
             Vector<Int> uniformBlockBinding;
             // glShaderStorageBlockBinding overrides, keyed by GL block name. See
             // SetShaderStorageBlockBinding for why this one is by name and not by index.
+            //
+            // ALSO SEEDED AT LINK, by ProgramLinkTask::SeedDefaultStorageBlockBindings, with the
+            // GL-mandated binding 0 for every storage block whose shader declared no
+            // layout(binding = N). Those blocks have no other way to be told apart from a block
+            // that declared one: glslang's IO mapper invents a binding and writes it into the
+            // qualifier, so the reflection reports the invention. A seed is therefore "GL's
+            // default binding for this block", and a later glShaderStorageBlockBinding simply
+            // overwrites it - default and rebind travel one path.
             UnorderedMap<String, Int> shaderStorageBlockBinding;
+            // Block type names of the storage blocks the program's shaders declared with NO
+            // layout(binding = N). Input to the seeding above; filled during mapIO by
+            // TMglGlslIoResolver, which is the last observer that can still tell a declared
+            // binding from an invented one - and, unlike the per-shader lexer this replaced,
+            // sees the declaration with its macros expanded.
+            std::set<String> storageBlocksWithoutBinding;
 
             Uint activeUniformCount = 0;
             Uint maxUniformLocation = 0;

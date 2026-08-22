@@ -331,6 +331,8 @@ namespace MobileGL::MG_State::GLState {
         artifacts.tProgramUniformIndexToGl.clear();
         artifacts.glBlockIndexToTProgram.clear();
         artifacts.tProgramBlockIndexToGl.clear();
+        artifacts.glUniformBlockIndexToBlock.clear();
+        artifacts.blockIndexToGlUniformBlock.clear();
         artifacts.linkedExplicitUniformLocations.clear();
         artifacts.uniformInitialValues.clear();
         artifacts.uniformIndexInTProgram.clear();
@@ -344,6 +346,10 @@ namespace MobileGL::MG_State::GLState {
         artifacts.uniformBlockIndexByName.clear();
         artifacts.uniformBlockBinding.clear();
         artifacts.shaderStorageBlockBinding.clear();
+        // Cleared with it: the seed above is re-derived from the newly attached shaders on every
+        // link, so a stale set would otherwise default a block the new sources do declare a
+        // binding for.
+        artifacts.storageBlocksWithoutBinding.clear();
         artifacts.attribs.clear();
         artifacts.attribTypes.clear();
         artifacts.activeUniformCount = 0;

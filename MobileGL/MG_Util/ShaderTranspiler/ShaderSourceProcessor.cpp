@@ -930,6 +930,405 @@ namespace {
         }
     }
 
+    // Index one past the token that closes the group tokens[open] opens, or the token count when
+    // the group is never closed. Nesting of the SAME bracket pair is counted, everything else is
+    // skipped, so a '(' inside a '[' run cannot confuse a bracket walk and vice versa.
+    SizeT FindGroupEnd(const Vector<CodeToken>& tokens, SizeT open, char opener, char closer) {
+        int depth = 0;
+        for (SizeT i = open; i < tokens.size(); ++i) {
+            if (tokens[i].text.size() != 1) continue;
+            if (tokens[i].text[0] == opener) {
+                ++depth;
+            } else if (tokens[i].text[0] == closer && --depth == 0) {
+                return i + 1;
+            }
+        }
+        return tokens.size();
+    }
+
+    // Token text joined by single spaces. Token text is comment-free by construction (the
+    // tokenizer reads a masked source), so this is how a rewritten declaration is rebuilt without
+    // dragging a comment - or a newline - into a line the rewrite promises to keep single-line.
+    String JoinTokenText(const Vector<CodeToken>& tokens, SizeT begin, SizeT end) {
+        String text;
+        for (SizeT i = begin; i < end; ++i) {
+            if (!text.empty()) text += ' ';
+            text += tokens[i].text;
+        }
+        return text;
+    }
+
+    // Erase a span for the compiler while keeping every later offset - and every LINE NUMBER -
+    // exactly where it was, so edits collected against one token scan all stay valid and glslang's
+    // diagnostics still point at the line the application wrote.
+    void BlankSpan(MobileGL::String& source, SizeT begin, SizeT end) {
+        for (SizeT i = begin; i < end && i < source.size(); ++i) {
+            if (source[i] != '\n' && source[i] != '\r') {
+                source[i] = ' ';
+            }
+        }
+    }
+
+    bool IsParameterQualifierKeyword(const String& text) {
+        static constexpr std::string_view kQualifiers[] = {
+            "const",    "in",       "out",      "inout",     "highp",     "mediump", "lowp",
+            "precise",  "coherent", "volatile", "restrict",  "readonly",  "writeonly",
+        };
+        return std::find(std::begin(kQualifiers), std::end(kQualifiers), std::string_view(text)) !=
+            std::end(kQualifiers);
+    }
+
+    // The #if/#ifdef/#ifndef nesting in effect at each offset, as (offset, depth) marks. Every
+    // mark takes effect at the END of the directive line that changed the depth.
+    Vector<std::pair<SizeT, int>> BuildConditionalDepthMarks(const MobileGL::String& source,
+                                                            const Vector<std::pair<SizeT, SizeT>>& ranges) {
+        Vector<std::pair<SizeT, int>> marks;
+        marks.emplace_back(static_cast<SizeT>(0), 0);
+        int depth = 0;
+        for (const std::pair<SizeT, SizeT>& range : ranges) {
+            SizeT pos = range.first;
+            SkipDirectiveWhitespace(source, pos, range.second);
+            if (pos >= range.second || source[pos] != '#') continue;
+            ++pos;
+            SkipDirectiveWhitespace(source, pos, range.second);
+            const String name = ReadDirectiveIdentifier(source, pos, range.second);
+            if (name == "if" || name == "ifdef" || name == "ifndef") {
+                ++depth;
+            } else if (name == "endif") {
+                if (depth > 0) --depth;
+            } else {
+                continue;
+            }
+            marks.emplace_back(range.second, depth);
+        }
+        return marks;
+    }
+
+    int ConditionalDepthAt(const Vector<std::pair<SizeT, int>>& marks, SizeT offset) {
+        const auto next = std::upper_bound(marks.begin(), marks.end(), offset,
+                                           [](SizeT value, const std::pair<SizeT, int>& mark) {
+                                               return value < mark.first;
+                                           });
+        return next == marks.begin() ? 0 : std::prev(next)->second;
+    }
+
+    struct SubroutineParameters {
+        Vector<String> declarations; // "in highp float mgl_sr_arg0", ready for a parameter list
+        Vector<String> arguments;    // "mgl_sr_arg0", ready for a forwarding call
+    };
+
+    // One parameter of a subroutine TYPE declaration, whose name (if it even has one) this rewrite
+    // replaces with a generated one. The shape read is
+    //     <qualifier>* <typeName> <arrayOfType>? <name>? <arrayOfName>?
+    // which is the whole of the GLSL parameter grammar; anything that does not fit is refused so
+    // the caller can abandon the rewrite rather than emit a guess.
+    bool AppendSubroutineParameter(const Vector<CodeToken>& tokens, SizeT begin, SizeT end, SizeT index,
+                                   SubroutineParameters& parameters) {
+        if (begin >= end) return false;
+
+        SizeT cursor = begin;
+        while (cursor < end && IsParameterQualifierKeyword(tokens[cursor].text)) {
+            ++cursor;
+        }
+        if (cursor >= end || !IsIdentifierToken(tokens[cursor])) return false;
+        ++cursor;
+        while (cursor < end && tokens[cursor].text == "[") { // "float[4] a"
+            const SizeT close = FindGroupEnd(tokens, cursor, '[', ']');
+            if (close > end) return false;
+            cursor = close;
+        }
+        const String typeText = JoinTokenText(tokens, begin, cursor);
+
+        String arraySuffix;
+        if (cursor < end) { // the declared parameter name, which the generated one replaces
+            if (!IsIdentifierToken(tokens[cursor])) return false;
+            const SizeT afterName = cursor + 1;
+            cursor = afterName;
+            while (cursor < end && tokens[cursor].text == "[") { // "float a[4]"
+                const SizeT close = FindGroupEnd(tokens, cursor, '[', ']');
+                if (close > end) return false;
+                cursor = close;
+            }
+            if (cursor != end) return false;
+            arraySuffix = JoinTokenText(tokens, afterName, end);
+        }
+
+        const String name = "mgl_sr_arg" + std::to_string(index);
+        parameters.declarations.push_back(typeText + " " + name + (arraySuffix.empty() ? "" : " " + arraySuffix));
+        parameters.arguments.push_back(name);
+        return true;
+    }
+
+    // The parameter list between (but not including) the parentheses of a subroutine type
+    // declaration. "()" and "(void)" are both the empty list.
+    bool ParseSubroutineParameters(const Vector<CodeToken>& tokens, SizeT begin, SizeT end,
+                                   SubroutineParameters& parameters) {
+        if (begin >= end) return true;
+        if (end == begin + 1 && tokens[begin].text == "void") return true;
+
+        SizeT parameterBegin = begin;
+        SizeT index = 0;
+        for (SizeT i = begin; i <= end; ++i) {
+            if (i < end) {
+                if (tokens[i].text == "[") { // a comma inside a subscript is not a separator
+                    const SizeT close = FindGroupEnd(tokens, i, '[', ']');
+                    if (close > end) return false;
+                    i = close - 1;
+                    continue;
+                }
+                if (tokens[i].text != ",") continue;
+            }
+            if (!AppendSubroutineParameter(tokens, parameterBegin, i, index, parameters)) return false;
+            ++index;
+            parameterBegin = i + 1;
+        }
+        return true;
+    }
+
+    // GLSL subroutines (ARB_shader_subroutine, core since 4.00).
+    //
+    // glslang refuses the keyword outright once the target is SPIR-V - "'subroutine' : not allowed
+    // when generating SPIR-V", "feature not yet implemented" - so a shader that declares one never
+    // produces a module at all and the whole program is lost at COMPILE time. That is the entire
+    // failure of KHR-GL43.shader_image_size.advanced-nonMS-*: its subroutine-free twin
+    // basic-nonMS-* drives the identical image battery through the identical imageSize() calls on
+    // the identical targets and passes on every stage.
+    //
+    // The rewrite is confined to the case where it is provably a no-op on semantics: a subroutine
+    // uniform whose type has EXACTLY ONE compatible subroutine. GL 4.3 core 7.9 leaves the value of
+    // a subroutine uniform implementation-dependent until glUniformSubroutinesuiv sets it, so with
+    // a single compatible subroutine every legal value of that uniform selects the same function
+    // and a direct call is indistinguishable from a dispatch under any GL state. A type with two or
+    // more compatible subroutines genuinely needs the dynamic selection MobileGL does not implement
+    // (glUniformSubroutinesuiv is still a stub, and nothing reflects the subroutine interfaces), so
+    // it is left to fail at compile time exactly as it does today rather than silently pinned to
+    // one of the alternatives.
+    //
+    //     subroutine void FuncType(int coord);          ->  (blanked)
+    //     subroutine uniform FuncType g_func;           ->  void g_func(int mgl_sr_arg0);
+    //     subroutine(FuncType) void Func0(int c) { }    ->  void Func0(int c) { }
+    //                                                       ...plus, appended at end of source,
+    //                                                       void g_func(int mgl_sr_arg0) {
+    //                                                           Func0(mgl_sr_arg0);
+    //                                                       }
+    //
+    // Naming the forwarding function after the subroutine UNIFORM is what leaves every CALL site
+    // untouched - "g_func(coord)" already reads as a call - and that name is free precisely because
+    // the declaration that held it is gone. The forwarding body has to be appended rather than
+    // written in place because the compatible subroutine is routinely defined AFTER the function
+    // that calls through the uniform (the CTS shaders define theirs below main()); at end of source
+    // every definition it names is already in scope, and a prototype at the old declaration site
+    // keeps the call sites legal.
+    //
+    // All-or-nothing, in the discipline of the scanners below it: an array subroutine uniform, a
+    // subroutine token inside a #if arm or a macro body, an unbalanced file, a type that is never
+    // declared - anything outside the grammar abandons the whole pass with the source untouched,
+    // which is exactly today's behaviour.
+    void LowerShaderSubroutines(MobileGL::String& source) {
+        if (source.find("subroutine") == MobileGL::String::npos) return;
+
+        const Vector<CodeToken> tokens = TokenizeCode(source);
+        const SizeT count = tokens.size();
+        if (count < 4 || !HasBalancedBraces(tokens)) return;
+
+        const Vector<std::pair<SizeT, SizeT>> directiveRanges = FindDirectiveLineRanges(source);
+        const Vector<std::pair<SizeT, int>> conditionalDepth =
+            BuildConditionalDepthMarks(source, directiveRanges);
+
+        struct SubroutineType {
+            String returnText; // empty until the type declaration itself is seen
+            SubroutineParameters parameters;
+            Vector<String> implementations; // compatible subroutines, in declaration order
+        };
+        struct UniformSite {
+            SizeT begin = 0; // first byte of the declaration, layout(...) qualifier included
+            SizeT end = 0;   // one past its ';'
+            String typeName;
+            Vector<String> variables;
+        };
+        struct BlankEdit {
+            SizeT begin;
+            SizeT end;
+        };
+
+        MobileGL::UnorderedMap<String, SubroutineType> types;
+        Vector<UniformSite> uniformSites;
+        Vector<BlankEdit> blanks;
+
+        SizeT braceDepth = 0;
+        for (SizeT i = 0; i < count; ++i) {
+            const CodeToken& token = tokens[i];
+            if (token.text.size() == 1) {
+                if (token.text[0] == '{') {
+                    ++braceDepth;
+                    continue;
+                }
+                if (token.text[0] == '}') {
+                    if (braceDepth > 0) --braceDepth;
+                    continue;
+                }
+            }
+            if (token.text != "subroutine") continue;
+
+            // Nothing here may reason about a subroutine that is not unconditionally at file
+            // scope: the forwarding bodies this appends are unconditional, so a declaration that
+            // only exists in one #if arm (or inside a macro body) would have them naming a
+            // function that is not there.
+            if (braceDepth != 0 || IsInDirectiveLine(directiveRanges, token.begin) ||
+                ConditionalDepthAt(conditionalDepth, token.begin) != 0) {
+                return;
+            }
+            if (i + 1 >= count) return;
+
+            // (a) `[layout(...)] subroutine uniform <TypeName> <var>[, <var>]... ;`
+            if (tokens[i + 1].text == "uniform") {
+                UniformSite site;
+                site.begin = token.begin;
+                if (i >= 2 && tokens[i - 1].text == ")") {
+                    SizeT open = i - 1;
+                    int depth = 1;
+                    while (depth > 0) {
+                        if (open == 0) return;
+                        --open;
+                        if (tokens[open].text == ")") {
+                            ++depth;
+                        } else if (tokens[open].text == "(") {
+                            --depth;
+                        }
+                    }
+                    if (open == 0 || tokens[open - 1].text != "layout") return;
+                    site.begin = tokens[open - 1].begin;
+                }
+
+                SizeT cursor = i + 2;
+                if (cursor >= count || !IsIdentifierToken(tokens[cursor])) return;
+                site.typeName = tokens[cursor].text;
+                ++cursor;
+                while (true) {
+                    if (cursor >= count || !IsIdentifierToken(tokens[cursor])) return;
+                    site.variables.push_back(tokens[cursor].text);
+                    ++cursor;
+                    if (cursor >= count) return;
+                    if (tokens[cursor].text == ",") {
+                        ++cursor;
+                        continue;
+                    }
+                    // An ARRAY of subroutine uniforms indexes the dispatch itself
+                    // ("g_func[i](x)"), which is the dynamic selection this rewrite refuses.
+                    if (tokens[cursor].text != ";") return;
+                    break;
+                }
+                site.end = tokens[cursor].end;
+                uniformSites.push_back(std::move(site));
+                i = cursor;
+                continue;
+            }
+
+            // (b) `subroutine(<TypeName>, ...) <ret> <name>(<params>) { ... }` - a definition,
+            // which only has to shed the qualifier to become an ordinary function.
+            if (tokens[i + 1].text == "(") {
+                const SizeT listEnd = FindGroupEnd(tokens, i + 1, '(', ')');
+                if (listEnd >= count) return;
+                Vector<String> listed;
+                for (SizeT t = i + 2; t + 1 < listEnd; ++t) {
+                    if (tokens[t].text == ",") continue;
+                    if (!IsIdentifierToken(tokens[t])) return;
+                    listed.push_back(tokens[t].text);
+                }
+                if (listed.empty()) return;
+
+                SizeT paren = listEnd;
+                while (paren < count && tokens[paren].text != "(") {
+                    const String& text = tokens[paren].text;
+                    if (text == "{" || text == "}" || text == ";" || text == ",") return;
+                    ++paren;
+                }
+                if (paren >= count || paren == listEnd || !IsIdentifierToken(tokens[paren - 1])) return;
+
+                for (const String& typeName : listed) {
+                    types[typeName].implementations.push_back(tokens[paren - 1].text);
+                }
+                blanks.push_back({token.begin, tokens[listEnd - 1].end});
+                i = listEnd - 1;
+                continue;
+            }
+
+            // (c) `subroutine <ret> <TypeName>(<params>);` - the type declaration.
+            SizeT paren = i + 1;
+            while (paren < count && tokens[paren].text != "(") {
+                const String& text = tokens[paren].text;
+                if (text == "{" || text == "}" || text == ";" || text == ",") return;
+                ++paren;
+            }
+            if (paren >= count || paren == i + 1 || !IsIdentifierToken(tokens[paren - 1])) return;
+            const SizeT listEnd = FindGroupEnd(tokens, paren, '(', ')');
+            if (listEnd >= count || tokens[listEnd].text != ";") return;
+
+            SubroutineType& type = types[tokens[paren - 1].text];
+            if (!type.returnText.empty()) return; // declared twice; out of scope
+            type.returnText = JoinTokenText(tokens, i + 1, paren - 1);
+            if (type.returnText.empty()) return;
+            if (!ParseSubroutineParameters(tokens, paren + 1, listEnd - 1, type.parameters)) return;
+            blanks.push_back({token.begin, tokens[listEnd].end});
+            i = listEnd;
+        }
+
+        if (blanks.empty() && uniformSites.empty()) return;
+
+        for (const UniformSite& site : uniformSites) {
+            const auto known = types.find(site.typeName);
+            if (known == types.end() || known->second.returnText.empty()) return;
+            if (known->second.implementations.size() != 1) return;
+        }
+
+        String appended;
+        Vector<std::pair<SizeT, String>> prototypes; // (offset, text), applied back to front
+        for (const UniformSite& site : uniformSites) {
+            const SubroutineType& type = types.at(site.typeName);
+            String parameterList;
+            for (const String& declaration : type.parameters.declarations) {
+                if (!parameterList.empty()) parameterList += ", ";
+                parameterList += declaration;
+            }
+            String arguments;
+            for (const String& argument : type.parameters.arguments) {
+                if (!arguments.empty()) arguments += ", ";
+                arguments += argument;
+            }
+
+            String text;
+            for (const String& variable : site.variables) {
+                const String signature = type.returnText + " " + variable + "(" + parameterList + ")";
+                text += signature + "; ";
+                appended += signature + " {\n    " + (type.returnText == "void" ? "" : "return ") +
+                    type.implementations.front() + "(" + arguments + ");\n}\n";
+            }
+            prototypes.emplace_back(site.begin, std::move(text));
+        }
+
+        // Blanking first keeps every collected offset valid (it preserves length AND newlines), so
+        // only the prototype insertions - which are single-line, and so cost no line numbers - have
+        // to run back to front.
+        for (const BlankEdit& blank : blanks) {
+            BlankSpan(source, blank.begin, blank.end);
+        }
+        for (const UniformSite& site : uniformSites) {
+            BlankSpan(source, site.begin, site.end);
+        }
+        std::sort(prototypes.begin(), prototypes.end(),
+                  [](const std::pair<SizeT, String>& a, const std::pair<SizeT, String>& b) {
+                      return a.first < b.first;
+                  });
+        for (auto it = prototypes.rbegin(); it != prototypes.rend(); ++it) {
+            source.insert(it->first, it->second);
+        }
+
+        if (!appended.empty()) {
+            if (!source.empty() && source.back() != '\n') source += '\n';
+            source += appended;
+        }
+    }
+
     // Rewrite the `packed` / `shared` block-packing qualifiers inside layout(...) declarations to
     // `std140`. Desktop GL leaves the memory layout of such blocks to the implementation and the
     // app must query member offsets; MobileGL's SPIR-V pipeline always lays uniform blocks out as
@@ -1079,6 +1478,10 @@ namespace MobileGL {
                 // once both qualifiers are normalized keeps the two passes' notions of a block
                 // declaration identical.
                 SizeNonFinalUnsizedBufferBlockMembers(source);
+
+                // Before the builtin-shadowing rename, so the forwarding functions this synthesizes
+                // are just as visible to it as the ones the application wrote.
+                LowerShaderSubroutines(source);
 
                 RenameBuiltinShadowingFunctions(source);
 
@@ -1250,265 +1653,7 @@ namespace MobileGL {
                     return true;
                 }
 
-                // glslang reflects an array-of-arrays default-block uniform as ONE RECORD PER
-                // outer-index tuple, carrying the innermost array type: `float u[2][3]` becomes
-                // "u[0][0]" and "u[1][0]" (that last "[0]" is EShReflectionBasicArraySuffix). The
-                // linker resolves such a name by stripping the single trailing "[0]", so it looks
-                // up "u[1]" - a key the root entry alone cannot answer, and the whole declaration
-                // silently loses its explicit location.
-                //
-                // Emit those pre-flattened keys here, next to the root, so the result is
-                // order-independent: each carries the location its own element starts at (element
-                // i of `float u[2][3]` at location L starts at L + i*3). Identifiers cannot
-                // contain brackets, so a synthesized key never collides with a real uniform name,
-                // and a 1-D array needs none of this - stripping "[0]" already reaches the root.
-                void RecordArrayOfArraysElementLocations(const String& name, const Vector<long long>& dimensions,
-                                                         long long baseLocation,
-                                                         MobileGL::UnorderedMap<String, MobileGL::Int>& locations) {
-                    if (dimensions.size() < 2) return;
-                    // A pathological declaration must not be able to blow up the map; past the cap
-                    // only the root entry stands, which is what every case used to get.
-                    constexpr long long kMaxSynthesizedKeys = 4096;
-                    const long long innerSpan = dimensions.back();
-                    const SizeT outerDimensions = dimensions.size() - 1;
-                    long long elementCount = 1;
-                    for (SizeT d = 0; d < outerDimensions; ++d) {
-                        elementCount *= dimensions[d];
-                        if (elementCount > kMaxSynthesizedKeys) return;
-                    }
-                    for (long long element = 0; element < elementCount; ++element) {
-                        String key = name;
-                        long long remainder = element;
-                        for (SizeT d = 0; d < outerDimensions; ++d) {
-                            long long stride = 1;
-                            for (SizeT inner = d + 1; inner < outerDimensions; ++inner) stride *= dimensions[inner];
-                            key += "[" + std::to_string(remainder / stride) + "]";
-                            remainder %= stride;
-                        }
-                        locations.emplace(key, static_cast<MobileGL::Int>(
-                                                   std::min(baseLocation + element * innerSpan,
-                                                            static_cast<long long>(INT_MAX / 2))));
-                    }
-                }
-
-                // Parses one brace-free depth-0 statement [begin, end) and records its
-                // declarators when it is a uniform declaration carrying an integral
-                // layout(location = N). Multi-declarator statements assign consecutive
-                // locations, each declarator advancing by its array element count
-                // (ARB_explicit_uniform_location rules). Anything the narrow grammar does
-                // not recognize is skipped, never guessed at.
-                void RecordUniformDeclarationLocations(const Vector<CodeToken>& tokens, SizeT begin, SizeT end,
-                                                       MobileGL::UnorderedMap<String, MobileGL::Int>& locations) {
-                    using MobileGL::Int;
-                    long long location = -1;
-                    long long literal = 0;
-                    bool sawUniform = false;
-                    SizeT declaratorBegin = end;
-
-                    for (SizeT k = begin; k < end;) {
-                        const String& text = tokens[k].text;
-                        if (text == "layout" && k + 1 < end && tokens[k + 1].text == "(") {
-                            SizeT j = k + 2;
-                            Int parenDepth = 1;
-                            while (j < end && parenDepth > 0) {
-                                const String& layoutToken = tokens[j].text;
-                                if (layoutToken == "(") {
-                                    ++parenDepth;
-                                } else if (layoutToken == ")") {
-                                    --parenDepth;
-                                } else if (parenDepth == 1 && layoutToken == "location" && j + 2 < end &&
-                                           tokens[j + 1].text == "=" &&
-                                           ParseGlslIntegerLiteral(tokens[j + 2].text, literal)) {
-                                    location = std::min(literal, static_cast<long long>(INT_MAX / 2));
-                                    j += 2;
-                                }
-                                ++j;
-                            }
-                            k = j;
-                            continue;
-                        }
-                        if (text == "uniform") {
-                            sawUniform = true;
-                            ++k;
-                            continue;
-                        }
-                        if (sawUniform && location >= 0 && IsIdentifierToken(tokens[k]) &&
-                            !IsNonLayoutQualifierKeyword(text)) {
-                            declaratorBegin = k + 1; // 'text' is the type; declarators follow
-                            break;
-                        }
-                        ++k;
-                    }
-
-                    if (!sawUniform || location < 0 || declaratorBegin >= end) return;
-
-                    long long nextLocation = location;
-                    for (SizeT k = declaratorBegin; k < end;) {
-                        if (!IsIdentifierToken(tokens[k])) return; // malformed; record nothing further
-                        const String& name = tokens[k].text;
-                        ++k;
-                        long long span = 1;
-                        Vector<long long> dimensions;
-                        while (k < end && tokens[k].text == "[") {
-                            ++k;
-                            long long dimension = 1;
-                            if (k < end && ParseGlslIntegerLiteral(tokens[k].text, literal)) {
-                                dimension = literal;
-                                ++k;
-                            }
-                            if (k >= end || tokens[k].text != "]") return; // sized by expression; bail out
-                            ++k;
-                            dimensions.push_back(
-                                std::max(1ll, std::min(dimension, static_cast<long long>(INT_MAX / 2))));
-                            span *= dimensions.back();
-                        }
-                        // Keep the first sighting: a duplicate can only come from alternative
-                        // preprocessor branches declaring the same name.
-                        locations.emplace(name, static_cast<Int>(std::min(
-                                                    nextLocation, static_cast<long long>(INT_MAX / 2))));
-                        RecordArrayOfArraysElementLocations(name, dimensions, nextLocation, locations);
-                        nextLocation += span;
-                        if (k >= end) break;
-                        if (tokens[k].text == "=") { // skip an initializer up to the declarator comma
-                            Int nestingDepth = 0;
-                            ++k;
-                            while (k < end) {
-                                const String& initializerToken = tokens[k].text;
-                                if (initializerToken == "(" || initializerToken == "[") {
-                                    ++nestingDepth;
-                                } else if (initializerToken == ")" || initializerToken == "]") {
-                                    --nestingDepth;
-                                } else if (initializerToken == "," && nestingDepth == 0) {
-                                    break;
-                                }
-                                ++k;
-                            }
-                        }
-                        if (k >= end) break;
-                        if (tokens[k].text != ",") return;
-                        ++k;
-                    }
-                }
-                // Parses one brace-free depth-0 statement [begin, end) and records its
-                // declarators when it is a sampler/image uniform declaration carrying an
-                // integral layout(binding = N). Such a binding is a GL texture/image unit,
-                // which the Vulkan-client relaxed parse strips before mapIO can observe it
-                // (it is not a valid descriptor binding there), so it is extracted lexically
-                // and restored as the uniform's initial unit. Every declarator in the
-                // statement shares the qualifier's binding, matching what the GL-client
-                // mapIO used to capture from the shared type qualifier. Anything the narrow
-                // grammar does not recognize is skipped, never guessed at.
-                void RecordOpaqueDeclarationBindings(const Vector<CodeToken>& tokens, SizeT begin, SizeT end,
-                                                     MobileGL::UnorderedMap<String, MobileGL::Uint>& bindings) {
-                    using MobileGL::Int;
-                    long long binding = -1;
-                    long long literal = 0;
-                    bool sawUniform = false;
-                    SizeT declaratorBegin = end;
-
-                    for (SizeT k = begin; k < end;) {
-                        const String& text = tokens[k].text;
-                        if (text == "layout" && k + 1 < end && tokens[k + 1].text == "(") {
-                            SizeT j = k + 2;
-                            Int parenDepth = 1;
-                            while (j < end && parenDepth > 0) {
-                                const String& layoutToken = tokens[j].text;
-                                if (layoutToken == "(") {
-                                    ++parenDepth;
-                                } else if (layoutToken == ")") {
-                                    --parenDepth;
-                                } else if (parenDepth == 1 && layoutToken == "binding" && j + 2 < end &&
-                                           tokens[j + 1].text == "=" &&
-                                           ParseGlslIntegerLiteral(tokens[j + 2].text, literal)) {
-                                    binding = std::min(literal, static_cast<long long>(INT_MAX / 2));
-                                    j += 2;
-                                }
-                                ++j;
-                            }
-                            k = j;
-                            continue;
-                        }
-                        if (text == "uniform") {
-                            sawUniform = true;
-                            ++k;
-                            continue;
-                        }
-                        if (sawUniform && binding >= 0 && IsIdentifierToken(tokens[k]) &&
-                            !IsNonLayoutQualifierKeyword(text)) {
-                            // 'text' is the type. Only sampler/image opaques carry unit
-                            // bindings; on anything else (e.g. atomic_uint, whose binding
-                            // is a counter-buffer index) record nothing.
-                            if (text.find("sampler") == String::npos && text.find("image") == String::npos) return;
-                            declaratorBegin = k + 1;
-                            break;
-                        }
-                        ++k;
-                    }
-
-                    if (!sawUniform || binding < 0 || declaratorBegin >= end) return;
-
-                    for (SizeT k = declaratorBegin; k < end;) {
-                        if (!IsIdentifierToken(tokens[k])) return; // malformed; record nothing further
-                        const String& name = tokens[k].text;
-                        ++k;
-                        while (k < end && tokens[k].text == "[") {
-                            ++k;
-                            if (k < end && ParseGlslIntegerLiteral(tokens[k].text, literal)) ++k;
-                            if (k >= end || tokens[k].text != "]") return; // sized by expression; bail out
-                            ++k;
-                        }
-                        bindings[name] = static_cast<MobileGL::Uint>(binding);
-                        if (k >= end) break;
-                        if (tokens[k].text != ",") return; // opaque declarators cannot take initializers
-                        ++k;
-                    }
-                }
             } // namespace
-
-            UnorderedMap<String, Uint> ExtractExplicitOpaqueBindings(const String& source) {
-                UnorderedMap<String, Uint> bindings;
-                // Fast path: without the qualifier keyword there is nothing to extract.
-                if (source.find("binding") == String::npos) return bindings;
-
-                const Vector<CodeToken> tokens = TokenizeCode(source);
-                const SizeT count = tokens.size();
-                Int braceDepth = 0;
-                SizeT pos = 0;
-                while (pos < count) {
-                    const String& text = tokens[pos].text;
-                    if (text == "{") {
-                        ++braceDepth;
-                        ++pos;
-                        continue;
-                    }
-                    if (text == "}") {
-                        if (braceDepth > 0) --braceDepth;
-                        ++pos;
-                        continue;
-                    }
-                    if (braceDepth != 0 || text == ";") {
-                        ++pos;
-                        continue;
-                    }
-
-                    // A depth-0 statement runs to its ';'. One that opens a brace instead is
-                    // a function definition or an interface/uniform block: a block's binding
-                    // is a buffer binding point, not a texture unit, so skip both alike.
-                    SizeT statementEnd = pos;
-                    while (statementEnd < count && tokens[statementEnd].text != ";" &&
-                           tokens[statementEnd].text != "{") {
-                        ++statementEnd;
-                    }
-                    if (statementEnd >= count || tokens[statementEnd].text == "{") {
-                        pos = statementEnd;
-                        continue;
-                    }
-
-                    RecordOpaqueDeclarationBindings(tokens, pos, statementEnd, bindings);
-                    pos = statementEnd + 1;
-                }
-                return bindings;
-            }
 
             namespace {
                 // Binding points a storage-block declaration starting at `bufferPos` occupies.
@@ -1560,8 +1705,8 @@ namespace MobileGL {
                 const Vector<CodeToken> tokens = TokenizeCode(source);
                 const SizeT count = tokens.size();
                 // The binding the qualifier run currently being scanned declared, -1 for none.
-                // Several layout(...) lists may precede one declaration and the later one wins,
-                // which is the same accumulate-then-consume shape the extractors above use.
+                // Several layout(...) lists may precede one declaration and the later one wins:
+                // accumulate, then consume at the `buffer` keyword.
                 long long binding = -1;
                 long long literal = 0;
                 for (SizeT pos = 0; pos < count; ++pos) {
@@ -1602,137 +1747,6 @@ namespace MobileGL {
                     if (!IsNonLayoutQualifierKeyword(text)) binding = -1;
                 }
                 return std::nullopt;
-            }
-
-            std::optional<String> FindAtomicCounterOffsetViolation(const String& source) {
-                // Fast path: both keywords are required for a violation to exist, and the pair is
-                // absent from every shader-pack source.
-                if (source.find("atomic_uint") == String::npos || source.find("offset") == String::npos) {
-                    return std::nullopt;
-                }
-
-                constexpr long long kAtomicCounterSize = 4; // one 32-bit word per counter
-                const long long maxBufferSize = static_cast<long long>(MAX_ATOMIC_COUNTER_BUFFER_SIZE);
-                const Vector<CodeToken> tokens = TokenizeCode(source);
-                const SizeT count = tokens.size();
-                // The offset the qualifier run currently being scanned declared, -1 for none.
-                // Same accumulate-then-consume shape as the storage-binding scan above.
-                long long offset = -1;
-                long long literal = 0;
-                for (SizeT pos = 0; pos < count; ++pos) {
-                    const String& text = tokens[pos].text;
-                    if (text == "layout" && pos + 1 < count && tokens[pos + 1].text == "(") {
-                        SizeT j = pos + 2;
-                        Int parenDepth = 1;
-                        while (j < count && parenDepth > 0) {
-                            const String& layoutToken = tokens[j].text;
-                            if (layoutToken == "(") {
-                                ++parenDepth;
-                            } else if (layoutToken == ")") {
-                                --parenDepth;
-                            } else if (parenDepth == 1 && layoutToken == "offset" && j + 2 < count &&
-                                       tokens[j + 1].text == "=" &&
-                                       ParseGlslIntegerLiteral(tokens[j + 2].text, literal)) {
-                                offset = literal;
-                                j += 2;
-                            }
-                            ++j;
-                        }
-                        pos = j - 1;
-                        continue;
-                    }
-                    if (text == "atomic_uint") {
-                        // How far the declaration reaches: `atomic_uint c[N]` occupies N words
-                        // from the offset. An unparsable or absent declarator (an expression-sized
-                        // array, or the "layout(...) uniform atomic_uint;" default-qualifier form,
-                        // which declares no counter at all) is left alone rather than guessed at -
-                        // over-rejection here would be a compile failure the application cannot
-                        // work around.
-                        long long elements = 1;
-                        SizeT k = pos + 1;
-                        if (k < count && IsIdentifierToken(tokens[k])) {
-                            ++k;
-                            if (k < count && tokens[k].text == "[") {
-                                elements = (k + 2 < count && tokens[k + 2].text == "]" &&
-                                            ParseGlslIntegerLiteral(tokens[k + 1].text, literal))
-                                               ? std::max<long long>(1, literal)
-                                               : -1;
-                            }
-                        } else {
-                            elements = -1;
-                        }
-                        // Clamped so the byte arithmetic below cannot overflow on an absurd
-                        // literal; any element count at or past the ceiling already fails.
-                        elements = std::min(elements, maxBufferSize);
-
-                        if (offset >= 0 && elements > 0) {
-                            if (offset % kAtomicCounterSize != 0) {
-                                return "ERROR: invalid value " + std::to_string(offset) +
-                                       " for layout specifier 'offset': an atomic counter offset must be a "
-                                       "multiple of 4.";
-                            }
-                            if (offset > maxBufferSize - elements * kAtomicCounterSize) {
-                                return "ERROR: invalid value " + std::to_string(offset) +
-                                       " for layout specifier 'offset': an atomic counter ending at byte " +
-                                       std::to_string(offset + elements * kAtomicCounterSize) +
-                                       " passes GL_MAX_ATOMIC_COUNTER_BUFFER_SIZE (" +
-                                       std::to_string(maxBufferSize) + ").";
-                            }
-                        }
-                        offset = -1;
-                        continue;
-                    }
-                    // `uniform` and the precision/auxiliary qualifiers may sit between the layout
-                    // list and the type keyword; anything else ends the run, so an offset never
-                    // leaks onto an unrelated declaration.
-                    if (text != "uniform" && !IsNonLayoutQualifierKeyword(text)) offset = -1;
-                }
-                return std::nullopt;
-            }
-
-            UnorderedMap<String, Int> ExtractExplicitUniformLocations(const String& source) {
-                UnorderedMap<String, Int> locations;
-                // Fast path: without the qualifier keyword there is nothing to extract.
-                if (source.find("location") == String::npos) return locations;
-
-                const Vector<CodeToken> tokens = TokenizeCode(source);
-                const SizeT count = tokens.size();
-                Int braceDepth = 0;
-                SizeT pos = 0;
-                while (pos < count) {
-                    const String& text = tokens[pos].text;
-                    if (text == "{") {
-                        ++braceDepth;
-                        ++pos;
-                        continue;
-                    }
-                    if (text == "}") {
-                        if (braceDepth > 0) --braceDepth;
-                        ++pos;
-                        continue;
-                    }
-                    if (braceDepth != 0 || text == ";") {
-                        ++pos;
-                        continue;
-                    }
-
-                    // A depth-0 statement runs to its ';'. One that opens a brace instead is a
-                    // function definition or an interface/uniform block: neither can declare a
-                    // default-block uniform location, so hand the '{' back to the depth tracker.
-                    SizeT statementEnd = pos;
-                    while (statementEnd < count && tokens[statementEnd].text != ";" &&
-                           tokens[statementEnd].text != "{") {
-                        ++statementEnd;
-                    }
-                    if (statementEnd >= count || tokens[statementEnd].text == "{") {
-                        pos = statementEnd;
-                        continue;
-                    }
-
-                    RecordUniformDeclarationLocations(tokens, pos, statementEnd, locations);
-                    pos = statementEnd + 1;
-                }
-                return locations;
             }
 
         } // namespace ShaderTranspiler
