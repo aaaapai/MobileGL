@@ -2235,6 +2235,10 @@ namespace MobileGL::MG_Impl::GLImpl {
             *params = kFrontendMaxGeometryTotalOutputComponents;
             break;
         case GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS:
+            if (std::getenv("MOBILEGL_NO_ERROR")) {
+                *params = 127;
+                break;
+            }
             *params = dynamicParameters.MaxCombinedTextureImageUnits;
             break;
         case GL_MAX_COMBINED_VERTEX_UNIFORM_COMPONENTS:
@@ -2352,6 +2356,10 @@ namespace MobileGL::MG_Impl::GLImpl {
             *params = static_cast<GLint>(MG_State::pGLContext->GetBoundTransformFeedbackName());
             break;
         case GL_MAX_TEXTURE_IMAGE_UNITS:
+            if (std::getenv("MOBILEGL_NO_ERROR")) {
+                *params = 127;
+                break;
+            }
             *params = dynamicParameters.MaxTextureImageUnits;
             break;
         case GL_MAX_TEXTURE_SIZE:
@@ -2457,6 +2465,7 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     GLenum GetError() {
+        if (std::getenv("MOBILEGL_NO_ERROR")) return GL_NO_ERROR;
         auto error = MG_State::pGLContext->PopGLError();
         if (!error || !error->get()) {
             return GL_NO_ERROR;
