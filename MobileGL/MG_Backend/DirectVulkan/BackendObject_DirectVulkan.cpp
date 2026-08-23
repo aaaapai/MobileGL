@@ -500,11 +500,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             .RendererName = "Magma",
             .BackendName = "Direct (Vulkan)",
             .ExtraVendor = Nullopt,
-            .RendererGLInfo = {.TargetGLVersion = {4, 0, 0},
+            .RendererGLInfo = {.TargetGLVersion = {4, 3, 0},
                                .TargetGLSLVersion = {4, 6, 0},
                                // Baseline advertisement (no runtime-gated capabilities); a live
                                // backend reconciles its copy in UpdateAdvertisedExtensions.
-                               .Extensions = BuildAdvertisedExtensions(false, false, false, false),
+                               .Extensions = BuildAdvertisedExtensions(false, false, false, false, false),
                                .IsCompatibilityProfile = false},
             .StaticBackendCapability = {.AllowVSOnlyPrograms = false}};
         return rendererInfo;
@@ -512,9 +512,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     Vector<GLExtension> BuildAdvertisedExtensions(Bool shaderSubgroupSupported, Bool timerQueriesSupported,
                                                   Bool anisotropicFilteringSupported,
-                                                  Bool nonZeroIndirectBaseInstanceSupported) {
+                                                  Bool nonZeroIndirectBaseInstanceSupported,
+                                                  Bool cubeMapArraySupported) {
         Vector<GLExtension> extensions = {
-            V_OpenGL30, V_OpenGL31, V_OpenGL32, V_OpenGL33, V_OpenGL40, E_GL_ARB_draw_buffers_blend,
+            // The version tokens have to reach the version the backend actually claims:
+            // TargetGLVersion is {4,3,0}, and a list that stopped at OpenGL40 told an
+            // application feature-detecting off these tokens the opposite of what
+            // GL_MAJOR_VERSION / GL_MINOR_VERSION told it.
+            V_OpenGL30, V_OpenGL31, V_OpenGL32, V_OpenGL33, V_OpenGL40, V_OpenGL41, V_OpenGL42, V_OpenGL43,
+            E_GL_ARB_draw_buffers_blend,
             E_GL_ARB_compute_shader, E_GL_ARB_shader_storage_buffer_object, E_GL_ARB_shader_image_load_store,
             E_GL_ARB_clear_buffer_object, E_GL_ARB_program_interface_query, E_GL_ARB_framebuffer_object, E_GL_ARB_draw_indirect,
             E_GL_ARB_multi_draw_indirect,
@@ -533,6 +539,79 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             // Sampling the stencil aspect through DEPTH_STENCIL_TEXTURE_MODE. Core from 4.3,
             // so on a 4.0 context the string is the only way to reach it.
             E_GL_ARB_stencil_texturing,
+            // Unconditional, unlike DirectGLES: a GL texture view is a second set of VkImageViews
+            // over the same VkImage with a sub-range and possibly a reinterpreted VkFormat, which
+            // is core Vulkan on every device MobileGL runs on. Format-reinterpreting views need
+            // VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT on the image, which SyncTextureResource sets for
+            // every immutable-storage texture (see the comment there).
+            E_GL_ARB_texture_view,
+            // Core since 3.2 and implemented here on both backends - glDrawElementsBaseVertex,
+            // glDrawRangeElementsBaseVertex, glDrawElementsInstancedBaseVertex and
+            // glMultiDrawElementsBaseVertex all reach real per-draw vertex rebasing. The string
+            // was simply never emitted, which left KHR-GL4*.draw_elements_base_vertex_tests
+            // NotSupported on a feature that works.
+            E_GL_ARB_draw_elements_base_vertex,
+            // The whole sync-object family is real and core since 3.2: glFenceSync, glIsSync,
+            // glDeleteSync, glClientWaitSync, glWaitSync and glGetSynciv all live in GLImpl over a
+            // backend fence (a VkFence here, an EGLSync/GLsync on DirectGLES), and glGetInteger64v
+            // answers GL_MAX_SERVER_WAIT_TIMEOUT. The string matters for the same reason
+            // ARB_uniform_buffer_object's does: LWJGL builds GLCapabilities from the extension
+            // list, and a caller that finds GL_ARB_sync missing never resolves the entry points -
+            // then calls through null if it uses fences anyway. Nothing in the CTS gates on this
+            // string, so it is advertised on the strength of the implementation, not a test unlock.
+            E_GL_ARB_sync,
+            // Atomic counters, core since 4.2. glGetActiveAtomicCounterBufferiv and the whole
+            // GL_ATOMIC_COUNTER_BUFFER_* query family are real in GLImpl, and the counter buffer
+            // now reaches the shader on BOTH backends - Magma resolves the lowered
+            // gl_AtomicCounterBlock_<N> from the atomic-counter binding points rather than the
+            // shader-storage ones (see ResolveStorageBufferDescriptor). Withheld here until that
+            // landed, because the counter silently read whatever was bound as SSBO N instead.
+            E_GL_ARB_shader_atomic_counters,
+            // glVertexAttribDivisor, core since 3.3 and real on both backends. Applications
+            // (Better Clouds' GLCompat among them) accept the extension string as an
+            // ALTERNATIVE to a 3.3 context when deciding whether instanced rendering is
+            // available, so withholding it makes MobileGL look less capable than it is.
+            E_GL_ARB_instanced_arrays,
+            // Core GL 3.0-4.3 plumbing that has been real here for as long as the backend has
+            // existed, and that was simply never named. None of these unlocks a single CTS case -
+            // the conformance suite reaches all of them through the version - so they are
+            // advertised for the OTHER consumer of this list: LWJGL builds GLCapabilities from the
+            // string set, and an application that gates its ENTRY POINTS on the string rather than
+            // on the version never resolves them and then calls through null. Each is backed by
+            // the entry points named beside it. Kept identical to the DirectGLES block so the two
+            // backends do not disagree about what MobileGL is.
+            //
+            // glBindVertexArray / glGenVertexArrays / glDeleteVertexArrays / glIsVertexArray.
+            E_GL_ARB_vertex_array_object,
+            // The 14 glSamplerParameter* / glGetSamplerParameter* entry points, including the
+            // integer-valued Iiv/Iuiv forms.
+            E_GL_ARB_sampler_objects,
+            // glMapBufferRange + glFlushMappedBufferRange, which ARB_buffer_storage's persistent
+            // maps are already built on top of.
+            E_GL_ARB_map_buffer_range,
+            // glCopyBufferSubData plus the GL_COPY_READ_BUFFER / GL_COPY_WRITE_BUFFER targets.
+            E_GL_ARB_copy_buffer,
+            // glCopyImageSubData, wired to a real backend hook on both backends.
+            E_GL_ARB_copy_image,
+            // GL_TEXTURE_SWIZZLE_{R,G,B,A,RGBA}, which map onto a VkImageView's component swizzle.
+            E_GL_ARB_texture_swizzle,
+            // GL_INT_2_10_10_10_REV / GL_UNSIGNED_INT_2_10_10_10_REV on glVertexAttribPointer plus
+            // the eight glVertexAttribP* entry points.
+            E_GL_ARB_vertex_type_2_10_10_10_rev,
+            // The R/RG internal formats. Named separately from the float ones because an
+            // application may check either.
+            E_GL_ARB_texture_rg,
+            // GL_DEPTH_COMPONENT32F and GL_DEPTH32F_STENCIL8.
+            E_GL_ARB_depth_buffer_float,
+            // The floating-point colour formats. Unlike the rest of this block this string DOES
+            // gate CTS cases - KHR-GL4*.internalformat.texture2d.*{16f,32f} is keyed on it with no
+            // core-version fallback, so eight cases per version list were NotSupported on formats
+            // the backend has always had.
+            E_GL_ARB_texture_float,
+            // glViewportArrayv / glViewportIndexedf{,v} / glScissorArrayv / glScissorIndexed{,v} /
+            // glDepthRangeArrayv / glDepthRangeIndexed / glGetFloati_v / glGetDoublei_v, over the
+            // 16 viewports GL_MAX_VIEWPORTS reports.
+            E_GL_ARB_viewport_array,
             // Advertised with GL_NUM_PROGRAM_BINARY_FORMATS = 0, which the
             // extension explicitly permits. It is also the only thing that
             // exposes glProgramParameteri before GL 4.1.
@@ -562,12 +641,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         if (MG_Util::Async::AsyncShaderCompileEnabled()) {
             extensions.push_back(E_GL_KHR_parallel_shader_compile);
         }
-        // GL_ARB_gpu_shader_fp64 is opt-in (MOBILEGL_ADVERTISE_FP64). Every `double` in a
-        // shader compiles and runs already - it is narrowed to 32 bits before the module
-        // reaches this backend - so an application that simply uses doubles needs nothing
-        // advertised. What the extension additionally promises is 64-bit PRECISION, which no
-        // mobile GPU has and the narrowing cannot fake, so advertising it by default would
-        // make an application that checks the string take a path MobileGL cannot honour.
+        // GL_ARB_gpu_shader_fp64 is opt-in (MOBILEGL_ADVERTISE_FP64), and stays opt-in even on a
+        // device that HAS shaderFloat64. Every `double` in a shader compiles and runs either way
+        // - narrowed to 32 bits where the device has no 64-bit floats, kept whole where it does -
+        // so an application that simply uses doubles needs nothing advertised. What the extension
+        // additionally promises is the whole GL_ARB_gpu_shader_fp64 SURFACE (glUniform*d
+        // conformance, the fp64 built-ins, the state queries), and turning the string on is a
+        // decision about all of it rather than about the shader path alone.
         if (MG_Config::Features.AdvertiseFp64) {
             extensions.push_back(E_GL_ARB_gpu_shader_fp64);
         }
@@ -583,6 +663,18 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         if (anisotropicFilteringSupported) {
             extensions.push_back(E_GL_EXT_texture_filter_anisotropic);
             extensions.push_back(E_GL_ARB_texture_filter_anisotropic);
+        }
+        // A cube map array is a 6n-layer VkImage viewed as VK_IMAGE_VIEW_TYPE_CUBE_ARRAY, and that
+        // view type cannot be created without the imageCubeArray device feature - so the string
+        // follows the feature, not the version, exactly as the per-layer attachment bit does.
+        //
+        // Named for the application's benefit rather than the suite's: measured on Adreno 830,
+        // KHR-GL43.texture_gather.plain-gather-*-cube-array already passed without the string, so
+        // this unlocks no conformance case. It is advertised because the feature is real and
+        // because an application that feature-detects cube map arrays off the string (rather than
+        // off the 4.0 version) would otherwise decline a path this backend serves.
+        if (cubeMapArraySupported) {
+            extensions.push_back(E_GL_ARB_texture_cube_map_array);
         }
         return extensions;
     }
@@ -714,7 +806,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_rendererInfo.RendererGLInfo.Extensions = BuildAdvertisedExtensions(
             subgroupSupportAdvertised, pVulkanRenderer && pVulkanRenderer->IsTimerQuerySupported(),
             pVulkanRenderer && pVulkanRenderer->IsSamplerAnisotropySupported(),
-            pVulkanRenderer && pVulkanRenderer->IsNonZeroIndirectBaseInstanceSupported());
+            pVulkanRenderer && pVulkanRenderer->IsNonZeroIndirectBaseInstanceSupported(),
+            m_vulkanCaps.SupportsImageCubeArray);
     }
 
     void BackendObject_DirectVulkan::UpdateDynamicBackendParameters() {
@@ -965,26 +1058,34 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                     DynParams::PerLayerFramebufferAttachmentBit(TextureTarget::TextureCubeMapArray);
             }
         }
-        // Never, on any device, and no longer for the reason it used to be. It used to track
-        // shaderFloat64 because a `dvec3` input needed the Float64 capability to exist in the
-        // module at all; a 64-bit vertex FETCH was already impossible (VK_FORMAT_R64*_SFLOAT is
-        // optional and lavapipe reports zero bufferFeatures for all four), so the attribute
-        // arrived as its 32-bit word pair and PackDoubleVertexInputsPass bitcast it back.
+        // The device feature the whole fp64 story hangs off. With it, a module keeps its
+        // OpCapability Float64 and real doubles reach the driver; without it the transpile
+        // narrows every 64-bit float to 32 (ShaderTranspiler::DemoteFloat64Pass), because
+        // VUID-VkShaderModuleCreateInfo-pCode-08740 forbids the capability outright and no
+        // pipeline could be built from such a module. lavapipe reports it; Adreno and Mali both
+        // report VK_FALSE, so on every real mobile device this is false and the demotion runs
+        // exactly as it always has.
+        m_dynamicParameters.SupportsShaderFloat64 = m_vulkanCaps.SupportsShaderFloat64;
+        // Never, on any device, and DELIBERATELY NOT COUPLED to the line above even though it
+        // once tracked the same feature. It used to, because a `dvec` input needed Float64 to
+        // exist in the module at all; a 64-bit vertex FETCH was already impossible
+        // (VK_FORMAT_R64*_SFLOAT is optional and lavapipe reports zero bufferFeatures for all
+        // four), so the attribute arrived as its 32-bit word pair and PackDoubleVertexInputsPass
+        // bitcast it back.
         //
-        // The shader half of that is gone: every 64-bit float is narrowed before any module
-        // reaches a backend (ShaderTranspiler::DemoteFloat64Pass), so there is no `double` input
-        // left to bitcast INTO, and feeding a UINT-formatted attribute to what is now a `float`
-        // input would be silent garbage. Reconstructing the value would mean decoding the
-        // IEEE-754 double bit pattern in the shader - software fp64, which is precisely what the
-        // demotion exists to avoid - and on Espryt it would additionally need the ES driver to
-        // fetch 2N uint components where the application declared N doubles, which a dvec3 or
-        // dvec4 cannot even express within one attribute location.
+        // Re-coupling it does not work, and the reason is worth recording because it is not
+        // obvious: this flag decides the VkFormat from the VAO ATTRIBUTE alone, and the attribute
+        // does not know what the shader declared. glVertexAttribFormat(GL_DOUBLE) against a plain
+        // `in vec4` is not only legal but the common case
+        // (KHR-GL43.vertex_attrib_binding.basic-input-case4 does exactly that, and case5 adds
+        // normalized=GL_TRUE), and advanced-bindingUpdate feeds a dvec3 the same way - GL defines
+        // all of them as "doubles in memory, converted to float". Turning the flag on turns the
+        // narrowing OFF for every one of them and the attributes come back unfetched.
         //
-        // So glVertexAttribLFormat / glVertexAttribLPointer are declined here exactly as they
-        // already were on Espryt and on every real mobile device (Adreno and Mali both report
-        // shaderFloat64 == VK_FALSE), and for the same visible reason. A `dvec3` INPUT still
-        // compiles and draws - it is a `vec3` after demotion - as long as the application feeds
-        // it with glVertexAttribPointer(GL_FLOAT) rather than 64-bit data.
+        // What keeps the two halves honest instead is a per-MODULE decision: a vertex module that
+        // declares a 64-bit float INPUT is demoted whole, even where the backend has native fp64,
+        // so `dvec` inputs are `vec` inputs on this backend exactly as they always were. See
+        // ShaderCompiler::SanitizeAndOptimizeBinary.
         m_dynamicParameters.SupportsFloat64VertexAttributes = false;
         m_dynamicParameters.MaxShaderStorageBlockSize =
             std::min(m_vulkanCaps.MaxShaderStorageBlockSize, kMaxAdvertisedShaderStorageBlockSize);

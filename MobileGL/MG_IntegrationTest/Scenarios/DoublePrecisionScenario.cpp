@@ -6,27 +6,32 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 // End of Source File Header
 //
-// Scenario - GLSL DOUBLES, RUN AT SINGLE PRECISION.
+// Scenario - GLSL DOUBLES, AT WHATEVER PRECISION THE BACKEND CAN GIVE.
 //
 // No mobile GPU has 64-bit floats. Adreno and Mali both report shaderFloat64 == VK_FALSE, so
-// Magma cannot build a module that declares the Float64 capability, and ESSL has no fp64 type
-// at all, so SPIRV-Cross refuses the module outright on Espryt ("FP64 not supported in ES
-// profile") and the program never reaches the driver. MobileGL therefore narrows every 64-bit
-// float in a shader to 32 bits (ShaderTranspiler::DemoteFloat64Pass) rather than declining the
-// shader: `double` compiles and runs everywhere, at float precision.
+// Magma cannot build a module that declares the Float64 capability there, and ESSL has no fp64
+// type at all, so SPIRV-Cross refuses the module outright on Espryt ("FP64 not supported in ES
+// profile") and the program never reaches the driver. On every such backend MobileGL narrows
+// every 64-bit float in a shader to 32 bits (ShaderTranspiler::DemoteFloat64Pass) rather than
+// declining the shader: `double` compiles and runs everywhere, at float precision. Where the
+// backend DOES consume 64-bit floats - lavapipe is the one that does - the narrowing is skipped
+// and the doubles reach the driver whole.
 //
-// The narrowing is only half a contract. The other half is the API side: the global UBO is
-// laid out by reflecting the DEMOTED module, so glUniform*d has to store a float where the
-// shader reads a float, glGetUniform*v has to read one back, and a dmat4's columns are now
-// std140-padded like any other matrix's. Every one of those is a byte offset that fails
-// silently - the uniform simply reads as something else - so the cases below set values
-// through the API and have the SHADER report what it saw.
+// Either way it is only half a contract. The other half is the API side: the global UBO is laid
+// out by reflecting whichever module was produced, so glUniform*d has to store the width the
+// shader reads, glGetUniform*v has to read that width back, and a matrix's columns are
+// std140-padded to a vec4 or a dvec4 to match. Every one of those is a byte offset that fails
+// silently - the uniform simply reads as something else - so the cases below set values through
+// the API and have the SHADER report what it saw.
 //
-// What is deliberately NOT asserted: that the values are exact to double precision. They are
-// not, and cannot be. Every expectation here is the float value of the double that was set,
-// which is the whole point.
+// WHY ALMOST EVERY EXPECTATION HERE IS A FLOAT VALUE, and why that is not an accident of the
+// demotion: the shader reports through a `float` SSBO, and every value chosen is exact in
+// float32, so the same number is correct in both regimes and the assertions test the LAYOUT
+// rather than the precision. Exactly one case (GetUniformdvReadsBackWhatWasStored) uses a value
+// that is not - 0.1 - and it names both answers explicitly.
 
 #include <cmath>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -152,6 +157,151 @@ void main() {
             unsigned int m_shapeOutput = 0;
             std::string m_buildLog;
         };
+
+        // A SHADER STORAGE BLOCK that holds doubles is the one place the narrowing is NOT free:
+        // demoting `double` to `float` also repacks the block, and the bytes the application
+        // wrote into the buffer do not move with it. Every member past the first double then
+        // reads and writes at the wrong offset, and the block is simply shorter than the one
+        // that was bound - the tail of it is never touched at all
+        // (KHR-GL43.shader_storage_buffer_object.basic-stdLayout-case3, whose output matched its
+        // input up to the first double's slot and was zero from there on).
+        //
+        // The block layout is fixed by GL 4.6 core 7.6.2.2 and is asserted here as literal byte
+        // offsets rather than queried, so this says what the SPEC requires and not what MobileGL
+        // happens to report. Both packings are covered because they differ in exactly the places
+        // that matter: std140 rounds an array's stride and a matrix's column stride up to 16,
+        // std430 does not, and only std430 packs the scalars tightly.
+        //
+        // Every value is exactly representable in binary32, so a correct implementation copies
+        // the block BYTE FOR BYTE even though it narrows each double on the way through.
+        constexpr const char* kBlockCopySource = R"(#version 430 core
+layout(local_size_x = 1) in;
+layout(std140, binding = 0) buffer In140 {
+    int    data0;
+    float  data1[3];
+    mat3x2 data2;
+    double data3;
+    double data4[2];
+    int    data5;
+    dvec3  data6;
+} g_in140;
+layout(std430, binding = 1) buffer In430 {
+    int    data0;
+    float  data1[3];
+    mat3x2 data2;
+    double data3;
+    double data4[2];
+    int    data5;
+    dvec3  data6;
+} g_in430;
+layout(std140, binding = 2) buffer Out140 {
+    int    data0;
+    float  data1[3];
+    mat3x2 data2;
+    double data3;
+    double data4[2];
+    int    data5;
+    dvec3  data6;
+} g_out140;
+layout(std430, binding = 3) buffer Out430 {
+    int    data0;
+    float  data1[3];
+    mat3x2 data2;
+    double data3;
+    double data4[2];
+    int    data5;
+    dvec3  data6;
+} g_out430;
+void main() {
+    g_out140.data0 = g_in140.data0;
+    for (int i = 0; i < 3; ++i) g_out140.data1[i] = g_in140.data1[i];
+    g_out140.data2 = g_in140.data2;
+    g_out140.data3 = g_in140.data3;
+    for (int i = 0; i < 2; ++i) g_out140.data4[i] = g_in140.data4[i];
+    g_out140.data5 = g_in140.data5;
+    g_out140.data6 = g_in140.data6;
+
+    g_out430.data0 = g_in430.data0;
+    for (int i = 0; i < 3; ++i) g_out430.data1[i] = g_in430.data1[i];
+    g_out430.data2 = g_in430.data2;
+    g_out430.data3 = g_in430.data3;
+    for (int i = 0; i < 2; ++i) g_out430.data4[i] = g_in430.data4[i];
+    g_out430.data5 = g_in430.data5;
+    g_out430.data6 = g_in430.data6;
+}
+)";
+
+        // GL 4.6 core 7.6.2.2 rule by rule, for the block above.
+        //   std140: an array's element stride and a matrix's column stride round up to 16, a
+        //           double aligns to 8 and a dvec3 to 32.
+        //   std430: the same without the rounding - so the scalars pack tightly and only the
+        //           dvec3's 32-byte alignment leaves a hole.
+        struct BlockLayout {
+            int data0;
+            int data1;
+            int data1Stride;
+            int data2;
+            int data2ColumnStride;
+            int data3;
+            int data4;
+            int data4Stride;
+            int data5;
+            int data6;
+            int size;
+        };
+        constexpr BlockLayout kStd140{0, 16, 16, 64, 16, 112, 128, 16, 160, 192, 216};
+        constexpr BlockLayout kStd430{0, 4, 4, 16, 8, 40, 48, 8, 64, 96, 120};
+
+        void PokeInt(std::vector<unsigned char>& bytes, int offset, int value) {
+            std::memcpy(&bytes[static_cast<std::size_t>(offset)], &value, sizeof(value));
+        }
+        void PokeFloat(std::vector<unsigned char>& bytes, int offset, float value) {
+            std::memcpy(&bytes[static_cast<std::size_t>(offset)], &value, sizeof(value));
+        }
+        void PokeDouble(std::vector<unsigned char>& bytes, int offset, double value) {
+            std::memcpy(&bytes[static_cast<std::size_t>(offset)], &value, sizeof(value));
+        }
+
+        // The block's contents, at the offsets the standard puts them. Padding stays zero, which
+        // is what makes a byte-for-byte comparison against the (zero-initialised) output buffer
+        // catch a member that landed somewhere it should not have.
+        std::vector<unsigned char> MakeBlockContents(const BlockLayout& layout) {
+            std::vector<unsigned char> bytes(static_cast<std::size_t>(layout.size), 0);
+            PokeInt(bytes, layout.data0, 1);
+            for (int i = 0; i < 3; ++i) {
+                PokeFloat(bytes, layout.data1 + i * layout.data1Stride, 2.0f + static_cast<float>(i));
+            }
+            // Column-major, two rows per column.
+            for (int column = 0; column < 3; ++column) {
+                for (int row = 0; row < 2; ++row) {
+                    PokeFloat(bytes, layout.data2 + column * layout.data2ColumnStride + row * 4,
+                              5.0f + static_cast<float>(column * 2 + row));
+                }
+            }
+            PokeDouble(bytes, layout.data3, 11.0);
+            for (int i = 0; i < 2; ++i) {
+                PokeDouble(bytes, layout.data4 + i * layout.data4Stride, 12.0 + static_cast<double>(i));
+            }
+            PokeInt(bytes, layout.data5, 14);
+            for (int i = 0; i < 3; ++i) {
+                PokeDouble(bytes, layout.data6 + i * 8, 15.0 + static_cast<double>(i));
+            }
+            return bytes;
+        }
+
+        // Names the first byte that differs, and which member owns it, so a failure is a
+        // diagnosis rather than "the buffer is wrong".
+        std::string DescribeOffset(const BlockLayout& layout, int offset) {
+            const std::pair<int, const char*> members[] = {
+                {layout.data0, "data0"}, {layout.data1, "data1"}, {layout.data2, "data2"},
+                {layout.data3, "data3"}, {layout.data4, "data4"}, {layout.data5, "data5"},
+                {layout.data6, "data6"}};
+            const char* owner = "(padding before data0)";
+            for (const auto& [start, name] : members) {
+                if (offset >= start) owner = name;
+            }
+            return std::string(owner);
+        }
 
         // Every double-typed uniform shape GLSL has, all thirteen of them, in one program - the
         // shape of KHR-GL43.compute_shader.fp64-case2. The scalar and the square matrices are
@@ -428,12 +578,24 @@ void main() {
             glUseProgram(0);
 
             // The readback has to undo exactly what the write did - the same std140 column
-            // padding, the same 4-byte components - or a dmat4 comes back with its columns
-            // shifted and nothing else in the API would say so.
+            // padding, the same component width - or a dmat4 comes back with its columns
+            // shifted and nothing else in the API would say so. Every value below except the
+            // scalar is exact in float32, so those expectations pin the LAYOUT and hold in
+            // either regime; the scalar is the one that also pins the PRECISION.
             GLdouble readScalar = 0.0;
             glGetUniformdv(m_program, scalar, &readScalar);
-            EXPECT_DOUBLE_EQ(readScalar, static_cast<double>(static_cast<float>(0.1)))
-                << "the value is what a float can hold, not the double that was passed in";
+            // 0.1 is not representable in float32, so what comes back names the regime: a
+            // backend without native fp64 narrowed it at the glUniform1d above (the module's own
+            // doubles were demoted, so its storage is 4 bytes per component), and one with it
+            // stored the double whole. Both are correct; asserting only the narrow answer would
+            // fail the moment fp64 stops being emulated, and asserting only the wide one would
+            // fail on every mobile device there is.
+            if (readScalar == 0.1) {
+                SUCCEED() << "this backend consumes 64-bit floats natively; the double survived whole";
+            } else {
+                EXPECT_DOUBLE_EQ(readScalar, static_cast<double>(static_cast<float>(0.1)))
+                    << "the value is what a float can hold, not the double that was passed in";
+            }
 
             GLdouble readVector[3] = {};
             glGetUniformdv(m_program, vector, readVector);
@@ -447,7 +609,8 @@ void main() {
                 EXPECT_DOUBLE_EQ(readMatrix[i], 100.0 + i) << "dmat4 component " << i;
             }
 
-            // The float query sees the same storage through the type it is actually stored as.
+            // The float query sees the same storage through a narrower type, and answers the
+            // same float either way: GL 4.6 core 7.6 converts on the way out.
             GLfloat readFloat = 0.0f;
             glGetUniformfv(m_program, scalar, &readFloat);
             EXPECT_FLOAT_EQ(readFloat, static_cast<float>(0.1));
@@ -816,6 +979,67 @@ void main() { o_color = vec4(0.0, 1.0, 0.0, 1.0); }
             DestroyColorFbo(target);
             glUseProgram(0);
             glDeleteProgram(program);
+            EXPECT_EQ(FirstGLError(), 0u);
+        }
+
+        TEST_F(DoublePrecisionScenario, AStorageBlockWithDoublesKeepsTheLayoutItWasBoundWith) {
+            if (!Ready()) return;
+
+            GLint blocks = 0;
+            glGetIntegerv(GL_MAX_COMPUTE_SHADER_STORAGE_BLOCKS, &blocks);
+            if (blocks < 4) {
+                GTEST_SKIP() << "GL_MAX_COMPUTE_SHADER_STORAGE_BLOCKS is " << blocks << "; this needs 4";
+            }
+
+            const unsigned int program = CompileComputeProgram(kBlockCopySource);
+            ASSERT_NE(program, 0u) << m_buildLog;
+
+            const std::vector<unsigned char> in140 = MakeBlockContents(kStd140);
+            const std::vector<unsigned char> in430 = MakeBlockContents(kStd430);
+            const std::vector<unsigned char> zero140(in140.size(), 0);
+            const std::vector<unsigned char> zero430(in430.size(), 0);
+
+            GLuint buffers[4] = {};
+            glGenBuffers(4, buffers);
+            const std::vector<unsigned char>* contents[4] = {&in140, &in430, &zero140, &zero430};
+            for (int i = 0; i < 4; ++i) {
+                glBindBufferBase(GL_SHADER_STORAGE_BUFFER, static_cast<GLuint>(i), buffers[i]);
+                glBufferData(GL_SHADER_STORAGE_BUFFER, static_cast<GLsizeiptr>(contents[i]->size()),
+                             contents[i]->data(), GL_DYNAMIC_COPY);
+            }
+            ASSERT_EQ(FirstGLError(), 0u);
+
+            glUseProgram(program);
+            glDispatchCompute(1, 1, 1);
+            glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
+            EXPECT_EQ(FirstGLError(), 0u);
+
+            for (int pass = 0; pass < 2; ++pass) {
+                const BlockLayout& layout = pass == 0 ? kStd140 : kStd430;
+                const std::vector<unsigned char>& expected = pass == 0 ? in140 : in430;
+                const char* packing = pass == 0 ? "std140" : "std430";
+                std::vector<unsigned char> observed(expected.size(), 0xEE);
+                glBindBuffer(GL_SHADER_STORAGE_BUFFER, buffers[2 + pass]);
+                glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0,
+                                   static_cast<GLsizeiptr>(observed.size()), observed.data());
+                int mismatches = 0;
+                int firstMismatch = -1;
+                for (std::size_t i = 0; i < expected.size(); ++i) {
+                    if (expected[i] == observed[i]) continue;
+                    ++mismatches;
+                    if (firstMismatch < 0) firstMismatch = static_cast<int>(i);
+                }
+                EXPECT_EQ(mismatches, 0)
+                    << packing << " block: " << mismatches << " of " << expected.size()
+                    << " bytes differ, first at byte " << firstMismatch << " (in "
+                    << DescribeOffset(layout, firstMismatch < 0 ? 0 : firstMismatch)
+                    << "); a block that was repacked around its doubles reads and writes every "
+                       "member after the first one at the wrong offset";
+            }
+
+            glUseProgram(0);
+            glDeleteProgram(program);
+            glDeleteBuffers(4, buffers);
             EXPECT_EQ(FirstGLError(), 0u);
         }
 

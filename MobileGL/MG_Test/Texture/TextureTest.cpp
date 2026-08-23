@@ -1642,6 +1642,38 @@ TEST_F(TextureTest, TexStorage2DTrimsALongerPreExistingMipChain) {
     EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
 }
 
+// GL 4.6 core 8.19: for GL_TEXTURE_1D_ARRAY the `height` argument of glTexStorage2D is the LAYER
+// COUNT, and an array texture's layer count "stays put all the way down the chain" (8.14.3) - only
+// the image's own axes halve. Shrinking it made level i report height >> i layers, which is also
+// what ComputeMipmapCompleteForFilter reads (it holds component 1 constant for this target), so
+// every mipmapped 1D array texture judged itself incomplete.
+TEST_F(TextureTest, TexStorage2DKeepsA1DArrayLayerCountConstantDownTheMipChain) {
+    GLuint texture = 0;
+    MG_Impl::GLImpl::GenTextures(1, &texture);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_1D_ARRAY, texture);
+
+    constexpr GLsizei kLevels = 3;
+    constexpr GLsizei kWidth = 4;
+    constexpr GLsizei kLayers = 4;
+    MG_Impl::GLImpl::TexStorage2D(GL_TEXTURE_1D_ARRAY, kLevels, GL_RGBA8, kWidth, kLayers);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    const auto textureObject = MG_State::pGLContext->GetTextureObject(texture);
+    auto* mipmapObject = static_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
+    ASSERT_NE(mipmapObject, nullptr);
+    ASSERT_EQ(mipmapObject->GetMipmapLevelCount(), static_cast<Uint>(kLevels));
+
+    for (GLsizei level = 0; level < kLevels; ++level) {
+        const IntVec3 size =
+            mipmapObject->GetMipmapTexelSize(TextureUploadTarget::Texture1DArray, static_cast<Uint>(level));
+        EXPECT_EQ(size.x(), std::max<GLsizei>(1, kWidth >> level)) << "level " << level << " width";
+        EXPECT_EQ(size.y(), kLayers) << "level " << level << " must keep every layer";
+    }
+
+    // The completeness walk is the reason this matters beyond the reported extent.
+    EXPECT_TRUE(textureObject->IsComplete());
+}
+
 // glTexImage2D used to reject every GL_COMPRESSED_* internal format with GL_INVALID_ENUM, because
 // none of them mapped to a TextureInternalFormat and the "unknown format" gate fired. They now
 // resolve to the uncompressed storage that backs them - what GL prescribes for the generic formats,
@@ -2193,6 +2225,175 @@ TEST_F(TextureTest, CompressedTextureSubImage2DModifiesTheNamedTextureOnly) {
     MG_Impl::GLImpl::GetCompressedTexImage(GL_TEXTURE_2D, 0, stored);
     EXPECT_EQ(std::memcmp(stored, namedImage, sizeof(stored)), 0);
     EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
+namespace {
+    // 8x8x8 RGTC1: 2x2 blocks of 8 bytes per slice, so a slice is 32 bytes and the stack is 256.
+    constexpr GLsizei kRgtc1Size8x8x8 = 256;
+    constexpr GLsizei kRgtc1Slice8x8 = 32;
+
+    GLuint MakeCompressedRgtc1Texture3D() {
+        GLuint texture = 0;
+        MG_Impl::GLImpl::GenTextures(1, &texture);
+        MG_Impl::GLImpl::BindTexture(GL_TEXTURE_3D, texture);
+        MG_Impl::GLImpl::CompressedTexImage3D(GL_TEXTURE_3D, 0, GL_COMPRESSED_RED_RGTC1, 8, 8, 8, 0, kRgtc1Size8x8x8,
+                                              nullptr);
+        return texture;
+    }
+} // namespace
+
+// glCompressedTexImage3D used to answer GL_INVALID_ENUM to every call, which is what threw
+// KHR-GL45.direct_state_access.textures_compressed_subimage out with an InternalError: the CTS
+// asserts no error on it. A 3D compressed image is a stack of per-slice block grids, and the whole
+// stack has to come back byte for byte.
+TEST_F(TextureTest, CompressedTexImage3DShadowsTheWholeStackForReadback) {
+    Uint8 whole[kRgtc1Size8x8x8];
+    for (Int i = 0; i < kRgtc1Size8x8x8; ++i) whole[i] = static_cast<Uint8>(i);
+
+    GLuint texture = 0;
+    MG_Impl::GLImpl::GenTextures(1, &texture);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_3D, texture);
+    MG_Impl::GLImpl::CompressedTexImage3D(GL_TEXTURE_3D, 0, GL_COMPRESSED_RED_RGTC1, 8, 8, 8, 0, kRgtc1Size8x8x8,
+                                          whole);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    Uint8 stored[kRgtc1Size8x8x8] = {};
+    MG_Impl::GLImpl::GetCompressedTexImage(GL_TEXTURE_3D, 0, stored);
+    EXPECT_EQ(std::memcmp(stored, whole, sizeof(whole)), 0);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    // An imageSize that is not the one the format and the three dimensions imply - the depth axis
+    // is the term a 2D-shaped size calculation would drop.
+    MG_Impl::GLImpl::CompressedTexImage3D(GL_TEXTURE_3D, 0, GL_COMPRESSED_RED_RGTC1, 8, 8, 8, 0, kRgtc1Slice8x8,
+                                          whole);
+    ExpectSingleGlError(GL_INVALID_VALUE);
+}
+
+// Where the incoming blocks land. The box below is one block wide, one block high and two slices
+// deep, starting at block (1,1) of slice 3: an implementation that dropped the slice stride, the
+// block-row term or the block-column term puts them somewhere else, and a full-image write would
+// hide all three.
+TEST_F(TextureTest, CompressedTexSubImage3DPlacesBlocksSliceBySlice) {
+    const GLuint texture = MakeCompressedRgtc1Texture3D();
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    Uint8 zeros[kRgtc1Size8x8x8] = {};
+    MG_Impl::GLImpl::CompressedTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, 8, 8, 8, GL_COMPRESSED_RED_RGTC1,
+                                             kRgtc1Size8x8x8, zeros);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    const Uint8 box[16] = {0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7,
+                           0xB0, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7};
+    MG_Impl::GLImpl::CompressedTexSubImage3D(GL_TEXTURE_3D, 0, 4, 4, 3, 4, 4, 2, GL_COMPRESSED_RED_RGTC1,
+                                             static_cast<GLsizei>(sizeof(box)), box);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    Uint8 expected[kRgtc1Size8x8x8] = {};
+    // slice 3, block row 1, block column 1 -> 3*32 + 1*16 + 1*8, and the same place one slice on.
+    std::memcpy(expected + 3 * kRgtc1Slice8x8 + 16 + 8, box, 8);
+    std::memcpy(expected + 4 * kRgtc1Slice8x8 + 16 + 8, box + 8, 8);
+
+    Uint8 stored[kRgtc1Size8x8x8] = {};
+    MG_Impl::GLImpl::GetCompressedTexImage(GL_TEXTURE_3D, 0, stored);
+    EXPECT_EQ(std::memcmp(stored, expected, sizeof(expected)), 0);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
+// glCompressedTextureSubImage3D was an exported no-op that raised no error at all. It must reach the
+// NAMED texture and leave the binding it borrowed exactly as it found it.
+TEST_F(TextureTest, CompressedTextureSubImage3DModifiesTheNamedTextureOnly) {
+    const GLuint bound = MakeCompressedRgtc1Texture3D();
+    Uint8 boundImage[kRgtc1Size8x8x8];
+    std::memset(boundImage, 0x11, sizeof(boundImage));
+    MG_Impl::GLImpl::CompressedTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, 8, 8, 8, GL_COMPRESSED_RED_RGTC1,
+                                             kRgtc1Size8x8x8, boundImage);
+
+    const GLuint named = MakeCompressedRgtc1Texture3D();
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_3D, bound); // `named` is NOT the bound texture
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    Uint8 namedImage[kRgtc1Size8x8x8];
+    std::memset(namedImage, 0x22, sizeof(namedImage));
+    MG_Impl::GLImpl::CompressedTextureSubImage3D(named, 0, 0, 0, 0, 8, 8, 8, GL_COMPRESSED_RED_RGTC1,
+                                                 kRgtc1Size8x8x8, namedImage);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    Uint8 stored[kRgtc1Size8x8x8] = {};
+    MG_Impl::GLImpl::GetCompressedTexImage(GL_TEXTURE_3D, 0, stored);
+    EXPECT_EQ(std::memcmp(stored, boundImage, sizeof(stored)), 0);
+
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_3D, named);
+    std::memset(stored, 0, sizeof(stored));
+    MG_Impl::GLImpl::GetCompressedTexImage(GL_TEXTURE_3D, 0, stored);
+    EXPECT_EQ(std::memcmp(stored, namedImage, sizeof(stored)), 0);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
+TEST_F(TextureTest, CompressedTexSubImage3DRejectsTheRegionsGLForbids) {
+    const GLuint texture = MakeCompressedRgtc1Texture3D();
+    Uint8 blocks[kRgtc1Size8x8x8] = {};
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    // A format that is not the one the image is stored in.
+    MG_Impl::GLImpl::CompressedTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, 8, 8, 8, GL_COMPRESSED_RG_RGTC2, 512, blocks);
+    ExpectSingleGlError(GL_INVALID_OPERATION);
+
+    // A start that is not on a block boundary.
+    MG_Impl::GLImpl::CompressedTexSubImage3D(GL_TEXTURE_3D, 0, 2, 0, 0, 4, 8, 8, GL_COMPRESSED_RED_RGTC1, 128, blocks);
+    ExpectSingleGlError(GL_INVALID_OPERATION);
+
+    // A box that runs past the last slice - the depth bound a 2D-shaped range check never applies.
+    MG_Impl::GLImpl::CompressedTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 6, 8, 8, 4, GL_COMPRESSED_RED_RGTC1, 128, blocks);
+    ExpectSingleGlError(GL_INVALID_VALUE);
+
+    (void)texture;
+}
+
+// The DSA name rule the CTS's textures_creation pair does not reach for these two entry points: a
+// name handed out by glGenTextures has no object until it is first bound, so a by-name call on it is
+// INVALID_OPERATION - and, unlike the stub these replaced, it has to SAY so rather than return
+// quietly. A glCreateTextures name is a created object and gets past the name check.
+TEST_F(TextureTest, CompressedTextureSubImage3DRejectsAGeneratedButNeverBoundName) {
+    GLuint generated = 0;
+    MG_Impl::GLImpl::GenTextures(1, &generated);
+    ASSERT_NE(generated, 0u);
+    DrainPendingGlErrors();
+
+    Uint8 blocks[kRgtc1Size8x8x8] = {};
+    MG_Impl::GLImpl::CompressedTextureSubImage3D(generated, 0, 0, 0, 0, 8, 8, 8, GL_COMPRESSED_RED_RGTC1,
+                                                 kRgtc1Size8x8x8, blocks);
+    ExpectSingleGlError(GL_INVALID_OPERATION);
+
+    // A created name is past the name check, so whatever it answers is about the IMAGE (this one
+    // holds none yet), never about the name.
+    GLuint created = 0;
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_3D, 1, &created);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    MG_Impl::GLImpl::CompressedTextureSubImage3D(created, 0, 0, 0, 0, 8, 8, 8, GL_COMPRESSED_RED_RGTC1,
+                                                 kRgtc1Size8x8x8, blocks);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_INVALID_OPERATION)
+        << "a created 3D texture with no compressed image is an image error, not a name error";
+    DrainPendingGlErrors();
+}
+
+// Core GL defines no compressed format for a 1D target, so both the bound and the by-name entry
+// point have to REFUSE the call. The by-name one used to be an exported no-op that raised nothing,
+// which is the one answer an application cannot act on.
+TEST_F(TextureTest, CompressedTextureSubImage1DRefusesLikeTheBoundCall) {
+    GLuint texture = 0;
+    MG_Impl::GLImpl::GenTextures(1, &texture);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_1D, texture);
+    MG_Impl::GLImpl::TexImage1D(GL_TEXTURE_1D, 0, GL_R8, 8, 0, GL_RED, GL_UNSIGNED_BYTE, nullptr);
+    DrainPendingGlErrors();
+
+    Uint8 blocks[16] = {};
+    MG_Impl::GLImpl::CompressedTexSubImage1D(GL_TEXTURE_1D, 0, 0, 8, GL_COMPRESSED_RED_RGTC1,
+                                             static_cast<GLsizei>(sizeof(blocks)), blocks);
+    ExpectSingleGlError(GL_INVALID_ENUM);
+
+    MG_Impl::GLImpl::CompressedTextureSubImage1D(texture, 0, 0, 8, GL_COMPRESSED_RED_RGTC1,
+                                                 static_cast<GLsizei>(sizeof(blocks)), blocks);
+    ExpectSingleGlError(GL_INVALID_ENUM);
 }
 
 TEST_F(TextureTest, CompressedTexSubImage2DRejectsTheRegionsGLForbids) {
@@ -4033,6 +4234,8 @@ TEST_F(TextureTest, ThreeChannelWideningRetargetsInternalFormatAndTransferPairTo
     const Flags<PixelFormatNormalizeOptionBit> widenNoSnorm16 =
         PixelFormatNormalizeOptionBit::NoThreeChannelRenderTarget |
         PixelFormatNormalizeOptionBit::NoSnorm16RenderTarget;
+    const Flags<PixelFormatNormalizeOptionBit> widenNoNorm16 =
+        PixelFormatNormalizeOptionBit::NoThreeChannelRenderTarget | PixelFormatNormalizeOptionBit::NoNorm16;
 
     const Case cases[] = {
         // Complementary's colortex1 and colortex2. The transfer pair used to stay three-channel
@@ -4047,10 +4250,16 @@ TEST_F(TextureTest, ThreeChannelWideningRetargetsInternalFormatAndTransferPairTo
         // cannot render to the encoding gets the 32-bit float rather than the half.
         {GL_RGB16_SNORM, widen, GL_RGBA16_SNORM, GL_RGBA, GL_SHORT},
         {GL_RGB16_SNORM, widenNoSnorm16, GL_RGBA32F, GL_RGBA, GL_FLOAT},
-        // 16-bit UNORM and the legacy 10/12-bit formats stored as RGB16.
-        {GL_RGB16, widen, GL_RGBA32F, GL_RGBA, GL_FLOAT},
-        {GL_RGB10, widen, GL_RGBA32F, GL_RGBA, GL_FLOAT},
-        {GL_RGB12, widen, GL_RGBA32F, GL_RGBA, GL_FLOAT},
+        // 16-bit UNORM and the legacy 10/12-bit formats stored as RGB16. The same-width sibling
+        // whenever the driver has EXT_texture_norm16 - which is what keeps the whole 48-bit
+        // ARB_texture_view class on one ES view class, so a GL_RGB16 texture can be viewed as
+        // GL_RGB16UI - and the 32-bit float only when it does not.
+        {GL_RGB16, widen, GL_RGBA16, GL_RGBA, GL_UNSIGNED_SHORT},
+        {GL_RGB10, widen, GL_RGBA16, GL_RGBA, GL_UNSIGNED_SHORT},
+        {GL_RGB12, widen, GL_RGBA16, GL_RGBA, GL_UNSIGNED_SHORT},
+        {GL_RGB16, widenNoNorm16, GL_RGBA32F, GL_RGBA, GL_FLOAT},
+        {GL_RGB10, widenNoNorm16, GL_RGBA32F, GL_RGBA, GL_FLOAT},
+        {GL_RGB12, widenNoNorm16, GL_RGBA32F, GL_RGBA, GL_FLOAT},
         // sRGB and the integer formats: the base format has to move to the four-channel one of the
         // right class, GL_RGBA_INTEGER included.
         {GL_SRGB8, widen, GL_SRGB8_ALPHA8, GL_RGBA, GL_UNSIGNED_BYTE},
@@ -5284,5 +5493,55 @@ TEST_F(TextureTest, ImageWidenedUploadExpandsOneAndTwoChannelDataWithGLsMissingC
                                               false),
                   static_cast<const void*>(source));
         EXPECT_TRUE(widened.empty());
+    }
+}
+
+// The OTHER transfer shape the image widening needs, and the one a channel repack cannot serve:
+// GL_RGB10_A2UI's shadow is ONE 32-bit word per texel, not four components of the GL_RGBA16UI
+// carrier's own type. Repacking it as components would take sixteen bytes out of a four-byte texel
+// and shear the level - which only a LOAD notices, because a store overwrites whatever the upload
+// got wrong.
+//
+// GL_UNSIGNED_INT_2_10_10_10_REV puts the FIRST component in the LOW bits, which is the whole
+// content of the word "REV" and the single thing this can get backwards, so every field here is a
+// different value and the boundary codes (0, the 10-bit maximum, the 2-bit maximum) are pinned
+// exactly rather than compared with a tolerance.
+TEST_F(TextureTest, ImageWidenedUploadSplitsAPacked2101010RevShadowIntoFourChannelCodes) {
+    using MobileGL::MG_Backend::DirectGLES::TextureImpl::PreparePackedIntWidenedUpload;
+
+    const IntVec3 texelSize(3, 1, 1);
+    // r=1, g=2, b=3, a=1 | r=1023, g=0, b=1023, a=3 | r=0, g=1023, b=0, a=0
+    const Uint32 source[] = {
+        1u | (2u << 10) | (3u << 20) | (1u << 30),
+        1023u | (0u << 10) | (1023u << 20) | (3u << 30),
+        0u | (1023u << 10) | (0u << 20) | (0u << 30),
+    };
+    Vector<Uint8> widened;
+    const auto* result = static_cast<const Uint16*>(
+        PreparePackedIntWidenedUpload(texelSize, source, sizeof(source), widened));
+    ASSERT_NE(result, static_cast<const void*>(source));
+    ASSERT_EQ(widened.size(), 12 * sizeof(Uint16));
+    const Uint16 expected[] = {1, 2, 3, 1, 1023, 0, 1023, 3, 0, 1023, 0, 0};
+    for (SizeT i = 0; i < 12; ++i) {
+        EXPECT_EQ(result[i], expected[i]) << "component " << i;
+    }
+
+    // Sized from the LEVEL, never from the source: the driver reads a full width*height*4 shorts
+    // for the transfer it was handed, so a short source still has to leave a full destination.
+    {
+        Vector<Uint8> shortWidened;
+        const auto* shortResult = static_cast<const Uint16*>(
+            PreparePackedIntWidenedUpload(texelSize, source, sizeof(Uint32), shortWidened));
+        ASSERT_EQ(shortWidened.size(), 12 * sizeof(Uint16));
+        for (SizeT i = 4; i < 12; ++i) {
+            EXPECT_EQ(shortResult[i], 0u) << "component " << i << " past the source must be zero";
+        }
+    }
+
+    // Nothing to split.
+    {
+        Vector<Uint8> empty;
+        EXPECT_EQ(PreparePackedIntWidenedUpload(texelSize, nullptr, 0, empty), nullptr);
+        EXPECT_TRUE(empty.empty());
     }
 }

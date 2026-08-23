@@ -277,7 +277,61 @@ namespace MobileGL::MG_Backend::DirectGLES {
             // its own; this call is only here to spell the transfer pair that describes it.
             MG_Util::TextureFormatProcessor::NormalizePixelFormat(carrier, Flags<PixelFormatNormalizeOptionBit>{},
                                                                   nullptr, &widening.Format, &widening.Type);
+            // The two carriers that are not channel widenings, whose transfer pair has to say so.
+            // Every other entry keeps the frontend format's own component type - a GL_RG16F shadow
+            // is halves and so is its GL_RGBA16F carrier, so padding the channels is the whole
+            // conversion. These two shadows are a PACKED 32-bit word per texel
+            // (TextureFormatProcessor::NormalizePixelFormat), and no ES driver accepts either
+            // packed type for the carrier's level, so the transfer names the carrier's own layout
+            // and PrepareImageWidenedUpload splits the word into it.
+            switch (internalFormat) {
+            case TextureInternalFormat::R11FG11FB10F:
+                // GL_UNSIGNED_INT_10F_11F_11F_REV -> GL_RGBA / GL_FLOAT, legal for GL_RGBA16F.
+                widening.Format = GL_RGBA;
+                widening.Type = GL_FLOAT;
+                widening.SourceEncoding = ImageWidenSourceEncoding::PackedFloat11f11f10f;
+                break;
+            case TextureInternalFormat::RGB10A2UI:
+            case TextureInternalFormat::RGB10A2:
+                // GL_UNSIGNED_INT_2_10_10_10_REV -> the GL_RGBA_INTEGER / GL_UNSIGNED_SHORT the
+                // GL_RGBA16UI carrier already asked for above; only the split is new. The two
+                // formats share it: rgb10_a2's channel codes are the same fields rgb10_a2ui's are,
+                // and what the shader divides them by is not the transfer's business.
+                widening.SourceEncoding = ImageWidenSourceEncoding::PackedInt2101010Rev;
+                break;
+            default:
+                break;
+            }
+            // The seven normalized formats whose carrier holds CODES rather than values. Both
+            // halves of the transfer need to know: a missing alpha is padded with the saturated
+            // code rather than the integer 1, and glGetTexImage has to divide the codes back out.
+            bool signedNormalized = false;
+            Uint32 channelMax[4] = {0u, 0u, 0u, 0u};
+            if (MG_Util::ShaderTranspiler::ShaderCompiler::NormalizedImageCarrierCodes(requested, channelMax,
+                                                                                       signedNormalized)) {
+                for (SizeT channel = 0; channel < 4; ++channel) {
+                    widening.ChannelMax[channel] = channelMax[channel];
+                }
+                widening.SignedNormalized = signedNormalized;
+            }
             return widening;
+        }
+
+        GLenum GetImageBindableBufferSplitFormat(TextureInternalFormat internalFormat) {
+            const GLenum requested = MG_Util::ConvertTextureInternalFormatToGLEnum(internalFormat);
+            const auto base = static_cast<GLenum>(
+                MG_Util::ShaderTranspiler::ShaderCompiler::SplitCoreEsslBufferImageFormat(requested));
+            if (base == 0) {
+                return GL_UNKNOWN_MGL;
+            }
+            // EXACTLY the arming WidenImageFormatsForEssl uses, for the reason the widening's is:
+            // the shader, the glTexBuffer view and the glBindImageTexture argument must all split
+            // or none of them may, or the shader subscripts a view the buffer is not described as.
+            if (g_GLESCapabilities.SupportsExtendedImageFormats &&
+                MG_Util::ShaderTranspiler::ShaderCompiler::SpirvCrossCanPrintEsslImageFormat(requested)) {
+                return GL_UNKNOWN_MGL;
+            }
+            return base;
         }
     } // namespace TextureImpl
     namespace PrgramImpl {
@@ -942,11 +996,17 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 String arraySuffix; // "" or "[7]"
                 SizeT declStart = 0;
                 SizeT declLength = 0;
+                SizeT nameStart = 0;   // the name token alone, for a rename that edits nothing else
+                SizeT nameLength = 0;
                 SizeT referenceCount = 0; // uses this pass recognized and accounted for
                 Bool loaded = false;
                 Bool stored = false;
                 Bool unknownUse = false;
                 Bool split = false;
+                // SPIRV-Cross already tagged this one readonly or writeonly, so it needs no
+                // qualifier repair - only the rename that keeps two stages from merging it.
+                Bool preTaggedReadonly = false;
+                Bool preTaggedWriteonly = false;
             };
 
             // A rebuilt declaration. Keeps SPIRV-Cross's own word order (`uniform readonly
@@ -1283,10 +1343,12 @@ namespace MobileGL::MG_Backend::DirectGLES {
             for (std::sregex_iterator it(glslCode.begin(), glslCode.end(), imageDeclRegex), last; it != last; ++it) {
                 const std::smatch& match = *it;
                 const String qualifiers = match[2].str();
-                // Already legal: SPIRV-Cross decided one way, leave it alone.
-                if (ContainsIdentifier(qualifiers, "readonly") || ContainsIdentifier(qualifiers, "writeonly")) {
-                    continue;
-                }
+                const Bool hasReadonly = ContainsIdentifier(qualifiers, "readonly");
+                const Bool hasWriteonly = ContainsIdentifier(qualifiers, "writeonly");
+                // Carrying BOTH is a spelling no per-stage access analysis produces (SPIRV-Cross
+                // clears one decoration or the other as soon as it sees a load or a store), so it
+                // came from the application and is identical in every stage. Nothing to do.
+                if (hasReadonly && hasWriteonly) continue;
 
                 Bool hasFormat = false;
                 Bool exemptFormat = false;
@@ -1295,10 +1357,12 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     hasFormat = true;
                     exemptFormat = IsMemoryQualifierExemptImageFormat(token);
                 }
-                // No format qualifier at all is a different (and, in ES, unconditionally
-                // illegal) shape that GL_EXT_shader_image_load_formatted would be needed for;
-                // SPIRV-Cross refuses to emit it for an ES target, so nothing to do here.
-                if (!hasFormat || exemptFormat) continue;
+                // A declaration carrying neither qualifier is illegal ES unless its format is
+                // r32f/r32i/r32ui, and no format qualifier at all is a shape SPIRV-Cross refuses
+                // to emit for an ES target. Either way there is no repair to make - and no rename
+                // to make either, because a declaration with no access qualifier is spelled the
+                // same in every stage.
+                if (!hasReadonly && !hasWriteonly && (!hasFormat || exemptFormat)) continue;
 
                 ImageUniformDecl decl;
                 decl.layout = match[1].str();
@@ -1308,6 +1372,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 decl.arraySuffix = NormalizeDeclarationSpacing(match[5].str());
                 decl.declStart = static_cast<SizeT>(match.position(0));
                 decl.declLength = match[0].str().size();
+                decl.nameStart = static_cast<SizeT>(match.position(4));
+                decl.nameLength = match[4].str().size();
+                decl.preTaggedReadonly = hasReadonly;
+                decl.preTaggedWriteonly = hasWriteonly;
                 decls.push_back(Move(decl));
             }
             if (decls.empty()) {
@@ -1439,6 +1507,26 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 // already readonly/writeonly in the source, or r32f/r32i/r32ui, which need no
                 // qualifier - keep their names, and they are exactly the ones that already match
                 // across stages.
+                if (decl.preTaggedReadonly || decl.preTaggedWriteonly) {
+                    // No repair: SPIRV-Cross already emitted a legal qualifier. But it derived
+                    // that qualifier from THIS STAGE's accesses, so a uniform stored in one stage
+                    // and loaded in another arrives here `writeonly` in one and `readonly` in the
+                    // other under ONE name - precisely the same-name/mismatched-qualifier pair
+                    // Adreno merges while silently discarding the writing stage's stores
+                    // (advanced-memory-dependentInvocation; a raw-ES probe reproduces it with no
+                    // MobileGL in the process, and renaming either half fixes it). Keyed on the
+                    // qualifier for the same reason the repair below is: two stages that agree
+                    // spell the same alias and stay merged, so no shader gains an image uniform.
+                    const char* preTagPrefix =
+                        decl.preTaggedReadonly ? IMAGE_READONLY_ALIAS_PREFIX : IMAGE_WRITEONLY_ALIAS_PREFIX;
+                    decl.aliasName = MakeImageAliasName(preTagPrefix, decl.name, glslCode, takenNames);
+                    takenNames.push_back(decl.aliasName);
+                    // The name token alone: the qualifiers are already right, and re-emitting the
+                    // whole declaration would only risk changing them.
+                    edits.push_back({decl.nameStart, decl.nameLength, decl.aliasName});
+                    continue;
+                }
+
                 const char* aliasPrefix = decl.loaded && decl.stored ? IMAGE_SPLIT_READ_ALIAS_PREFIX
                                           : decl.stored             ? IMAGE_WRITEONLY_ALIAS_PREFIX
                                                                     : IMAGE_READONLY_ALIAS_PREFIX;

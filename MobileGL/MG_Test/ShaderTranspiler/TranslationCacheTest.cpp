@@ -135,7 +135,7 @@ void main() {
         EsslTranslationKeyInputs inputs;
         inputs.spirv = &spirv;
         inputs.shaderType = GL_FRAGMENT_SHADER;
-        inputs.supportsViewportArray = false;
+        inputs.viewportIndexLoweringArmed = false;
         inputs.supportsNoperspectiveInterpolation = false;
         inputs.maxColorTextureSamples = 4;
         inputs.maxIntegerSamples = 1;
@@ -491,6 +491,14 @@ TEST_F(TranslationCacheTest, L1KeyMovesWithEveryInputThatMovesTheSpirv) {
         v.enableSpirvValidation = true;
         variants.emplace_back("enableSpirvValidation", BuildSpirvTranslationKey(v));
     }
+    {   // CompileEnv::ConsumesFloat64Natively(): the fp64 tail of SanitizeAndOptimizeBinary is
+        // skipped under it, so the SAME GLSL yields modules with real doubles under one answer
+        // and demoted, storage-block-flattened ones under the other. The one backend capability
+        // bit in this key, and the only one allowed in without changing what glslang produces.
+        SpirvTranslationKeyInputs v = base;
+        v.nativeFloat64 = true;
+        variants.emplace_back("nativeFloat64", BuildSpirvTranslationKey(v));
+    }
     // ---- inputs the WIDENED payload pulled into the key ----
     // They cannot move a word of the generated SPIR-V, but they do shape the reflection the
     // payload now carries, so they have to split the key. This is the group that would go
@@ -597,6 +605,45 @@ TEST_F(TranslationCacheTest, TwoBackendsCompilingTheSameGlslShareOneL1Entry) {
     onB.frontendFingerprint = ComputeFrontendCompileEnvFingerprint(b);
 
     EXPECT_TRUE(BuildSpirvTranslationKey(onA) == BuildSpirvTranslationKey(onB));
+}
+
+// The ONE capability bit that breaks that sharing, and the two halves of why it is placed where
+// it is. It must NOT move the front-end fingerprint - glslang parses, reflects and generates a
+// `double` identically under it, and L1c (the parse-verdict memo) keys on that same fingerprint
+// and would take a false miss per backend for nothing. It MUST move the L1 key, because L1's
+// payload is the module AFTER SanitizeAndOptimizeBinary and the fp64 tail of that chain is
+// exactly what this bit gates.
+TEST_F(TranslationCacheTest, NativeFloat64IsOutOfTheFrontendFingerprintAndInsideTheL1Key) {
+    CompileEnv none;                              // no backend at all
+    CompileEnv emulated;                          // a backend without the feature
+    CompileEnv nativeEnv;                         // a backend with it
+    emulated.backend = BackendType::DirectVulkan;
+    nativeEnv.backend = BackendType::DirectVulkan;
+    nativeEnv.params.SupportsShaderFloat64 = true;
+
+    // No backend answers FALSE: the demoted module is the one that works everywhere, so a
+    // standalone compile gets it.
+    EXPECT_FALSE(none.ConsumesFloat64Natively());
+    EXPECT_FALSE(emulated.ConsumesFloat64Natively());
+    EXPECT_TRUE(nativeEnv.ConsumesFloat64Natively());
+
+    EXPECT_EQ(ComputeFrontendCompileEnvFingerprint(emulated), ComputeFrontendCompileEnvFingerprint(nativeEnv))
+        << "the fp64 capability leaked into the front-end fingerprint";
+    EXPECT_NE(ComputeCompileEnvFingerprint(emulated), ComputeCompileEnvFingerprint(nativeEnv))
+        << "the whole-environment fingerprint has to notice it - it is a DynamicBackendParameters "
+           "field, hashed by object representation";
+
+    const Vector<SpirvTranslationKeyInputs::Stage> stages{{GL_VERTEX_SHADER, kVertexSource},
+                                                          {GL_FRAGMENT_SHADER, kFragmentSource}};
+    SpirvTranslationKeyInputs demoted = BaselineSpirvInputs(stages);
+    demoted.frontendFingerprint = ComputeFrontendCompileEnvFingerprint(emulated);
+    demoted.nativeFloat64 = emulated.ConsumesFloat64Natively();
+    SpirvTranslationKeyInputs kept = BaselineSpirvInputs(stages);
+    kept.frontendFingerprint = ComputeFrontendCompileEnvFingerprint(nativeEnv);
+    kept.nativeFloat64 = nativeEnv.ConsumesFloat64Natively();
+
+    EXPECT_FALSE(BuildSpirvTranslationKey(demoted) == BuildSpirvTranslationKey(kept))
+        << "one L1 entry would then describe two different module sets";
 }
 
 // The other direction, one case per input that was KEPT. Each is a limit the front end
@@ -855,8 +902,8 @@ TEST_F(TranslationCacheTest, L2KeyMovesWithEveryGateThatSteersTheEsslChain) {
     }
     {   // arms LowerViewportIndexForEssl
         EsslTranslationKeyInputs v = base;
-        v.supportsViewportArray = true;
-        variants.emplace_back("supportsViewportArray", BuildEsslTranslationKey(v));
+        v.viewportIndexLoweringArmed = true;
+        variants.emplace_back("viewportIndexLoweringArmed", BuildEsslTranslationKey(v));
     }
     {   // arms EmulateNoPerspectiveForEssl
         EsslTranslationKeyInputs v = base;
@@ -1008,7 +1055,7 @@ TEST_F(TranslationCacheTest, L2RunsTheEmitterOncePerDistinctKey) {
     // ... and a gate that only steers the SPIR-V pass chain still moves the key, so the
     // emitter runs again even though this stand-in ignores the bit.
     inputs = BaselineEsslInputs(spirv);
-    inputs.supportsViewportArray = true;
+    inputs.viewportIndexLoweringArmed = true;
     (void)translate(inputs);
     EXPECT_EQ(emitCount, 3);
 }

@@ -162,6 +162,7 @@ namespace MobileGL::MG_ConfigLoader {
     inline void InitFeatures() {
         auto& features = MG_Config::Features;
         features.DisableTimerQuery = QueryEnvFlag("MOBILEGL_DISABLE_TIMERQUERY");
+        features.EnableGlesTextureView = QueryEnvFlag("MOBILEGL_ENABLE_GLES_TEXTURE_VIEW");
         features.EnableSpirvValidation = QueryEnvFlag("MOBILEGL_ENABLE_SPIRV_VALIDATION");
         features.UseAngle = QueryEnvFlag("MOBILEGL_USE_ANGLE");
 #if defined(MOBILEGL_TRACE_ANGLE_VARIANTS)
@@ -195,6 +196,8 @@ namespace MobileGL::MG_ConfigLoader {
         features.AsyncOptimisticShaderStatus =
             QueryEnvQuirkOverride("MOBILEGL_ASYNC_OPTIMISTIC_SHADER_STATUS");
         features.ShaderTranslationCache = QueryEnvQuirkOverride("MOBILEGL_SHADER_CACHE");
+        features.ViewportArrayEmulation =
+            QueryEnvQuirkOverride("MOBILEGL_FORCE_VIEWPORT_ARRAY_EMULATION");
     }
 
     inline void InitBackendType() {

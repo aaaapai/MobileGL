@@ -21,6 +21,19 @@ namespace MobileGL::MG_Backend::DirectGLES {
     String EmulateBaseInstanceInVertexShader(String source, GLenum shaderType);
     String PromoteDrawParameterGlobalsToUniforms(String source, GLenum shaderType);
 
+    // The ESSL half of the gl_ViewportIndex routing emulation, in the order a program's stages
+    // meet it. Both are pure String -> String rewrites over what SPIRV-Cross emitted once
+    // LowerViewportIndexPass has demoted the builtin to the plain global `mg_ViewportIndex`.
+    //
+    // The producing stage's global becomes an ordinary flat varying; true when there was one to
+    // promote, which is also the answer to "does this program route viewports at all".
+    Bool PromoteViewportIndexGlobalToVarying(String& source);
+    // The fragment stage grows a matching flat input, the mg_ViewportPassMask uniform the draw
+    // path writes, and a wrapper entry point that discards every fragment whose primitive routed
+    // to an index the current replay pass is not drawing. False when the stage has no entry point
+    // to wrap, which leaves the program renderable but unrouted.
+    Bool InjectViewportIndexPassGate(String& source);
+
     // Whether a vertex shader may declare a storage block at all, given what the host driver
     // reports for GL_MAX_VERTEX_SHADER_STORAGE_BLOCKS. Pure, and separated from the capability
     // global purely so the decision can be tested without one.
@@ -112,6 +125,58 @@ namespace MobileGL::MG_Backend::DirectGLES {
     // asked yet". Answers true whenever the backend twin is missing or predates the current
     // link.
     Bool CurrentProgramMayNeedPerSubDrawBuiltins(Bool batchCarriesBaseVertices);
+
+    // ---- gl_ViewportIndex routing emulation, draw half ---------------------------------------
+    //
+    // GLES has ONE viewport, ONE scissor rectangle and ONE depth range; GL 4.1 has sixteen of
+    // each, selected per primitive by gl_ViewportIndex. There is no ES entry point to program the
+    // other fifteen with (GL_OES_viewport_array exists but Adreno 830 does not have it, verified
+    // three ways), so the only way to rasterize a primitive against index i's rectangle is to
+    // make index i's rectangle THE viewport for the duration of a draw - which means issuing the
+    // draw once per distinct viewport state and letting the fragment stage throw away the
+    // primitives that belong to the other indices (the gate Managers.cpp injects).
+    //
+    // Indices whose whole state tuple (viewport rectangle, scissor rectangle, scissor-test enable,
+    // depth range) is identical share ONE pass, so the overwhelmingly common case - every index
+    // still holding what glViewport/glScissor/glDepthRange broadcast to all sixteen - collapses
+    // to a single pass with an all-ones gate mask, i.e. one draw and no behaviour change at all.
+    //
+    // Whether emulation runs. Off only under MOBILEGL_FORCE_VIEWPORT_ARRAY_EMULATION falsy, which
+    // restores the pre-emulation path as a negative control.
+    Bool ViewportArrayEmulationEnabled();
+    // Whether ANY program built in this process has come out with a viewport gate. Sticky once
+    // true; it exists so that BeginViewportRoutingPasses - which runs on every draw of every
+    // workload - can answer with one static load in the case that matters, which is every
+    // application that has never heard of gl_ViewportIndex.
+    extern Bool g_anyProgramRoutesViewportIndex;
+    // Number of times the current draw has to be issued. Always >= 1, and exactly 1 - with no
+    // state touched - whenever the current program does not route viewports, whenever every
+    // configured index shares one state, and whenever replaying would multiply a side effect the
+    // fragment gate cannot undo (transform feedback, rasterizer discard). Also seeds the pass
+    // mask uniform for that single-pass case, so a gated fragment shader never runs against the
+    // zero every GLSL uniform starts at - which would discard the whole draw.
+    Uint BeginViewportRoutingPasses();
+    // Push pass `pass`'s viewport / scissor / scissor-test / depth range onto the ES context and
+    // set the gate mask to the indices it serves. Only called when the count above exceeds 1.
+    void ApplyViewportRoutingPass(Uint pass);
+    // Restore the gate mask and mark the render-state shadow dirty, so the next ordinary draw
+    // re-pushes index 0's state. Takes the count so it can do nothing at all in the common case.
+    void EndViewportRoutingPasses(Uint passCount);
+
+    // Issue one draw, replayed once per viewport-routing pass. Every application-visible draw
+    // entry point wraps its native glDraw* call in this; the internal blit and clear helpers
+    // deliberately do not, because they bind their own programs, which never route.
+    template <typename IssueDraw>
+    inline void ForEachViewportRoutingPass(IssueDraw&& issue) {
+        const Uint passCount = BeginViewportRoutingPasses();
+        for (Uint pass = 0; pass < passCount; ++pass) {
+            if (passCount > 1) {
+                ApplyViewportRoutingPass(pass);
+            }
+            issue();
+        }
+        EndViewportRoutingPasses(passCount);
+    }
 
     template <typename StateObject, typename BackendObject>
     class StateBackendObjectRegistry {
@@ -680,9 +745,21 @@ namespace MobileGL::MG_Backend::DirectGLES {
         // Returns `data` untouched when no widening applies. Pure CPU and context-free so a unit
         // test can exercise the exact packing the driver is handed; `widenedData` is the caller's
         // scratch buffer and has to outlive the returned pointer.
+        // `alphaOneCodeOverride`, when non-zero, replaces the value written into the synthetic
+        // alpha channel: an image carrier that holds a NORMALIZED format's channel CODES has to
+        // pad alpha with that channel's saturated CODE (65535, 32767, 3), which neither of the
+        // transfer type's own "ones" is.
         const void* PrepareChannelWidenedUpload(Uint componentCount, const IntVec3& texelSize, const void* data,
                                                 SizeT byteSize, GLenum uploadType, Vector<Uint8>& widenedData,
-                                                Bool integerData = false);
+                                                Bool integerData = false, Uint32 alphaOneCodeOverride = 0u);
+
+        // Splits a GL_UNSIGNED_INT_2_10_10_10_REV shadow (rgb10_a2, rgb10_a2ui) into the four
+        // GL_UNSIGNED_SHORT channel CODES its GL_RGBA16UI image carrier is uploaded as: red in
+        // bits 0-9, green 10-19, blue 20-29, alpha 30-31. Pure CPU and context-free so a unit test
+        // can pin the exact fields; `widenedData` is the caller's scratch and has to outlive the
+        // returned pointer.
+        const void* PreparePackedIntWidenedUpload(const IntVec3& texelSize, const void* data, SizeT byteSize,
+                                                  Vector<Uint8>& widenedData);
 
         struct StateTextureBasicInfo { // Used for tracking texture state changes
             TextureInternalFormat internalFormat = TextureInternalFormat::Unknown;
@@ -715,11 +792,37 @@ namespace MobileGL::MG_Backend::DirectGLES {
             BackendTextureObject(const BackendTextureObject&) = delete;
             BackendTextureObject& operator=(const BackendTextureObject&) = delete;
             void SyncMipmapsToBackend(const SharedPtr<MG_State::GLState::ITextureObject>& stateTextureObject);
+            // The storage half of the sync for a texture created by glTextureView. Instead of
+            // allocating storage and replaying uploads, it makes this object's ES name BE a view
+            // of the storage texture's ES name (EXT/OES_texture_view), which is what gives the
+            // two names one image and independent per-texture parameters at the same time. The
+            // parameter and sampler halves are unchanged and run on this name as on any other.
+            void SyncTextureViewToBackend(const SharedPtr<MG_State::GLState::ITextureObject>& stateTextureObject);
+            void StampViewSyncKeys(const SharedPtr<MG_State::GLState::ITextureObject>& stateTextureObject);
+            // The storage half of the sync for a texture created by glTextureView. Instead of
+            // allocating storage and replaying uploads, it makes this object's ES name BE a view
+            // of the storage texture's ES name (EXT/OES_texture_view), which is what gives the
+            // two names one image and independent per-texture parameters at the same time. The
+            // parameter and sampler halves are unchanged and run on this name as on any other.
             void SyncBuiltinSamplerToBackend(const SharedPtr<MG_State::GLState::ITextureObject>& stateTextureObject);
             void SyncTextureParamsToBackend(const SharedPtr<MG_State::GLState::ITextureObject>& stateTextureObject);
-            void RequireImageBindableStorage();
+            // Marks the texture as one whose ES storage has to be image-bindable, which for a
+            // non-core image format means re-minting it in the widening's carrier. Takes the state
+            // object because the levels already uploaded have to be marked dirty again: the
+            // re-mint allocates fresh storage and only replays what the shadow still calls dirty.
+            void RequireImageBindableStorage(
+                const SharedPtr<MG_State::GLState::ITextureObject>& stateTextureObject);
+            // Whether this texture's ES storage was minted in an image carrier rather than in the
+            // frontend format's own layout - the readback has to ask, because for a NORMALIZED
+            // carrier the storage is an integer texture holding codes and glGetTexImage still owes
+            // the application floats.
+            Bool RequiresImageBindableStorage() const { return m_imageBindableStorageRequired; }
             void Bind(GLenum target, Uint unit = TempTextureUnit);
             Uint GetBackendTextureId() const;
+
+            // The id to hand glBindImageTexture for a SPLIT buffer image, or 0 when this texture
+            // takes no split. See m_bufferImageSplitViewId.
+            Uint GetBufferImageSplitViewId() const { return m_bufferImageSplitViewId; }
 
             // Aggregate first-level clean gate for the per-draw trio
             // SyncTextureParamsToBackend + SyncBuiltinSamplerToBackend +
@@ -733,6 +836,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
             // `contextId`/`samplingGeneration` are the frontend context's current
             // values, hoisted by the caller so a per-draw list walk reads them once
             // instead of per texture. `t` must be the live frontend texture.
+            // True while a driver-side re-mint has left the parameter caches describing a texture
+            // that no longer exists; SyncTextureObjectToBackend re-pushes them in the same sync.
+            Bool NeedsParameterResync() const { return m_forceTextureParamsResync || m_forceSamplerResync; }
+
             Bool IsDrawSyncClean(const MG_State::GLState::ITextureObject* t, Uint64 contextId,
                                  Uint64 samplingGeneration) const {
                 if (!m_isInitialized || m_syncedShapeContextId == 0 || m_syncedShapeContextId != contextId ||
@@ -757,6 +864,36 @@ namespace MobileGL::MG_Backend::DirectGLES {
             void RecreateBackendTexture();
 
             Uint m_backendTextureId = 0;
+            // A SECOND buffer-texture name over the SAME buffer object, viewed in the split's
+            // single-channel base format, used only as the glBindImageTexture target.
+            //
+            // The split needs the view to say r32f where the application said rg32f, but a buffer
+            // texture that is image-bound may ALSO be read through a samplerBuffer - and the
+            // sampler side is not subscript-rewritten, so re-describing the application's own
+            // texture broke it: texelFetch(s, i) returned component 2i of the base view instead of
+            // texel i's pair. That is exactly and only
+            // KHR-GL42/43.shader_image_load_store.advanced-sync-imageAccess, which image-stores
+            // into a GL_RG32F buffer texture and then reads the same texture through both an
+            // imageBuffer and a samplerBuffer in one shader, comparing the two.
+            //
+            // Two names over one buffer cost nothing and alias exactly: a buffer texture owns no
+            // storage, so both views are the application's bytes, and the split's whole premise is
+            // that the two describe the same memory. The application's own name therefore keeps
+            // the format it asked for - rg32f IS a legal SAMPLED buffer-texture format in ES 3.2,
+            // it is only the IMAGE binding ES cannot spell - and the private name below carries
+            // the split the shader was rewritten against. 0 when this texture takes no split.
+            Uint m_bufferImageSplitViewId = 0;
+            // For a texture created by glTextureView: the ES name of the storage texture this
+            // one was last made a view OF. EXT_texture_view may be called only once per name, so
+            // a storage texture that got re-minted underneath (RecreateBackendTexture) has to be
+            // detected here and answered with a fresh name for the view as well - otherwise the
+            // view would keep aliasing storage that no longer exists.
+            Uint m_viewSourceBackendTextureId = 0;
+            // For a texture created by glTextureView: the ES name of the storage texture this
+            // one was last made a view OF. EXT_texture_view may be called only once per name, so
+            // a storage texture that got re-minted underneath (RecreateBackendTexture) has to be
+            // detected here and answered with a fresh name for the view as well - otherwise the
+            // view would keep aliasing storage that no longer exists.
             // ES context generation the id was created under; a dtor running after
             // that context died must not delete a foreign (recycled) name.
             Uint m_contextGeneration = 0;
@@ -805,6 +942,15 @@ namespace MobileGL::MG_Backend::DirectGLES {
             // parameter already pushed onto it: the params-version early-out has to be overridden
             // once, or an unchanged version would skip the re-push forever.
             Bool m_forceTextureParamsResync = false;
+            // The same problem for the FILTER state, which lives in m_cacheSamplerParameters and
+            // is gated on the frontend sampler's version rather than on the params version. A
+            // re-mint leaves that cache describing values the new driver texture never received,
+            // and an unchanged sampler version would then skip re-pushing them forever. This
+            // matters more than mis-filtering: ES makes a texture INCOMPLETE when its filters do
+            // not suit its level set (any integer texture with a non-NEAREST filter, or a
+            // single-level texture with a mipmapping filter), and an incomplete texture samples
+            // (0, 0, 0, 1) rather than its contents.
+            Bool m_forceSamplerResync = false;
         };
 
         void ActivateTextureUnit(Uint unit);
@@ -1103,23 +1249,51 @@ namespace MobileGL::MG_Backend::DirectGLES {
     // Image uniforms take their unit from the layout(binding=N) qualifier baked into
     // the transpiled ESSL; unlike samplers they must not (and in ES cannot) be
     // assigned through glUniform1i.
+    //
+    // ALL THIRTY-THREE of them, in the one contiguous block ARB_shader_image_load_store allocated
+    // (GL_IMAGE_1D 0x904C through GL_UNSIGNED_INT_IMAGE_2D_MULTISAMPLE_ARRAY 0x906C). The list
+    // used to hold only the fifteen whose TARGET exists in ES, which read as a reasonable
+    // shortcut and was two bugs: an image uniform this says "no" to is one
+    // CollectImageFormatBakeInputs never walks, so its non-core format is neither baked nor
+    // widened and SPIRV-Cross throws for the whole stage ("Attempting to use image format not
+    // supported in ES profile"), and it is also one SyncToBackend then treats as a SAMPLER and
+    // assigns with glUniform1i, which ES makes an INVALID_OPERATION. A GL_TEXTURE_CUBE_MAP_ARRAY
+    // image - which ES 3.2 has in core, so it is not even an emulated target - hit both.
     inline Bool IsImageUniformType(GLenum type) {
         switch (type) {
+        case 0x904C: /*GL_IMAGE_1D*/
         case 0x904D: /*GL_IMAGE_2D*/
         case 0x904E: /*GL_IMAGE_3D*/
+        case 0x904F: /*GL_IMAGE_2D_RECT*/
         case 0x9050: /*GL_IMAGE_CUBE*/
         case 0x9051: /*GL_IMAGE_BUFFER*/
+        case 0x9052: /*GL_IMAGE_1D_ARRAY*/
         case 0x9053: /*GL_IMAGE_2D_ARRAY*/
+        case 0x9054: /*GL_IMAGE_CUBE_MAP_ARRAY*/
+        case 0x9055: /*GL_IMAGE_2D_MULTISAMPLE*/
+        case 0x9056: /*GL_IMAGE_2D_MULTISAMPLE_ARRAY*/
+        case 0x9057: /*GL_INT_IMAGE_1D*/
         case 0x9058: /*GL_INT_IMAGE_2D*/
         case 0x9059: /*GL_INT_IMAGE_3D*/
+        case 0x905A: /*GL_INT_IMAGE_2D_RECT*/
         case 0x905B: /*GL_INT_IMAGE_CUBE*/
         case 0x905C: /*GL_INT_IMAGE_BUFFER*/
+        case 0x905D: /*GL_INT_IMAGE_1D_ARRAY*/
         case 0x905E: /*GL_INT_IMAGE_2D_ARRAY*/
+        case 0x905F: /*GL_INT_IMAGE_CUBE_MAP_ARRAY*/
+        case 0x9060: /*GL_INT_IMAGE_2D_MULTISAMPLE*/
+        case 0x9061: /*GL_INT_IMAGE_2D_MULTISAMPLE_ARRAY*/
+        case 0x9062: /*GL_UNSIGNED_INT_IMAGE_1D*/
         case 0x9063: /*GL_UNSIGNED_INT_IMAGE_2D*/
         case 0x9064: /*GL_UNSIGNED_INT_IMAGE_3D*/
+        case 0x9065: /*GL_UNSIGNED_INT_IMAGE_2D_RECT*/
         case 0x9066: /*GL_UNSIGNED_INT_IMAGE_CUBE*/
         case 0x9067: /*GL_UNSIGNED_INT_IMAGE_BUFFER*/
+        case 0x9068: /*GL_UNSIGNED_INT_IMAGE_1D_ARRAY*/
         case 0x9069: /*GL_UNSIGNED_INT_IMAGE_2D_ARRAY*/
+        case 0x906A: /*GL_UNSIGNED_INT_IMAGE_CUBE_MAP_ARRAY*/
+        case 0x906B: /*GL_UNSIGNED_INT_IMAGE_2D_MULTISAMPLE*/
+        case 0x906C: /*GL_UNSIGNED_INT_IMAGE_2D_MULTISAMPLE_ARRAY*/
             return true;
         default:
             return false;
@@ -1200,6 +1374,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
             // Same for gl_BaseVertex: only a program that reads it pays for the per-draw
             // uniform write, and only such a program needs the reset after one.
             Bool ReadsBaseVertex() const { return m_baseVertexUniformLocation >= 0; }
+            // Which viewport indices the next draw's fragments may keep, one bit each. Written
+            // once per replay pass; see ForEachViewportRoutingPass.
+            void SetViewportPassMask(Uint32 indexMask) const;
+            // True when this build injected the fragment-stage viewport gate, i.e. when a
+            // pre-rasterization stage routes by gl_ViewportIndex AND the fragment stage can act
+            // on it. The uniform is the honest test for both halves: it exists only where the
+            // gate was injected, and the gate is injected only where a stage routes.
+            Bool RoutesViewportIndex() const { return m_viewportPassMaskUniformLocation >= 0; }
             Int GetIndirectParamsBinding() const { return m_indirectParamsBinding; }
             Uint GetBackendProgramId() const { return m_backendProgramId; }
             // False when the last SyncToBackend could not produce a usable program (a
@@ -1316,6 +1498,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             Int m_drawIdUniformLocation = -1;
             Int m_baseVertexUniformLocation = -1;
             Int m_baseInstanceWordIndexUniformLocation = -1;
+            Int m_viewportPassMaskUniformLocation = -1;
             Int m_indirectParamsBinding = -1;
             Uint32 m_snormFallbackClampOutputMask = 0;
             Uint32 m_unormFallbackClampOutputMask = 0;

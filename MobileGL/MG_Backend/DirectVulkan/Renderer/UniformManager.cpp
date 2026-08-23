@@ -17,6 +17,7 @@
 #include "MG_Util/Converters/MGToStr/FramebufferEnumConverter.h"
 #include "MG_Util/Converters/MGToVk/TextureEnumConverter.h"
 #include "MG_Util/Metrics/TextureMetrics.h"
+#include "MG_Util/ShaderTranspiler/Types.h"
 #include <Config.h>
 #include <algorithm>
 #include <cstdio>
@@ -47,7 +48,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             auto attachedTexture = attachment.GetTexture();
             if (attachedTexture && attachedTexture.get() == &texture) {
                 outAttachment = attachmentType;
-                outLevel = attachment.GetTextureLevel();
+                outLevel = static_cast<Int>(ToStorageMipLevel(attachment.GetTexture().get(),
+                                                             attachment.GetTextureLevel()));
                 return true;
             }
         }
@@ -416,16 +418,25 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                            numericDomain == SamplerNumericDomain::UnsignedInteger;
         SamplerResolveMemo* viewFormatMemo =
             binding < m_samplerResolveMemo.size() ? &m_samplerResolveMemo[binding] : nullptr;
+        // The format this GL texture presents to the shader. For a texture created by
+        // glTextureView that is the format the VIEW reinterpreted its storage as (GL 4.6 core
+        // 8.18), not the storage image's own - resolving the numeric domain against the latter
+        // would pick a sampled view for a format the shader never declared. The probe is behind
+        // IsTextureView() so nothing about the ordinary per-draw path changes.
+        const VkFormat sampledSourceFormat =
+            texture->IsTextureView()
+                ? m_textureManager->ResolveTextureViewWindow(*texture, *resource).format
+                : resource->format;
         VkFormat sampledViewFormat;
         if (viewFormatMemo != nullptr && viewFormatMemo->viewFormatValid &&
-            viewFormatMemo->viewFormatSource == resource->format &&
+            viewFormatMemo->viewFormatSource == sampledSourceFormat &&
             viewFormatMemo->viewFormatDomain == numericDomain) {
             sampledViewFormat = viewFormatMemo->viewFormat;
         } else {
             sampledViewFormat =
-                VkTextureManager::ResolveSampledImageViewFormat(resource->format, numericDomain);
+                VkTextureManager::ResolveSampledImageViewFormat(sampledSourceFormat, numericDomain);
             if (viewFormatMemo != nullptr) {
-                viewFormatMemo->viewFormatSource = resource->format;
+                viewFormatMemo->viewFormatSource = sampledSourceFormat;
                 viewFormatMemo->viewFormatDomain = numericDomain;
                 viewFormatMemo->viewFormat = sampledViewFormat;
                 viewFormatMemo->viewFormatValid = true;
@@ -440,9 +451,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return false;
         }
         // No reinterpretation requested: bind the depth-or-color aspect view the sync above
-        // already produced instead of re-entering GetOrCreateSampledImageView's sync path.
+        // already produced instead of re-entering GetOrCreateSampledImageView's sync path. A GL
+        // texture view is excluded because resource->sampledView belongs to the texture it VIEWS
+        // - same image, but the storage texture's level range and depth/stencil aspect, which is
+        // exactly the state a view exists to differ on.
         const VkImageView sampledImageView =
-            sampledViewFormat == resource->format
+            (!texture->IsTextureView() && sampledViewFormat == resource->format)
                 ? resource->sampledView
                 : m_textureManager->GetOrCreateSampledImageView(*texture, sampledViewFormat);
         if (sampledImageView == VK_NULL_HANDLE) {
@@ -547,7 +561,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                                             resource->sampledLevelCount),
             .imageView = samplerBindingOverride.imageView != VK_NULL_HANDLE ?
                 samplerBindingOverride.imageView :
-                (resource->sampledView != VK_NULL_HANDLE ? resource->sampledView : resource->fullView),
+                // Same reason as in ResolveSamplerDescriptor: the resource's own views describe
+                // the storage texture, so a view has to be asked for its own.
+                (samplerBindingOverride.texture->IsTextureView()
+                     ? m_textureManager->GetOrCreateSampledImageView(*samplerBindingOverride.texture,
+                                                                     VK_FORMAT_UNDEFINED)
+                     : (resource->sampledView != VK_NULL_HANDLE ? resource->sampledView : resource->fullView)),
             .imageLayout = samplerBindingOverride.imageLayout != VK_IMAGE_LAYOUT_UNDEFINED ?
                 samplerBindingOverride.imageLayout : resource->layout,
         };
@@ -905,22 +924,46 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         const Int blockIndex = programObj.storageBlockIndexByBinding[binding];
         MOBILEGL_ASSERT(blockIndex >= 0, "ResolveStorageBufferDescriptor: no SSBO block mapped to binding %u",
                         binding);
+        // An atomic counter is not an SSBO the application ever declared: glslang lowers every
+        // atomic_uint onto a synthesized gl_AtomicCounterBlock_<N> storage block, where N is the
+        // GL ATOMIC-COUNTER binding. That block arrives here auto-mapped to an arbitrary
+        // storage-block slot, so resolving it the SSBO way looked up GL_SHADER_STORAGE_BUFFER
+        // point N' - which is never where glBindBufferBase(GL_ATOMIC_COUNTER_BUFFER, N, ...) put
+        // the buffer. The counter therefore never reached the shader (KHR-GL43
+        // shader_atomic_counters.advanced-usage-*), and when the application also bound an SSBO at
+        // the colliding slot the descriptor silently aliased it, so the dispatch wrote over the
+        // application's own buffer. DirectGLES has always taken this branch explicitly
+        // (SyncAtomicCounterBuffers); this is the same rule in Magma's descriptor resolution.
+        //
+        // Only the SOURCE of the handle differs. The per-counter layout(offset=) is already folded
+        // into the block's SPIR-V member offsets on this path (FlattenAtomicCounterBlockPass is
+        // DirectGLES-only), so everything below - residency, the glBindBufferRange window, the
+        // descriptor fill - is target-agnostic and stays exactly as it was.
+        const String& blockName = programObj.storageBlockNameByBinding[binding];
+        const Int atomicCounterBinding = MG_Util::ShaderTranspiler::AtomicCounterBlockGlBinding(blockName);
+        const Bool isAtomicCounterBlock = atomicCounterBinding >= 0;
+        const BufferTarget bufferTarget =
+            isAtomicCounterBlock ? BufferTarget::AtomicCounter : BufferTarget::ShaderStorage;
         // A block instance array declares one block whose elements take consecutive GL binding
         // points from the declared one (GL 4.6 core 7.8), and the reflection collapses the whole
-        // array to that one block - so the element index IS the offset from its binding.
+        // array to that one block - so the element index IS the offset from its binding. glslang
+        // synthesizes one counter block per GL binding, so a counter block is never an instance
+        // array and `element` is always 0 there; the +element rule stays with the SSBO case.
         const GLuint frontendBinding =
-            GetShaderStorageBlockBinding(program, static_cast<GLuint>(blockIndex)) + element;
+            isAtomicCounterBlock
+                ? static_cast<GLuint>(atomicCounterBinding)
+                : GetShaderStorageBlockBinding(program, static_cast<GLuint>(blockIndex)) + element;
         const Uint32 bindingPointCount =
-            static_cast<Uint32>(MG_State::pGLContext->GetBufferBindingPointCount(BufferTarget::ShaderStorage));
+            static_cast<Uint32>(MG_State::pGLContext->GetBufferBindingPointCount(bufferTarget));
         MOBILEGL_ASSERT(frontendBinding < bindingPointCount,
-                        "ResolveStorageBufferDescriptor: frontend SSBO binding %u out of range for block '%s'",
-                        frontendBinding, programObj.storageBlockNameByBinding[binding].c_str());
+                        "ResolveStorageBufferDescriptor: frontend binding %u out of range for block '%s'",
+                        frontendBinding, blockName.c_str());
 
-        auto& bindingPoint = MG_State::pGLContext->GetBufferBindingPoint(BufferTarget::ShaderStorage, frontendBinding);
+        auto& bindingPoint = MG_State::pGLContext->GetBufferBindingPoint(bufferTarget, frontendBinding);
         const auto& bufferObject = bindingPoint.GetBoundObject();
         if (bufferObject == nullptr) {
-            MGLOG_E_ONCE("ResolveStorageBufferDescriptor: no SSBO bound at frontend binding %u for block '%s'",
-                    frontendBinding, programObj.storageBlockNameByBinding[binding].c_str());
+            MGLOG_E_ONCE("ResolveStorageBufferDescriptor: no buffer bound at frontend binding %u for block '%s'",
+                    frontendBinding, blockName.c_str());
             return false;
         }
 
@@ -1020,8 +1063,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                         binding);
         const VkFormat reflectedFormat = programObj.storageImageFormatByBinding[binding];
         const Bool useBindingFormat = programObj.storageImageUsesBindingFormatByBinding[binding];
+        // The storage's own VkFormat is the wrong reference for a GL texture view: the view
+        // reinterprets it (GL 4.6 core table 8.21), and it is the VIEW's format the shader's
+        // image declaration was written against. Same correction the sampled path makes above.
+        const VkFormat storageImageSourceFormat =
+            imageBinding.Texture->IsTextureView()
+                ? m_textureManager->ResolveTextureViewWindow(*imageBinding.Texture, *resource).format
+                : resource->format;
         const VkFormat viewFormat = ResolveStorageImageViewFormat(
-            reflectedFormat, imageBinding.Format, resource->format, useBindingFormat);
+            reflectedFormat, imageBinding.Format, storageImageSourceFormat, useBindingFormat);
         if (viewFormat == VK_FORMAT_UNDEFINED) {
             MGLOG_E_ONCE("ResolveStorageImageDescriptor: unsupported glBindImageTexture format=0x%x "
                     "for binding=%u imageUnit=%d textureId=%d bindingPolicy=%s",
@@ -1029,8 +1079,16 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                     useBindingFormat ? "true" : "false");
             return false;
         }
+        // glBindImageTexture named a level and a layer of the bound texture; on a GL texture
+        // view both are relative to the view, and the storage image is what the descriptor
+        // actually points at (see ToStorageMipLevel).
+        const Int32 storageImageLayer =
+            imageBinding.Layered != GL_FALSE
+                ? imageBinding.Layer
+                : static_cast<Int32>(ToStorageArrayLayer(imageBinding.Texture.get(), imageBinding.Layer));
         const VkImageView view = m_textureManager->GetOrCreateStorageImageView(
-            *imageBinding.Texture, mipLevel, viewFormat, imageBinding.Layered != GL_FALSE, imageBinding.Layer);
+            *imageBinding.Texture, ToStorageMipLevel(imageBinding.Texture.get(), static_cast<Int>(mipLevel)),
+            viewFormat, imageBinding.Layered != GL_FALSE, storageImageLayer);
         if (view == VK_NULL_HANDLE) {
             MGLOG_E_ONCE("ResolveStorageImageDescriptor: failed to resolve storage view textureId=%d mip=%u "
                     "bindingFormat=0x%x imageFormat=%d reflectedFormat=%d selectedFormat=%d bindingPolicy=%s",

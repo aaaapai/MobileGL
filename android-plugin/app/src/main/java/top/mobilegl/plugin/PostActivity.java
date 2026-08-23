@@ -239,13 +239,34 @@ public final class PostActivity extends Activity {
         nativeLoaded = true;
     }
 
+    /**
+     * Writes the whole report to logcat. The report is the only machine-readable form of the
+     * POST, and logcat drops everything past roughly 4000 bytes of a single entry - which is
+     * less than one backend section, so a one-call log silently truncated the report to about
+     * the first dozen rows. Each chunk is prefixed with its index so a reader can reassemble
+     * them in order (concatenate the payloads after the "] " separator).
+     */
+    private static void logReport(String json) {
+        if (json == null) {
+            Log.i(TAG, "<null report>");
+            return;
+        }
+        final int chunkSize = 3000;
+        final int chunks = (json.length() + chunkSize - 1) / chunkSize;
+        for (int index = 0; index < chunks; ++index) {
+            final int start = index * chunkSize;
+            final int end = Math.min(start + chunkSize, json.length());
+            Log.i(TAG, "[" + (index + 1) + "/" + chunks + "] " + json.substring(start, end));
+        }
+    }
+
     private static void runDriverPost() {
         String json = null;
         Throwable failure = null;
         try {
             ensureNativeLoaded();
             json = nativeRunDriverPost();
-            Log.i(TAG, json == null ? "<null report>" : json);
+            logReport(json);
         } catch (Throwable error) {
             Log.e(TAG, "Driver POST failed", error);
             failure = error;
@@ -385,7 +406,52 @@ public final class PostActivity extends Activity {
             }
         }
 
+        renderKnownDriverBugs(backend.optJSONArray("knownDriverBugs"));
         renderFormatCapabilities(backend.optJSONObject("formatCapabilities"));
+    }
+
+    /**
+     * The "Known Driver Bugs" section: core functionality this driver advertises, accepts,
+     * and then does not perform. Separate from the capability checks above because it answers
+     * a different question and uses its own vocabulary.
+     *
+     * Only bugs the device actually HAS are reported, so a clean driver renders no section at
+     * all rather than a list of reassurances - which is why the verdicts are FIXED (a MobileGL
+     * quirk makes application behaviour correct anyway) and UNFIXABLE (no substitute; the
+     * one-liner says what MobileGL does defensively), never PASS/FAIL.
+     */
+    private void renderKnownDriverBugs(JSONArray bugs) {
+        if (bugs == null || bugs.length() == 0) {
+            return;
+        }
+        addText("Known driver bugs", 14, COLOR_TEXT, true, dp(16));
+        LinearLayout table = new LinearLayout(this);
+        table.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams tableParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        tableParams.topMargin = dp(6);
+        contentLayout.addView(table, tableParams);
+
+        int rowIndex = 0;
+        for (int i = 0; i < bugs.length(); ++i) {
+            JSONObject bug = bugs.optJSONObject(i);
+            if (bug == null) {
+                continue;
+            }
+            // addCheckRow renders name + chip + collapsible detail, which is exactly this
+            // section's shape; the chip text is the verdict rather than a status.
+            JSONObject row = new JSONObject();
+            try {
+                row.put("name", bug.optString("name", "unnamed bug"));
+                row.put("status", bug.optString("verdict", "UNFIXABLE"));
+                row.put("detail", bug.optString("detail", ""));
+            } catch (JSONException ignored) {
+                continue;
+            }
+            addCheckRow(table, row, rowIndex++);
+        }
     }
 
     /** The MOBILEGL_BACKEND_TYPE value a POST section name stands for, or null. */
@@ -731,6 +797,13 @@ public final class PostActivity extends Activity {
                 return COLOR_FAIL;
             case "INFO":
                 return COLOR_INFO;
+            // The "Known driver bugs" section's own vocabulary. Every row there is a defect
+            // this device HAS, so neither verdict is reassuring: FIXED means MobileGL papers
+            // over it and applications still behave correctly, UNFIXABLE means they do not.
+            case "FIXED":
+                return COLOR_WARN;
+            case "UNFIXABLE":
+                return COLOR_FAIL;
             default:
                 return COLOR_TEXT;
         }

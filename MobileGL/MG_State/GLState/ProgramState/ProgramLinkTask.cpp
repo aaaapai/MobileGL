@@ -627,7 +627,8 @@ namespace MobileGL::MG_State::GLState {
                              .explicitFragmentOutLocations = in.explicitFragDataLocation,
                              .explicitFragmentOutIndices = in.explicitFragDataIndex,
                              .explicitOpaqueUniformBindings = &artifacts.explicitOpaqueUniformBindings,
-                             .storageBlocksWithoutBinding = &artifacts.storageBlocksWithoutBinding};
+                             .storageBlocksWithoutBinding = &artifacts.storageBlocksWithoutBinding,
+                             .uniformBlocksWithoutBinding = &artifacts.uniformBlocksWithoutBinding};
 
         MGLOG_D("ProgramObject %u: Calling ShaderCompiler::LinkProgram", in.externalIndex);
         auto result = ShaderCompiler::LinkProgram(attrib);
@@ -787,9 +788,11 @@ namespace MobileGL::MG_State::GLState {
     // The L1 key. Every input below is one that can change the SPIR-V this program
     // generates; see the key inventory on SpirvTranslationKeyInputs.
     //
-    // Deliberately NOT keyed on: nothing that only steers a BACKEND transpile - see the
+    // Deliberately NOT keyed on: anything that only steers a BACKEND transpile - see the
     // classification on CompileEnv::frontendFingerprint, and L2's own key in
-    // MG_Util/ShaderTranspiler/TranslationCache.h.
+    // MG_Util/ShaderTranspiler/TranslationCache.h. The single capability bit that IS here
+    // (nativeFloat64) earns its place by changing SanitizeAndOptimizeBinary's own output,
+    // which is what the payload stores.
     MG_Util::ShaderTranspiler::TranslationCacheKey ProgramLinkTask::BuildSpirvCacheKey(
         const MG_Util::ShaderTranspiler::CompileEnv& env) const {
         using namespace MG_Util::ShaderTranspiler;
@@ -805,6 +808,11 @@ namespace MobileGL::MG_State::GLState {
         // value cannot alias a module parsed without it.
         keyInputs.shaderCompileFlags = 0;
         keyInputs.enableSpirvValidation = in.enableSpirvValidation;
+        // The one BACKEND capability bit in this key, and it has to be here: it reaches inside
+        // SanitizeAndOptimizeBinary, whose output is what the payload holds. Read from the same
+        // env snapshot ProgramSpirvTask hands the chain, so the key and the bytes can never
+        // disagree.
+        keyInputs.nativeFloat64 = env.ConsumesFloat64Natively();
         keyInputs.stages.reserve(in.shaders.size());
         for (const LinkShaderInput& shader : in.shaders) {
             const ShaderCompileArtifacts& compiled = CompiledArtifacts(shader.compiled);
@@ -1566,7 +1574,25 @@ namespace MobileGL::MG_State::GLState {
             // (DirectGLES.cpp / UniformManager.cpp), all 14 elements also read the same
             // buffer. This is the rule the storage-block path in ProgramInterface.cpp
             // already applies, and whose comment there claims uniform blocks follow.
-            const Int declaredBinding = ubo.getBinding();
+            //
+            // "Declared" cannot be read back off the reflection, though. MobileGL asks glslang
+            // to auto-map bindings, so mapIO writes an invented one into every block's
+            // qualifier before reflection ever runs and ubo.getBinding() is never negative;
+            // worse, glslang packs uniform blocks into the SAME slot space as samplers and
+            // images (setEnvClient(EShClientVulkan) leaves spvVersion.openGl at 0, so
+            // TDefaultGlslIoResolver::resolveBinding keys every resource kind on set 0), so a
+            // block declared after an unbound image gets 1. GL 4.6 core 7.6.2 says an
+            // unqualified block reports ZERO. The set below is the shader's own answer,
+            // captured during mapIO while the qualifier still meant it - the same mechanism
+            // SeedDefaultStorageBlockBindings uses for storage blocks, and the aliasing at 0
+            // that results is GL's, not a bug: unqualified blocks collide there until the
+            // application rebinds them.
+            //
+            // Only this GL-visible binding POINT changes. The backends' descriptor lookups run
+            // off glslang's assignment through uniformBlockIndexByBinding, which is untouched.
+            const String blockTypeName = StripArrayElementSuffix(ubo.name);
+            const Int declaredBinding =
+                artifacts.uniformBlocksWithoutBinding.contains(blockTypeName) ? 0 : ubo.getBinding();
             artifacts.uniformBlockBinding[i] =
                 declaredBinding < 0 ? declaredBinding : declaredBinding + BlockArrayElement(ubo.name);
             MGLOG_D("ProgramObject %u: Reflection - UBO[%d] name='%s' size=%u binding=%d", in.externalIndex, i,

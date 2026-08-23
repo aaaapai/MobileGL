@@ -341,22 +341,26 @@ namespace MobileGL::MG_Util::ShaderTranspiler {
     //
     // The cached artifact is the module AFTER SanitizeAndOptimizeBinary, not the
     // raw GlslangToSpv output. That is a deliberate choice and it is safe:
-    // SanitizeAndOptimizeBinary is a fixed 11-pass spirv-opt chain with no
-    // arguments but the module, and its two remaining parameters (`validateOutput`,
-    // `enableSpirvValidation`) only decide whether the OUTPUT is handed to the
-    // validator and logged - RunOptimizerChecked runs the optimizer first and
-    // identically either way. Nothing between GlslangToSpv and Sanitize reads
-    // backend state. So caching after Sanitize saves the 96 us/stage the chain
-    // costs on top of the 40 us GlslangToSpv, and gives the backends exactly the
-    // bytes they would have got.
+    // SanitizeAndOptimizeBinary is a fixed spirv-opt chain whose only
+    // output-changing argument is `nativeFloat64` (below), and whose two other
+    // parameters (`validateOutput`, `enableSpirvValidation`) only decide whether
+    // the OUTPUT is handed to the validator and logged - RunOptimizerChecked runs
+    // the optimizer first and identically either way. Nothing between GlslangToSpv
+    // and Sanitize reads backend state. So caching after Sanitize saves the 96
+    // us/stage the chain costs on top of the 40 us GlslangToSpv, and gives the
+    // backends exactly the bytes they would have got.
     //
-    // L1 IS BACKEND-AGNOSTIC BY CONTRACT. Two contexts on different GPUs compiling
-    // the same GLSL share one L1 entry: nothing that merely steers a BACKEND
-    // transpile (backend identity, GLES/Vulkan capability bits, driver extension
-    // strings, GPU vendor) is allowed in this key - all of that lives in L2's key,
-    // where it belongs. What IS here is the subset of the environment that changes
-    // what glslang itself produces; see CompileEnv::frontendFingerprint for the
-    // field-by-field classification and the evidence behind each call.
+    // L1 IS BACKEND-AGNOSTIC BY CONTRACT, WITH EXACTLY ONE DECLARED EXCEPTION.
+    // Two contexts on different GPUs compiling the same GLSL share one L1 entry:
+    // nothing that merely steers a BACKEND transpile (backend identity, GLES/Vulkan
+    // capability bits, driver extension strings, GPU vendor) is allowed in this key
+    // - all of that lives in L2's key, where it belongs. What IS here is the subset
+    // of the environment that changes what glslang itself produces (see
+    // CompileEnv::frontendFingerprint for the field-by-field classification), PLUS
+    // `nativeFloat64`, the one capability bit that reaches INSIDE
+    // SanitizeAndOptimizeBinary and therefore changes the cached bytes themselves.
+    // A capability bit belongs in this key if and only if it does that; anything
+    // that only changes what a backend does with the finished module still does not.
     //
     // WHAT IS IN THE KEY (each one is an input that can change the modules):
     //   * CompileEnv::frontendFingerprint - the glslang resource limits
@@ -376,7 +380,16 @@ namespace MobileGL::MG_Util::ShaderTranspiler {
     //   * the ShaderCompileBits the parse ran under (always 0 in production; in
     //     the key so a future non-zero value cannot alias);
     //   * the SPIR-V validation switch (byte-identical output either way, but it
-    //     costs one byte to be sure).
+    //     costs one byte to be sure);
+    //   * nativeFloat64 - CompileEnv::ConsumesFloat64Natively(). The fp64 tail of
+    //     SanitizeAndOptimizeBinary (FlattenFloat64StorageBlockPass +
+    //     DemoteFloat64Pass) is skipped when the backend can build a pipeline from
+    //     a module that still declares OpCapability Float64, so the SAME GLSL
+    //     produces MATERIALLY DIFFERENT modules under the two answers - one with
+    //     real doubles, one narrowed to 32 bits with its storage blocks flattened.
+    //     Not folded into frontendFingerprint on purpose: glslang produces the same
+    //     thing either way, so it is not a front-end input, and L1c shares that
+    //     fingerprint and would take a false miss per backend for nothing.
     //
     // The key is a PROGRAM-level key, not a per-stage one, and that is forced:
     // glslang's mapIO resolves a fragment stage's input Locations against the
@@ -398,6 +411,9 @@ namespace MobileGL::MG_Util::ShaderTranspiler {
         const UnorderedMap<String, Uint>* explicitFragmentOutIndices = nullptr;
         Uint32 shaderCompileFlags = 0;
         Bool enableSpirvValidation = false;
+        // CompileEnv::ConsumesFloat64Natively() - the fp64 tail of the sanitize chain. The
+        // one backend capability bit in this key; see the note above for why it has to be.
+        Bool nativeFloat64 = false;
         // ---- inputs that only matter because the PAYLOAD now carries the reflection ----
         // When the payload was SPIR-V alone these were provably irrelevant: transform
         // feedback is resolved by READING the linked intermediates and never writes an XFB
@@ -556,7 +572,8 @@ namespace MobileGL::MG_Util::ShaderTranspiler {
     //   * the GL stage enum - three passes are stage-gated (draw parameters and
     //     array vertex inputs on vertex, fragment-output index legalization on
     //     fragment);
-    //   * SupportsViewportArray - arms LowerViewportIndexForEssl;
+    //   * the viewport-index lowering arming bit - GL_OES_viewport_array's absence OR the
+    //     routing emulation being on - which arms LowerViewportIndexForEssl;
     //   * the four sample ceilings (color / integer / depth / advertised) - both
     //     ARM ClampMultisampleFetchesForEssl and PARAMETERIZE it;
     //   * SupportsNoperspectiveInterpolation - arms EmulateNoPerspectiveForEssl;
@@ -583,7 +600,7 @@ namespace MobileGL::MG_Util::ShaderTranspiler {
     // armed by nothing, so the SPIR-V already in this key covers them completely.
     //
     // THE TEST FOR THAT CLAIM IS NOT THE SIGNATURE. LowerViewportIndexForEssl is equally
-    // module-only to look at, yet SupportsViewportArray is in this key because that bit ARMS
+    // module-only to look at, yet the arming bit is in this key because it ARMS
     // it at the call site. So a new pass needs BOTH checks - what it takes, and what decides
     // whether it runs - before "no key material" is a conclusion rather than an assumption.
     // Note also where an application-authored value can hide: the atomic-counter
@@ -612,7 +629,12 @@ namespace MobileGL::MG_Util::ShaderTranspiler {
         GLenum shaderType = 0;
 
         // --- driver capability bits that arm or steer a pass ---
-        Bool supportsViewportArray = false;
+        // Whether LowerViewportIndexForEssl runs on this module. NOT the raw
+        // GL_OES_viewport_array bit any more: the routing emulation arms the pass even where the
+        // extension exists (Config.h, ViewportArrayEmulation), so the extension alone no longer
+        // decides, and a key carrying only it would serve a module lowered under one setting to a
+        // link made under the other.
+        Bool viewportIndexLoweringArmed = false;
         Bool supportsNoperspectiveInterpolation = false;
         // GL_NV_image_formats. Arms WidenImageFormatsForEssl, which re-declares every storage
         // image whose format GLSL ES core cannot spell in the core format that carries it and

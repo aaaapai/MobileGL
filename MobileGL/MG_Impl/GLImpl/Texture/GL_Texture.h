@@ -37,8 +37,13 @@ namespace MobileGL::MG_Impl::GLImpl {
                            GLenum format, GLenum type, const void* pixels);
     void TextureSubImage3D(GLuint texture, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width,
                            GLsizei height, GLsizei depth, GLenum format, GLenum type, const void* pixels);
+    void CompressedTextureSubImage1D(GLuint texture, GLint level, GLint xoffset, GLsizei width, GLenum format,
+                                     GLsizei imageSize, const void* data);
     void CompressedTextureSubImage2D(GLuint texture, GLint level, GLint xoffset, GLint yoffset, GLsizei width,
                                      GLsizei height, GLenum format, GLsizei imageSize, const void* data);
+    void CompressedTextureSubImage3D(GLuint texture, GLint level, GLint xoffset, GLint yoffset, GLint zoffset,
+                                     GLsizei width, GLsizei height, GLsizei depth, GLenum format, GLsizei imageSize,
+                                     const void* data);
     void TextureParameterf(GLuint texture, GLenum pname, GLfloat param);
     void TextureParameterfv(GLuint texture, GLenum pname, const GLfloat* params);
     void TextureParameteri(GLuint texture, GLenum pname, GLint param);
@@ -60,6 +65,8 @@ namespace MobileGL::MG_Impl::GLImpl {
     void GetTextureParameteriv(GLuint texture, GLenum pname, GLint* params);
     void GetTextureLevelParameterfv(GLuint texture, GLint level, GLenum pname, GLfloat* params);
     void GetTextureLevelParameteriv(GLuint texture, GLint level, GLenum pname, GLint* params);
+    void TextureView(GLuint texture, GLenum target, GLuint origtexture, GLenum internalformat, GLuint minlevel,
+                     GLuint numlevels, GLuint minlayer, GLuint numlayers);
     void TexStorage1D(GLenum target, GLsizei levels, GLenum internalformat, GLsizei width);
     void TexStorage2D(GLenum target, GLsizei levels, GLenum internalformat, GLsizei width, GLsizei height);
     void TexStorage3D(GLenum target, GLsizei levels, GLenum internalformat, GLsizei width, GLsizei height,

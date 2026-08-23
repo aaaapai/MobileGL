@@ -248,6 +248,7 @@ set(SOURCE_FILES
     MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/DecomposeWorkgroupVec3Pass.cpp
     MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/DecoratePositionInvariantPass.cpp
     MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/DemoteFloat64Pass.cpp
+    MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/FlattenFloat64StorageBlockPass.cpp
     MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/LowerDrawParametersPass.cpp
     MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/LowerViewportIndexPass.cpp
     MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/PackDoubleVertexInputsPass.cpp
@@ -278,6 +279,7 @@ set(SOURCE_FILES
     MobileGL/MG_Util/BackendLoaders/OpenGL/Loader.cpp
     MobileGL/MG_Util/BackendLoaders/Vulkan/Loader.cpp
 
+    MobileGL/MG_Util/SelfTest/DriverBugProbes.cpp
     MobileGL/MG_Util/SelfTest/DriverPost.cpp
     MobileGL/MG_Util/SelfTest/DriverPostIterationRPWitness.cpp
 
@@ -302,6 +304,7 @@ set(SOURCE_FILES
     MobileGL/MG_Impl/GLImpl/Program/ProgramInterface.cpp
     MobileGL/MG_Impl/GLImpl/Program/GL_ProgramPipeline.cpp
     MobileGL/MG_Impl/GLImpl/Texture/GL_Texture.cpp
+    MobileGL/MG_Impl/GLImpl/Debug/GL_Debug.cpp
     MobileGL/MG_Impl/GLImpl/Texture/Validators.cpp
     MobileGL/MG_Impl/GLImpl/Texture/ProxyTexture.cpp
     MobileGL/MG_Impl/GLImpl/VertexArray/GL_VertexArray.cpp
@@ -359,6 +362,7 @@ set(SOURCE_FILES
     MobileGL/MG_State/GLState/TextureState/TextureObject2DCube.cpp
     MobileGL/MG_State/GLState/TextureState/TextureObject3D.cpp
     MobileGL/MG_State/GLState/TextureState/TextureObjectBuffer.cpp
+    MobileGL/MG_State/GLState/TextureState/TextureObjectView.cpp
     MobileGL/MG_State/GLState/TextureState/TextureUnit.cpp
     MobileGL/MG_State/GLState/TextureState/TextureState.cpp
     MobileGL/MG_State/GLState/ProgramState/ProgramObject.cpp

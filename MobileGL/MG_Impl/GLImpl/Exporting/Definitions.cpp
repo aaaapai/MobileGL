@@ -20,6 +20,7 @@
 #include "../Framebuffer/GL_Framebuffer.h"
 #include "../VertexArray/GL_VertexArray.h"
 #include "../Sync/GL_Sync.h"
+#include "../Debug/GL_Debug.h"
 #include <MG_State/GLState/Core.h>
 
 #define DECLARE_GL_FUNCTION_STUB_HEAD(type, name, ...) MOBILEGL_GL_API type gl##name(__VA_ARGS__) {
@@ -378,27 +379,13 @@ DECLARE_GL_FUNCTION_HEAD(void, VertexBindingDivisor, GLuint bindingindex, GLuint
 DECLARE_GL_FUNCTION_STUB_HEAD(void, BlendBarrier) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, BlendBarrier)
 DECLARE_GL_FUNCTION_HEAD(void, CopyImageSubData, GLuint srcName, GLenum srcTarget, GLint srcLevel, GLint srcX, GLint srcY, GLint srcZ, GLuint dstName, GLenum dstTarget, GLint dstLevel, GLint dstX, GLint dstY, GLint dstZ, GLsizei srcWidth, GLsizei srcHeight, GLsizei srcDepth) DECLARE_GL_FUNCTION_END_NO_RETURN(void, CopyImageSubData, srcName, srcTarget, srcLevel, srcX, srcY, srcZ, dstName, dstTarget, dstLevel, dstX, dstY, dstZ, srcWidth, srcHeight, srcDepth)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, DebugMessageControl, GLenum source, GLenum type, GLenum severity, GLsizei count, const GLuint* ids, GLboolean enabled) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, DebugMessageControl, source, type, severity, count, ids, enabled)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, DebugMessageInsert, GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, const GLchar* buf) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, DebugMessageInsert, source, type, id, severity, length, buf)
+DECLARE_GL_FUNCTION_HEAD(void, DebugMessageInsert, GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, const GLchar* buf) DECLARE_GL_FUNCTION_END_NO_RETURN(void, DebugMessageInsert, source, type, id, severity, length, buf)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, DebugMessageCallback, GLDEBUGPROC callback, const void* userParam) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, DebugMessageCallback, callback, userParam)
 DECLARE_GL_FUNCTION_STUB_HEAD(GLuint, GetDebugMessageLog, GLuint count, GLsizei bufSize, GLenum* sources, GLenum* types, GLuint* ids, GLenum* severities, GLsizei* lengths, GLchar* messageLog) DECLARE_GL_FUNCTION_STUB_END(GLuint, GetDebugMessageLog, count, bufSize, sources, types, ids, severities, lengths, messageLog)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, PushDebugGroup, GLenum source, GLuint id, GLsizei length, const GLchar* message) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, PushDebugGroup, source, id, length, message)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, PopDebugGroup) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, PopDebugGroup)
-MOBILEGL_GL_API void glObjectLabel(GLenum identifier, GLuint name, GLsizei length, const GLchar* label) {
-    (void)identifier;
-    (void)name;
-    (void)length;
-    (void)label;
-}
-MOBILEGL_GL_API void glGetObjectLabel(GLenum identifier, GLuint name, GLsizei bufSize, GLsizei* length, GLchar* label) {
-    (void)identifier;
-    (void)name;
-    if (length) {
-        *length = 0;
-    }
-    if (label && bufSize > 0) {
-        label[0] = '\0';
-    }
-}
+DECLARE_GL_FUNCTION_HEAD(void, PushDebugGroup, GLenum source, GLuint id, GLsizei length, const GLchar* message) DECLARE_GL_FUNCTION_END_NO_RETURN(void, PushDebugGroup, source, id, length, message)
+DECLARE_GL_FUNCTION_HEAD(void, PopDebugGroup) DECLARE_GL_FUNCTION_END_NO_RETURN(void, PopDebugGroup)
+DECLARE_GL_FUNCTION_HEAD(void, ObjectLabel, GLenum identifier, GLuint name, GLsizei length, const GLchar* label) DECLARE_GL_FUNCTION_END_NO_RETURN(void, ObjectLabel, identifier, name, length, label)
+DECLARE_GL_FUNCTION_HEAD(void, GetObjectLabel, GLenum identifier, GLuint name, GLsizei bufSize, GLsizei* length, GLchar* label) DECLARE_GL_FUNCTION_END_NO_RETURN(void, GetObjectLabel, identifier, name, bufSize, length, label)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, ObjectPtrLabel, const void* ptr, GLsizei length, const GLchar* label) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, ObjectPtrLabel, ptr, length, label)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, GetObjectPtrLabel, const void* ptr, GLsizei bufSize, GLsizei* length, GLchar* label) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, GetObjectPtrLabel, ptr, bufSize, length, label)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, GetPointerv, GLenum pname, void** params) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, GetPointerv, pname, params)
@@ -996,7 +983,7 @@ DECLARE_GL_FUNCTION_HEAD(void, MultiDrawArraysIndirect, GLenum mode, const void*
 DECLARE_GL_FUNCTION_HEAD(void, MultiDrawElementsIndirect, GLenum mode, GLenum type, const void* indirect, GLsizei drawcount, GLsizei stride) DECLARE_GL_FUNCTION_END_NO_RETURN(void, MultiDrawElementsIndirect, mode, type, indirect, drawcount, stride)
 DECLARE_GL_FUNCTION_HEAD(GLint, GetProgramResourceLocationIndex, GLuint program, GLenum programInterface, const GLchar* name) DECLARE_GL_FUNCTION_END(GLint, GetProgramResourceLocationIndex, program, programInterface, name)
 DECLARE_GL_FUNCTION_HEAD(void, ShaderStorageBlockBinding, GLuint program, GLuint storageBlockIndex, GLuint storageBlockBinding) DECLARE_GL_FUNCTION_END_NO_RETURN(void, ShaderStorageBlockBinding, program, storageBlockIndex, storageBlockBinding)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, TextureView, GLuint texture, GLenum target, GLuint origtexture, GLenum internalformat, GLuint minlevel, GLuint numlevels, GLuint minlayer, GLuint numlayers) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, TextureView, texture, target, origtexture, internalformat, minlevel, numlevels, minlayer, numlayers)
+DECLARE_GL_FUNCTION_HEAD(void, TextureView, GLuint texture, GLenum target, GLuint origtexture, GLenum internalformat, GLuint minlevel, GLuint numlevels, GLuint minlayer, GLuint numlayers) DECLARE_GL_FUNCTION_END_NO_RETURN(void, TextureView, texture, target, origtexture, internalformat, minlevel, numlevels, minlayer, numlayers)
 DECLARE_GL_FUNCTION_HEAD(void, VertexAttribLFormat, GLuint attribindex, GLint size, GLenum type, GLuint relativeoffset) DECLARE_GL_FUNCTION_END_NO_RETURN(void, VertexAttribLFormat, attribindex, size, type, relativeoffset)
 DECLARE_GL_FUNCTION_HEAD(void, BufferStorage, GLenum target, GLsizeiptr size, const void* data, GLbitfield flags) DECLARE_GL_FUNCTION_END_NO_RETURN(void, BufferStorage, target, size, data, flags)
 DECLARE_GL_FUNCTION_HEAD(void, ClearTexImage, GLuint texture, GLint level, GLenum format, GLenum type, const void* data) DECLARE_GL_FUNCTION_END_NO_RETURN(void, ClearTexImage, texture, level, format, type, data)
@@ -1060,9 +1047,9 @@ DECLARE_GL_FUNCTION_HEAD(void, TextureStorage3DMultisample, GLuint texture, GLsi
 DECLARE_GL_FUNCTION_HEAD(void, TextureSubImage1D, GLuint texture, GLint level, GLint xoffset, GLsizei width, GLenum format, GLenum type, const void* pixels) DECLARE_GL_FUNCTION_END_NO_RETURN(void, TextureSubImage1D, texture, level, xoffset, width, format, type, pixels)
 DECLARE_GL_FUNCTION_HEAD(void, TextureSubImage2D, GLuint texture, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height, GLenum format, GLenum type, const void* pixels) DECLARE_GL_FUNCTION_END_NO_RETURN(void, TextureSubImage2D, texture, level, xoffset, yoffset, width, height, format, type, pixels)
 DECLARE_GL_FUNCTION_HEAD(void, TextureSubImage3D, GLuint texture, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width, GLsizei height, GLsizei depth, GLenum format, GLenum type, const void* pixels) DECLARE_GL_FUNCTION_END_NO_RETURN(void, TextureSubImage3D, texture, level, xoffset, yoffset, zoffset, width, height, depth, format, type, pixels)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, CompressedTextureSubImage1D, GLuint texture, GLint level, GLint xoffset, GLsizei width, GLenum format, GLsizei imageSize, const void* data) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, CompressedTextureSubImage1D, texture, level, xoffset, width, format, imageSize, data)
+DECLARE_GL_FUNCTION_HEAD(void, CompressedTextureSubImage1D, GLuint texture, GLint level, GLint xoffset, GLsizei width, GLenum format, GLsizei imageSize, const void* data) DECLARE_GL_FUNCTION_END_NO_RETURN(void, CompressedTextureSubImage1D, texture, level, xoffset, width, format, imageSize, data)
 DECLARE_GL_FUNCTION_HEAD(void, CompressedTextureSubImage2D, GLuint texture, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height, GLenum format, GLsizei imageSize, const void* data) DECLARE_GL_FUNCTION_END_NO_RETURN(void, CompressedTextureSubImage2D, texture, level, xoffset, yoffset, width, height, format, imageSize, data)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, CompressedTextureSubImage3D, GLuint texture, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width, GLsizei height, GLsizei depth, GLenum format, GLsizei imageSize, const void* data) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, CompressedTextureSubImage3D, texture, level, xoffset, yoffset, zoffset, width, height, depth, format, imageSize, data)
+DECLARE_GL_FUNCTION_HEAD(void, CompressedTextureSubImage3D, GLuint texture, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width, GLsizei height, GLsizei depth, GLenum format, GLsizei imageSize, const void* data) DECLARE_GL_FUNCTION_END_NO_RETURN(void, CompressedTextureSubImage3D, texture, level, xoffset, yoffset, zoffset, width, height, depth, format, imageSize, data)
 DECLARE_GL_FUNCTION_HEAD(void, CopyTextureSubImage1D, GLuint texture, GLint level, GLint xoffset, GLint x, GLint y, GLsizei width) DECLARE_GL_FUNCTION_END_NO_RETURN(void, CopyTextureSubImage1D, texture, level, xoffset, x, y, width)
 DECLARE_GL_FUNCTION_HEAD(void, CopyTextureSubImage2D, GLuint texture, GLint level, GLint xoffset, GLint yoffset, GLint x, GLint y, GLsizei width, GLsizei height) DECLARE_GL_FUNCTION_END_NO_RETURN(void, CopyTextureSubImage2D, texture, level, xoffset, yoffset, x, y, width, height)
 DECLARE_GL_FUNCTION_HEAD(void, CopyTextureSubImage3D, GLuint texture, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLint x, GLint y, GLsizei width, GLsizei height) DECLARE_GL_FUNCTION_END_NO_RETURN(void, CopyTextureSubImage3D, texture, level, xoffset, yoffset, zoffset, x, y, width, height)
@@ -1848,9 +1835,9 @@ DECLARE_GL_FUNCTION_STUB_HEAD(void, GetBooleanIndexedvEXT, GLenum target, GLuint
 DECLARE_GL_FUNCTION_STUB_HEAD(void, CompressedTextureImage3DEXT, GLuint texture, GLenum target, GLint level, GLenum internalformat, GLsizei width, GLsizei height, GLsizei depth, GLint border, GLsizei imageSize, const void* bits) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, CompressedTextureImage3DEXT, texture, target, level, internalformat, width, height, depth, border, imageSize, bits)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, CompressedTextureImage2DEXT, GLuint texture, GLenum target, GLint level, GLenum internalformat, GLsizei width, GLsizei height, GLint border, GLsizei imageSize, const void* bits) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, CompressedTextureImage2DEXT, texture, target, level, internalformat, width, height, border, imageSize, bits)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, CompressedTextureImage1DEXT, GLuint texture, GLenum target, GLint level, GLenum internalformat, GLsizei width, GLint border, GLsizei imageSize, const void* bits) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, CompressedTextureImage1DEXT, texture, target, level, internalformat, width, border, imageSize, bits)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, CompressedTextureSubImage3DEXT, GLuint texture, GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width, GLsizei height, GLsizei depth, GLenum format, GLsizei imageSize, const void* bits) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, CompressedTextureSubImage3DEXT, texture, target, level, xoffset, yoffset, zoffset, width, height, depth, format, imageSize, bits)
+DECLARE_GL_FUNCTION_HEAD(void, CompressedTextureSubImage3DEXT, GLuint texture, GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width, GLsizei height, GLsizei depth, GLenum format, GLsizei imageSize, const void* bits) DECLARE_GL_FUNCTION_END_NO_RETURN(void, CompressedTextureSubImage3D, texture, level, xoffset, yoffset, zoffset, width, height, depth, format, imageSize, bits)
 DECLARE_GL_FUNCTION_HEAD(void, CompressedTextureSubImage2DEXT, GLuint texture, GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height, GLenum format, GLsizei imageSize, const void* bits) DECLARE_GL_FUNCTION_END_NO_RETURN(void, CompressedTextureSubImage2D, texture, level, xoffset, yoffset, width, height, format, imageSize, bits)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, CompressedTextureSubImage1DEXT, GLuint texture, GLenum target, GLint level, GLint xoffset, GLsizei width, GLenum format, GLsizei imageSize, const void* bits) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, CompressedTextureSubImage1DEXT, texture, target, level, xoffset, width, format, imageSize, bits)
+DECLARE_GL_FUNCTION_HEAD(void, CompressedTextureSubImage1DEXT, GLuint texture, GLenum target, GLint level, GLint xoffset, GLsizei width, GLenum format, GLsizei imageSize, const void* bits) DECLARE_GL_FUNCTION_END_NO_RETURN(void, CompressedTextureSubImage1D, texture, level, xoffset, width, format, imageSize, bits)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, GetCompressedTextureImageEXT, GLuint texture, GLenum target, GLint lod, void* img) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, GetCompressedTextureImageEXT, texture, target, lod, img)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, CompressedMultiTexImage3DEXT, GLenum texunit, GLenum target, GLint level, GLenum internalformat, GLsizei width, GLsizei height, GLsizei depth, GLint border, GLsizei imageSize, const void* bits) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, CompressedMultiTexImage3DEXT, texunit, target, level, internalformat, width, height, depth, border, imageSize, bits)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, CompressedMultiTexImage2DEXT, GLenum texunit, GLenum target, GLint level, GLenum internalformat, GLsizei width, GLsizei height, GLint border, GLsizei imageSize, const void* bits) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, CompressedMultiTexImage2DEXT, texunit, target, level, internalformat, width, height, border, imageSize, bits)
