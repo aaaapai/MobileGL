@@ -7,6 +7,7 @@
 // End of Source File Header
 
 #include "Loader.h"
+#include "MG_Util/SelfTest/DriverBugProbes.h"
 #include "MG_Util/Types.h"
 #include <Config.h>
 #include <cmath>
@@ -1064,6 +1065,16 @@ namespace MobileGL::MG_Util::BackendLoader {
         MGLOG_I("OpenGL ES capabilities:");
         glesFuncs.glGetIntegerv(GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT, &caps.UniformBufferOffsetAlignment);
         MGLOG_I("    GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT: %d", caps.UniformBufferOffsetAlignment);
+        // ES 3.1 core, so no extension gate - but a driver that somehow leaves it at zero would
+        // make every storage-range offset legal, so an unusable answer keeps the 256 default.
+        GLint shaderStorageOffsetAlignment = 0;
+        glesFuncs.glGetIntegerv(GL_SHADER_STORAGE_BUFFER_OFFSET_ALIGNMENT, &shaderStorageOffsetAlignment);
+        while (glesFuncs.glGetError() != GL_NO_ERROR) {
+        }
+        if (shaderStorageOffsetAlignment > 0) {
+            caps.ShaderStorageBufferOffsetAlignment = shaderStorageOffsetAlignment;
+        }
+        MGLOG_I("    GL_SHADER_STORAGE_BUFFER_OFFSET_ALIGNMENT: %d", caps.ShaderStorageBufferOffsetAlignment);
         GLfloat aliasedLineWidthRange[2] = {1.0f, 1.0f};
         GLfloat smoothLineWidthRange[2] = {1.0f, 1.0f};
         GLfloat smoothLineWidthGranularity = 1.0f;
@@ -1495,7 +1506,26 @@ namespace MobileGL::MG_Util::BackendLoader {
         caps.MaxVertexTextureImageUnits = maxVertexTextureImageUnits;
         caps.MaxComputeTextureImageUnits = maxComputeTextureImageUnits;
         caps.MaxCombinedTextureImageUnits = maxCombinedTextureImageUnits;
-        caps.MaxVertexAttribs = maxVertexAttribs;
+        // Not the driver's answer alone: MobileGL emits every vertex input as a
+        // layout(location = N) qualifier, so an attribute the driver counts but its ESSL
+        // compiler will not let anything DECLARE is not an attribute MobileGL can hand to an
+        // application. The probe measures where the qualifier actually stops (see
+        // SelfTest::ProbeExplicitVertexInputLocationCeiling - Adreno 830 advertises 32 and
+        // refuses the qualifier from 16 up) and answers with the advertised count on every
+        // driver that has no such gap and on any run that reaches no verdict, so this only ever
+        // lowers the number, and only on evidence.
+        const SelfTest::VertexInputLocationCeilingMeasurement& locationCeiling =
+            SelfTest::ExplicitVertexInputLocationCeiling(glesFuncs);
+        // Guarded on `detected` rather than on the number alone: a probe that reached no verdict
+        // has measured nothing, and the clamp must be driven by evidence or not applied at all.
+        caps.MaxVertexAttribs = locationCeiling.detected
+                                    ? std::min(maxVertexAttribs, locationCeiling.usableLocations)
+                                    : maxVertexAttribs;
+        if (locationCeiling.detected) {
+            MGLOG_I("    GL_MAX_VERTEX_ATTRIBS reduced from the driver's %d to %d: "
+                    "layout(location = N) on a vertex input is refused from N = %d upward",
+                    maxVertexAttribs, caps.MaxVertexAttribs, locationCeiling.usableLocations);
+        }
         caps.MaxComputeShaderStorageBlocks = maxComputeShaderStorageBlocks;
         caps.MaxCombinedShaderStorageBlocks = maxCombinedShaderStorageBlocks;
         caps.MaxVertexShaderStorageBlocks = maxVertexShaderStorageBlocks;
