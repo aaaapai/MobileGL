@@ -17,6 +17,12 @@ The bundled fixtures cover:
   ![Minecraft 1.17 854x480 main menu golden](fixtures/minecraft-1.17-main-menu-854.0000117757.png)
 - minecraft-1.21.4-in-world: captured from Minecraft 1.21.4 after entering a singleplayer world.
   ![Minecraft 1.21.4 in-world golden](fixtures/minecraft-1.21.4-in-world.0000280000.png)
+- minecraft-1.21.4-rd12-odinlite-in-world: captured on an Android device (FCL MobileGL Magma capture, 854x480) from
+  vanilla Minecraft 1.21.4 at render distance 12, drifting down a river valley in a boat. Unlike the other in-world
+  fixtures this one is a 251-frame window (gltrim `-f 1094-1343`) rather than a single frame, so it doubles as the
+  campaign's benchmark scene: benchmark mode replays the whole window and the tail frames measure steady-state
+  in-world frame time. The golden is still the final frame, so it works as an ordinary correctness case too.
+  ![Minecraft 1.21.4 render distance 12 in-world golden](fixtures/minecraft-1.21.4-rd12-odinlite-in-world.0004660351.png)
 - minecraft-1.21.4-fabric-sodium-in-world: captured from Minecraft 1.21.4 Fabric with Sodium after entering a
   singleplayer world with Fancy graphics.
   ![Minecraft 1.21.4 Fabric Sodium in-world golden](fixtures/minecraft-1.21.4-fabric-sodium-in-world.0000923340.png)
@@ -279,6 +285,72 @@ unflushed persistent maps, e.g. the Create fixtures), pass
 `avoid_angle_llvmpipe_explicit_lod_bias` (DirectGLES on ANGLE llvmpipe, e.g. the
 sundial-lite fixture), pass `--ez avoid_angle_llvmpipe_explicit_lod_bias true` so
 the replay runs with `MOBILEGL_AVOID_EXPLICIT_LOD_BIAS=1`.
+
+## Benchmark mode (frame timing)
+
+Benchmark mode reuses the same fixtures as a performance harness instead of a
+correctness one: it replays the trace from the first call to the last, takes a
+wall-clock timestamp at every frame boundary, and takes no snapshot and runs no
+SSIM comparison. `passed` then only means the replay reached the end of the trace
+without an error.
+
+Frame times include GPU completion by default, because a swap boundary on a tiled
+mobile GPU returns long before the tiler is done and would otherwise time CPU
+submission alone. That is what `benchmark_finish` / `--benchmark-finish` controls:
+on (the default) it issues a `glFinish` through the replayed context at every
+frame boundary, which serializes CPU/GPU overlap - pessimistic against a real
+running game, but deterministic and comparable between backends and revisions.
+Turn it off to measure CPU-side submission only.
+
+The mean/median/p95 are computed over the last `benchmark_tail_frames` frames
+(default 200, clamped to the frames actually recorded); the head of a trace is
+dominated by shader compiles and first-use uploads. The full per-frame array is in
+the timing JSON, next to the headline numbers, which also appear in `result.json`.
+
+Whole device runs, one line per run plus the best of the repeats:
+
+```sh
+python tools/trace_replay/run_android_retrace_local.py --benchmark \
+  --case minecraft-1.21.4-fabric-iris-photon-in-world --backend DirectVulkan \
+  --benchmark-repeats 3
+```
+
+`--benchmark-tail-frames N`, `--benchmark-no-finish` and
+`--benchmark-timeout-seconds N` are available; only the first repeat installs the
+APK and pushes the trace. Each run's `benchmark.json` is kept next to the case
+result as `benchmark-run<N>.json`.
+
+The Activity takes the same settings directly:
+
+```sh
+adb shell am start -a top.mobilegl.plugin.TRACE_REPLAY \
+  -n $PKG/top.mobilegl.plugin.trace.TraceReplayActivity \
+  --es trace_path $APP_DIR/input/openra.trace \
+  --es output_dir $APP_DIR/output \
+  --es backend DirectGLES \
+  --ei width 640 --ei height 480 \
+  --ez benchmark true \
+  --ei benchmark_tail_frames 200 \
+  --ez benchmark_finish true \
+  --es benchmark_result_path $APP_DIR/output/benchmark.json
+adb exec-out run-as $PKG cat files/trace-replay/output/benchmark.json > benchmark.json
+```
+
+`golden_path` and `target_call` are not needed in benchmark mode. The Linux CLI
+takes the same options:
+
+```sh
+./mobilegl_trace_replay --trace openra.trace --output out --backend DirectGLES \
+  --benchmark --benchmark-tail-frames=200 --benchmark-finish=1 \
+  --benchmark-result=out/benchmark.json
+```
+
+Two caveats when reading the numbers. Frame times are taken at `eglSwapBuffers`,
+so a trace that ends frames with `glFrameTerminatorGREMEDY` instead is not timed.
+And on a window surface the swap can block on the compositor, which pins frame
+times to the display refresh; replay against the pbuffer surface
+(`--ez use_pbuffer true`) to measure the renderer rather than the presentation
+path.
 
 ## Reproducing the Android DirectGLES lane on Linux (ANGLE on lavapipe)
 
