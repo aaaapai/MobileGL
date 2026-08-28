@@ -307,9 +307,9 @@ namespace MobileGL {
                 const String preamble = String("#undef VULKAN\n") + CollectEsPreambleMacroDefines(source);
                 tshader->setPreamble(preamble.c_str());
                 if (flags & ShaderCompileBits::CompileForOpenGL) {
-                    tshader->setEnvInput(glslang::EShSourceGlsl, lang, glslang::EShClientVulkan, 450);
+                    tshader->setEnvInput(glslang::EShSourceGlsl, lang, glslang::EShClientOpenGL, 450);
                     tshader->setEnvClient(glslang::EShClientOpenGL, glslang::EShTargetOpenGL_450);
-                    tshader->setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_3);
+                    tshader->setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_5);
                 } else {
                     tshader->setEnvInput(glslang::EShSourceGlsl, lang, glslang::EShClientVulkan, 450);
                     // MobileGL runtime currently creates Vulkan 1.1 instance/device on Android path,
@@ -323,7 +323,7 @@ namespace MobileGL {
                 tshader->setAutoMapBindings(true);
                 tshader->setGlobalUniformBlockName(GLOBAL_UBO_NAME);
                 auto resources = BuildTBuiltInResource(env);
-                if (!tshader->parse(&resources, 460, ECoreProfile,
+                if (!tshader->parse(&resources, 460, ECompatibilityProfile,
                                     /*forceDefaultVersionAndProfile: */ false,
                                     /*forwardCompatible: */ true, EShMsgDefault)) {
                     ResultInfo r;

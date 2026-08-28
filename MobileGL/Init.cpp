@@ -122,6 +122,7 @@ namespace MobileGL {
         if (MG_Util::Async::AsyncShaderCompileEnabled()) {
             MG_Util::ShaderTranspiler::ShaderCompiler::PrewarmBuiltins();
         }
+
         MGLOG_D("glslang initialized");
         g_isInitialized = true;
         MGLOG_I("MobileGL initialized");
