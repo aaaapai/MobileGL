@@ -1118,6 +1118,23 @@ namespace MobileGL {
                 ExtensionOES, // GL_OES_texture_buffer; ESSL below 320 must say GL_OES_texture_buffer
             };
             TextureBufferTier TextureBufferSupport = TextureBufferTier::None;
+            // Which spelling of per-vertex point size a NON-VERTEX stage has, if any. In desktop
+            // GL gl_PointSize is an ordinary gl_PerVertex member that any vertex-processing stage
+            // may write and any program may capture by name; in ESSL it does not EXIST in a
+            // tessellation or geometry stage until GL_EXT/OES_tessellation_point_size (resp.
+            // ..._geometry_point_size) is requested - not even at 320, where the stages
+            // themselves are core. SPIRV-Cross prints the identifier bare and asks for nothing,
+            // exactly as it does for gl_ViewportIndex, so the directive has to be inserted into
+            // the emitted source (RequestPointSizeExtension) and a driver with neither spelling
+            // cannot compile such a stage at all. Extension string only: these add no entry
+            // points, so there is no pointer to require.
+            enum class PointSizeTier : Uint8 {
+                None = 0,     // neither spelling; the stage cannot name gl_PointSize
+                ExtensionEXT, // GL_EXT_tessellation_point_size / GL_EXT_geometry_point_size
+                ExtensionOES, // GL_OES_tessellation_point_size / GL_OES_geometry_point_size
+            };
+            PointSizeTier TessellationPointSizeSupport = PointSizeTier::None;
+            PointSizeTier GeometryPointSizeSupport = PointSizeTier::None;
             // GL_MAX_TEXTURE_BUFFER_SIZE actually came back from the driver. False means the value
             // below is MobileGL's own floor, not a driver answer: the pname is only legal once
             // buffer textures exist, and querying it on a driver without them raises
@@ -1230,6 +1247,17 @@ namespace MobileGL {
             // straight to vkCmdDraw*Indirect and compiles gl_InstanceID to SPIR-V
             // InstanceIndex, which includes firstInstance.
             Bool IndirectDrawInstanceIdIncludesBaseInstance = false;
+            // True when an inter-stage interface BLOCK carrying an explicit layout(location=)
+            // actually delivers its payload across a tessellation or geometry boundary. The
+            // Mali-G1-Ultra ES driver links such a program with an empty info log and then
+            // hands the consuming stage zeroes; DirectGLES answers by emitting those blocks
+            // with no location qualifier at all (StripIoBlockLocationsPass), which ES matches
+            // by block name and member sequence instead.
+            //
+            // Defaults TRUE and stays true when the probe cannot run, because that is the
+            // behaviour every driver had before the probe existed - a capability like this
+            // must never be assumed broken on a driver nobody measured.
+            Bool SupportsLocatedInterStageIoBlocks = true;
             Int UniformBufferOffsetAlignment = 256;
             // Its storage-buffer counterpart, queried separately because it is a separate limit:
             // Adreno 830 answers 32 for GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT and 64 for
@@ -1299,6 +1327,11 @@ namespace MobileGL {
             // GL_EXT_clip_cull_distance, so a driver without it has none. See the guarded probe
             // in FillInGLESCapabilities.
             Int MaxClipDistances = 0;
+            // Same contract, same reason, same extension: GL_MAX_CULL_DISTANCES_EXT and
+            // GL_MAX_COMBINED_CLIP_AND_CULL_DISTANCES_EXT exist in ES only under
+            // GL_EXT_clip_cull_distance, so zero is the honest answer without it.
+            Int MaxCullDistances = 0;
+            Int MaxCombinedClipAndCullDistances = 0;
             Int MaxViewports = 16;
             // GL_LAYER_PROVOKING_VERTEX (ES 3.2 core) and GL_VIEWPORT_INDEX_PROVOKING_VERTEX
             // (GL_OES_viewport_array). GL_UNDEFINED_VERTEX is a legal answer for both and is what

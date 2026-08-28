@@ -11,8 +11,10 @@
 #include "Managers.h"
 #include "MG_Backend/BackendObjects.h"
 #include "MG_Util/Converters/GLToMG/FramebufferEnumConverter.h"
+#include "MG_Util/SelfTest/DriverBugProbes.h"
 #include "MG_Util/Texture/TextureFormatProcessor.h"
 #include "MG_Util/ShaderTranspiler/ShaderCompiler.h"
+#include <Config.h>
 
 #include <MG_State/GLState/Core.h>
 #include <MG_Util/BackendLoaders/OpenGL/Loader.h>
@@ -26,6 +28,7 @@
 #include <cmath>
 #include <cctype>
 #include <cstring>
+#include <format>
 #include <regex>
 
 namespace MobileGL::MG_Backend::DirectGLES {
@@ -124,6 +127,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     requestedInternalFormat,
                     TextureImpl::GetRenderTargetNormalizeOptions(g_GLESCapabilities, targetIndex));
             }
+            // Outside the caveat branch on purpose: the driver CAN create the native narrow
+            // storage - the capability probes say so - it just cannot be trusted as a raw-copy
+            // endpoint. Texture and renderbuffer targets both come through here, which is what
+            // keeps a renderbuffer -> texture copy of these formats same-ES-format when the
+            // widening engages.
+            if (TextureImpl::UsesWidenedPacked16NormStorage(internalFormat)) {
+                options |= PixelFormatNormalizeOptionBit::WidenPacked16Norm;
+            }
             NormalizePixelFormat(requestedInternalFormat, options, outInternalFormat, outFormat, outType);
         }
     } // namespace
@@ -179,6 +190,36 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 options |= PixelFormatNormalizeOptionBit::NoSnorm8RenderTarget;
             }
             return options;
+        }
+
+        Bool UsesWidenedPacked16NormStorage(TextureInternalFormat internalFormat) {
+            switch (internalFormat) {
+            // TextureInternalFormat::RGB5 is both GL_RGB5 and GL_RGB565 - the GL-to-MG
+            // converter folds the two spellings onto one logical format.
+            case TextureInternalFormat::RGB5:
+            case TextureInternalFormat::RGB5A1:
+            case TextureInternalFormat::RGBA4:
+                break;
+            default:
+                return false;
+            }
+            switch (MG_Config::Features.EsprytWidenPacked16Storage) {
+            case MG_Config::QuirkOverride::ForceOn:
+                return true;
+            case MG_Config::QuirkOverride::ForceOff:
+                return false;
+            case MG_Config::QuirkOverride::Auto:
+                break;
+            }
+            // Behind the backend gate on purpose: the memoized probe latches its first answer
+            // for the whole process, and before the backend is up the GL function table may
+            // not be resolved yet - a probe run then would latch "cannot tell" as "clean"
+            // forever. Once the backend exists, the first narrow-format image this process
+            // creates runs the probe on a live context.
+            if (pActiveBackendObject == nullptr) {
+                return false;
+            }
+            return MG_Util::SelfTest::CopyImageMirrorsPacked16FieldOrder(g_GLESFuncs);
         }
 
         void GenerateTextureFormatInfo(TextureInternalFormat internalFormat, GLenum* outInternalFormat,
@@ -712,6 +753,47 @@ namespace MobileGL::MG_Backend::DirectGLES {
             return glslCode;
         }
 
+        const char* PointSizeExtensionName(MG_External::GLESCapabilities::PointSizeTier tier, Bool tessellation) {
+            using Tier = MG_External::GLESCapabilities::PointSizeTier;
+            switch (tier) {
+                case Tier::ExtensionEXT:
+                    return tessellation ? "GL_EXT_tessellation_point_size" : "GL_EXT_geometry_point_size";
+                case Tier::ExtensionOES:
+                    return tessellation ? "GL_OES_tessellation_point_size" : "GL_OES_geometry_point_size";
+                default:
+                    return nullptr;
+            }
+        }
+
+        String RequestPointSizeExtension(String glslCode, const char* extensionName) {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
+            // The gl_ViewportIndex story, one built-in over: ESSL 320 makes the tessellation and
+            // geometry STAGES core but leaves gl_PointSize out of their gl_PerVertex entirely,
+            // and SPIRV-Cross - which only ever sees a SPIR-V BuiltIn PointSize decoration -
+            // prints the identifier with no directive behind it. Same hard rule as the two
+            // neighbours: never emitted speculatively, because `#extension` on a name the driver
+            // does not advertise is a compile error of its own.
+            if (extensionName == nullptr || glslCode.find(extensionName) != String::npos) {
+                return glslCode;
+            }
+            const String directive = String("#extension ") + extensionName + " : require\n";
+            // Right after the #version line, the one position that must stay first;
+            // ForceSupporterOutput's scan for the LAST #extension directive still finds
+            // whichever one that ends up being.
+            const SizeT versionPos = glslCode.find("#version");
+            if (versionPos == String::npos) {
+                return directive + glslCode;
+            }
+            const SizeT lineEnd = glslCode.find('\n', versionPos);
+            if (lineEnd == String::npos) {
+                return glslCode + "\n" + directive;
+            }
+            glslCode.insert(lineEnd + 1, directive);
+            return glslCode;
+        }
+
         String BakeImageFormatQualifiers(String glslCode,
                                          const UnorderedMap<String, String>& esslFormatByUniformName) {
 #ifdef TRACY_ENABLE
@@ -836,7 +918,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
         String BuildPassthroughTessControlEssl(const Uint esslVersion, const Uint patchVertices,
                                                const String& inPerVertexMembers,
-                                               const String& outPerVertexMembers) {
+                                               const String& outPerVertexMembers,
+                                               const FloatVec4& defaultOuterLevel,
+                                               const FloatVec2& defaultInnerLevel) {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
@@ -866,12 +950,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
             // was declined before this was ever called (ModuleReadsLocatedInput), and gl_PointSize
             // from a tessellation stage is a separate capability on both targets.
             source += "    gl_out[gl_InvocationID].gl_Position = gl_in[gl_InvocationID].gl_Position;\n";
-            source += "    gl_TessLevelOuter[0] = 1.0;\n";
-            source += "    gl_TessLevelOuter[1] = 1.0;\n";
-            source += "    gl_TessLevelOuter[2] = 1.0;\n";
-            source += "    gl_TessLevelOuter[3] = 1.0;\n";
-            source += "    gl_TessLevelInner[0] = 1.0;\n";
-            source += "    gl_TessLevelInner[1] = 1.0;\n";
+            for (Uint i = 0; i < 4; ++i) {
+                source += "    gl_TessLevelOuter[" + std::to_string(i) +
+                          "] = " + MG_Util::ShaderTranspiler::TessellationLevelLiteral(defaultOuterLevel[i]) + ";\n";
+            }
+            for (Uint i = 0; i < 2; ++i) {
+                source += "    gl_TessLevelInner[" + std::to_string(i) +
+                          "] = " + MG_Util::ShaderTranspiler::TessellationLevelLiteral(defaultInnerLevel[i]) + ";\n";
+            }
             source += "}\n";
             return source;
         }

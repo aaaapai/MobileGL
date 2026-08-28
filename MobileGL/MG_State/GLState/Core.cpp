@@ -650,6 +650,12 @@ namespace MobileGL::MG_State {
             // a graphics program carrying a compute module, which Adreno 830 does not reject
             // from vkCreateGraphicsPipelines - it SIGSEGVs inside it.
             Bool anyStage = false;
+            // Which stages the composite ACTUALLY got a shader for. Not the same question as
+            // "which stages have a stage program bound": one program bound with
+            // GL_ALL_SHADER_BITS occupies every slot while contributing a shader to only the
+            // stages it was linked with. The transform-feedback capture stage is chosen off this,
+            // because it has to be the stage that will exist in the composite's own link.
+            Bool compositeHasStage[ProgramPipelineObject::kGraphicsStageCount] = {};
             for (SizeT stage = 0; stage < ProgramPipelineObject::kGraphicsStageCount; ++stage) {
                 const auto& stageProgram = pipeline->GetStageProgram(static_cast<ShaderStage>(stage));
                 if (!stageProgram) continue;
@@ -665,9 +671,64 @@ namespace MobileGL::MG_State {
                     if (!ref.shader || static_cast<SizeT>(ref.shader->GetShaderStage()) != stage) continue;
                     composite->AttachShaderWithPinnedLinkInput(ref);
                     anyStage = true;
+                    compositeHasStage[stage] = true;
                 }
             }
             if (!anyStage) return nullProgram;
+            // Transform feedback captures the output of the LAST vertex-processing stage
+            // (GL 4.6 core 11.1.2.1), and glTransformFeedbackVaryings is per-PROGRAM state that
+            // only the stage program carrying that stage can have been given. The composite is
+            // assembled out of the stage programs' shaders and inherits none of their
+            // GL-thread-owned state, so without this it links with an empty capture list and
+            // glBeginTransformFeedback rejects the draw with INVALID_OPERATION ("the program has
+            // no transform feedback varyings") even though glValidateProgramPipeline had passed.
+            //
+            // TWO RULES, both easy to get subtly wrong and both load-bearing:
+            //
+            // (1) THE LINKED LIST, NOT THE PENDING REQUEST. glTransformFeedbackVaryings does not
+            //     take effect until the program's next link (GL 4.6 core 7.3/11.1.2.1), and it
+            //     deliberately bumps no version - so a request written after the stage program's
+            //     last link is invisible to the composite cache's signature yet would be picked up
+            //     by the next rebuild, making the capture list depend on whether some unrelated
+            //     event happened to invalidate the cache. Worse, a name that is not an output of
+            //     the capture stage fails the composite's OWN link, and a failed composite makes
+            //     every draw through the pipeline report INVALID_OPERATION. Reading the LINKED
+            //     snapshot removes the whole class: linked state only moves at a link, and a link
+            //     is exactly what ComputeDrawProgramSignature's per-stage link version tracks, so
+            //     the existing cache key is sufficient by construction.
+            //     GetTransformFeedbackInterfaceNames() is the right accessor rather than the
+            //     resolved xfbVaryings: it is the request as that link consumed it, pseudo-varyings
+            //     (gl_NextBuffer / gl_SkipComponentsN) included, which is what re-issuing it needs.
+            //
+            // (2) THE FIRST STAGE THAT EXISTS, not the first with something to capture. This is
+            //     the rule ProgramLinkTask::ResolveTransformFeedbackVaryings applies (it breaks on
+            //     getIntermediate(stage) != nullptr), and the two MUST agree: this loop picks
+            //     WHOSE list, the link task picks WHICH stage's outputs the names resolve against.
+            //     Skipping a geometry stage that has no capture list and installing the vertex
+            //     stage's instead made them disagree, and the composite then resolved a vertex
+            //     program's names against the geometry intermediate - capturing where GL says it
+            //     must not, or failing the link and killing every draw. A capture stage with an
+            //     empty list is not a reason to look further down: it is the answer, and
+            //     glBeginTransformFeedback's INVALID_OPERATION is the correct consequence.
+            //
+            // The order is the pipeline read backwards and includes the tessellation CONTROL
+            // stage, which is a vertex-processing stage too (GL 4.6 core 11): it can only be
+            // the last one in a pipeline that has a TCS but no evaluation or geometry stage,
+            // which is why it sits after TessEval. Same four stages, same order, as
+            // ProgramLinkTask::ResolveTransformFeedbackVaryings - see rule (2).
+            for (const ShaderStage captureStage:
+                 {ShaderStage::Geometry, ShaderStage::TessEval, ShaderStage::TessControl,
+                  ShaderStage::Vertex}) {
+                if (!compositeHasStage[static_cast<SizeT>(captureStage)]) continue;
+                const auto& captureProgram = pipeline->GetStageProgram(captureStage);
+                if (!captureProgram) continue;
+                const auto& linkedNames = captureProgram->GetTransformFeedbackInterfaceNames();
+                if (!linkedNames.empty()) {
+                    composite->SetTransformFeedbackVaryings(Vector<String>(linkedNames),
+                                                            captureProgram->GetTransformFeedbackBufferMode());
+                }
+                break;
+            }
             // A pipeline with no fragment stage still rasterises, so the default fragment
             // shader is wanted here even though the separable stage programs never get one.
             composite->Link(true);
@@ -812,6 +873,22 @@ namespace MobileGL::MG_State {
             m_renderState.SetPatchVertices(vertices);
         }
 
+        void GLContext::SetPatchDefaultOuterLevel(const FloatVec4& levels) {
+            m_renderState.SetPatchDefaultOuterLevel(levels);
+        }
+
+        const FloatVec4& GLContext::GetPatchDefaultOuterLevel() const {
+            return m_renderState.GetPatchDefaultOuterLevel();
+        }
+
+        void GLContext::SetPatchDefaultInnerLevel(const FloatVec2& levels) {
+            m_renderState.SetPatchDefaultInnerLevel(levels);
+        }
+
+        const FloatVec2& GLContext::GetPatchDefaultInnerLevel() const {
+            return m_renderState.GetPatchDefaultInnerLevel();
+        }
+
         Uint GLContext::GetPatchVertices() const {
             return m_renderState.GetPatchVertices();
         }
@@ -830,6 +907,26 @@ namespace MobileGL::MG_State {
 
         Float GLContext::GetPolygonOffsetUnits() const {
             return m_renderState.GetPolygonOffsetUnits();
+        }
+
+        void GLContext::SetPolygonOffsetClamped(Float factor, Float units, Float clamp) {
+            m_renderState.SetPolygonOffsetClamped(factor, units, clamp);
+        }
+
+        Float GLContext::GetPolygonOffsetClamp() const {
+            return m_renderState.GetPolygonOffsetClamp();
+        }
+
+        void GLContext::SetClipControl(GLenum origin, GLenum depth) {
+            m_renderState.SetClipControl(origin, depth);
+        }
+
+        GLenum GLContext::GetClipOrigin() const {
+            return m_renderState.GetClipOrigin();
+        }
+
+        GLenum GLContext::GetClipDepthMode() const {
+            return m_renderState.GetClipDepthMode();
         }
 
         void GLContext::SetCapability(CapabilityInput cap, Bool enabled) {
@@ -1007,6 +1104,14 @@ namespace MobileGL::MG_State {
 
         Uint32 GLContext::GetSampleMaskValue() const {
             return m_renderState.GetSampleMaskValue();
+        }
+
+        void GLContext::SetMinSampleShadingValue(Float value) {
+            m_renderState.SetMinSampleShadingValue(value);
+        }
+
+        Float GLContext::GetMinSampleShadingValue() const {
+            return m_renderState.GetMinSampleShadingValue();
         }
 
         void GLContext::SetPixelStoreParam(PixelStoreParam param, Int value) {

@@ -474,6 +474,75 @@ namespace MobileGL::MG_Impl::GLImpl {
             }
         }
 
+        // GL 4.6 core 9.2.8 conditions that depend only on the framebuffer and the attachment
+        // point. Shared, because glFramebufferTexture / 1D / 2D / 3D / TextureLayer are aliases of
+        // one another in that section and a CTS case that walks the family must not get five
+        // different answers - which is exactly what happened when these lived in one helper that
+        // only two of the five went through.
+        Bool ValidateFramebufferTextureAttachmentPoint(const char* functionName,
+                                                       const SharedPtr<MG_State::GLState::FramebufferObject>&
+                                                           framebufferObject,
+                                                       FramebufferAttachmentType attachmentType) {
+            // "An INVALID_OPERATION error is generated if COLOR_ATTACHMENTm is used with m greater
+            // than or equal to MAX_COLOR_ATTACHMENTS."
+            if (!FramebufferImpl::ValidateColorAttachmentInRange(attachmentType, functionName)) return false;
+            // "An INVALID_OPERATION error is generated if zero is bound to target." MobileGL keeps
+            // a real FramebufferObject for framebuffer 0, so a null test can never see this - the
+            // object is always there, and framebuffer 0 has to be recognised by identity instead,
+            // the same comparison DrawBuffers_State makes. Without this an attach onto the default
+            // framebuffer silently REPLACED its colour attachment, permanently desynchronising it
+            // from what the swapchain keeps publishing.
+            const auto& defaultFramebufferInfo = FramebufferImpl::pDefaultFramebufferInfo;
+            if (!framebufferObject ||
+                (defaultFramebufferInfo && framebufferObject == defaultFramebufferInfo->defaultFBO)) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeUnique<GenericErrorInfo>(
+                        "MG_Impl/GLImpl", functionName,
+                        "No framebuffer object is bound to the target; the default framebuffer's attachments "
+                        "cannot be named."));
+                return false;
+            }
+            return true;
+        }
+
+        // The other half of 9.2.8: "level must be greater than or equal to zero", and for a
+        // texture with immutable storage it "must be smaller than the number of levels the texture
+        // has". Split from the attachment-point half because the caller only has a texture object
+        // once the detach (texture == 0) case is behind it.
+        Bool ValidateFramebufferTextureLevel(const char* functionName,
+                                             const SharedPtr<MG_State::GLState::ITextureObject>& textureObject,
+                                             GLint level) {
+            if (level < 0) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue,
+                    MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", functionName,
+                                                 "Texture level must be non-negative."));
+                return false;
+            }
+            if (!textureObject || !textureObject->IsImmutable()) {
+                // A mutable texture has no level bound here: a level it has not specified yet is
+                // not an error, it just leaves the framebuffer incomplete.
+                return true;
+            }
+            // GetAddressableLevelCount(), NOT GetImmutableLevels(): for a VIEW the latter is
+            // deliberately the ORIGINAL texture's count (GL 4.6 core 8.18 defines
+            // TEXTURE_IMMUTABLE_LEVELS on a view that way), which is far too large a bound - a
+            // two-level view onto a ten-level texture would accept level 5 and attach an image
+            // nothing can draw into.
+            const Uint levelBound = textureObject->GetAddressableLevelCount();
+            if (static_cast<Uint>(level) >= levelBound) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue,
+                    MakeUnique<GenericErrorInfo>(
+                        "MG_Impl/GLImpl", functionName,
+                        std::format("Texture level {} is beyond the {} level(s) this texture has.", level,
+                                    levelBound)));
+                return false;
+            }
+            return true;
+        }
+
         void AttachFramebufferTextureWithUploadTarget(const char* functionName, GLenum target, GLenum attachment,
                                                       GLuint texture, GLint level,
                                                       TextureUploadTarget textureUploadTarget, Bool layered = false) {
@@ -482,10 +551,24 @@ namespace MobileGL::MG_Impl::GLImpl {
             }
 
             if (attachment == GL_DEPTH_STENCIL_ATTACHMENT) {
+                // `layered` has to travel with the split. GL_DEPTH_STENCIL_ATTACHMENT is only a
+                // shorthand for attaching the same image to both halves (GL 4.6 core 9.2.6), so
+                // whether glFramebufferTexture made it LAYERED is a property of the call, not of
+                // which half is being recorded - and dropping it here (the parameter defaults to
+                // false) recorded a non-layered depth/stencil attachment beside a layered colour
+                // one for every layered target. That is an inconsistent framebuffer by 9.4.1's
+                // own rule, and downstream it means the depth/stencil attachment covers layer 0
+                // alone: DirectVulkan built its view with layerCount 1 under a framebuffer
+                // declaring N layers (VUID-VkFramebufferCreateInfo-flags-04535), and DirectGLES
+                // attached one layer of it beside a layered colour target, which the driver
+                // answers with GL_FRAMEBUFFER_INCOMPLETE_LAYER_TARGETS - every draw silently
+                // produced nothing. This is the shape
+                // texture_cube_map_array.stencil_attachments_*_layered and
+                // geometry_shader.layered_framebuffer.stencil_support are built on.
                 AttachFramebufferTextureWithUploadTarget(functionName, target, GL_DEPTH_ATTACHMENT, texture, level,
-                                                        textureUploadTarget);
+                                                        textureUploadTarget, layered);
                 AttachFramebufferTextureWithUploadTarget(functionName, target, GL_STENCIL_ATTACHMENT, texture, level,
-                                                        textureUploadTarget);
+                                                        textureUploadTarget, layered);
                 return;
             }
 
@@ -497,13 +580,7 @@ namespace MobileGL::MG_Impl::GLImpl {
 
             auto& bindingSlot = MG_State::pGLContext->GetFramebufferBindingSlot(framebufferTarget);
             auto& framebufferObject = bindingSlot.GetBoundObject();
-            if (!framebufferObject) {
-                MG_State::pGLContext->RecordError(
-                    ErrorCode::InvalidOperation,
-                    MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", functionName,
-                                                 "Framebuffer target is bound to no framebuffer object."));
-                return;
-            }
+            if (!ValidateFramebufferTextureAttachmentPoint(functionName, framebufferObject, attachmentType)) return;
 
             if (texture == 0) {
                 framebufferObject->Detach(attachmentType);
@@ -518,6 +595,7 @@ namespace MobileGL::MG_Impl::GLImpl {
                                                  std::format("Texture object {} is not valid.", texture)));
                 return;
             }
+            if (!ValidateFramebufferTextureLevel(functionName, textureObject, level)) return;
 
             const auto expectedTextureTarget = MG_Util::ConvertTextureUploadTargetToTextureTarget(textureUploadTarget);
             if (expectedTextureTarget == TextureTarget::Unknown ||
@@ -624,16 +702,33 @@ namespace MobileGL::MG_Impl::GLImpl {
     // GL_MAX_SAMPLES is the ceiling over all formats; an integer format has its own
     // (GL_MAX_INTEGER_SAMPLES) and GL 4.6 core 9.2.4 makes exceeding it INVALID_OPERATION.
     // The multisample TEXTURE path resolves the limit per format the same way
-    // (GL_Texture.cpp, GetMaxSupportedTextureSamples). Both are floored to the value MobileGL
-    // advertises: on a driver where the two differ - Adreno reports GL_MAX_SAMPLES 4 and
-    // GL_MAX_INTEGER_SAMPLES 1 - rejecting the advertised count here only moves the failure
-    // from the driver into MobileGL, so the frontend accepts it and the backend clamps the
-    // count it actually hands the driver.
+    // (GL_Texture.cpp, GetMaxSupportedTextureSamples), and both now enforce exactly what their
+    // pname advertises. The integer ceiling used to be floored at GL_MAX_SAMPLES so that the
+    // frontend would accept a count it had advertised globally - but on Adreno and Mali the
+    // integer path is genuinely one sample, and accepting four only moved the failure from an
+    // honest INVALID_OPERATION here to a silently under-allocated renderbuffer.
+    // The head of the per-format renderbuffer sample list the backend probed, or 0 when nothing
+    // was probed for it. Same shape as GetProbedMaxTextureSamples in GL_Texture.cpp, and reads
+    // the same cache glGetInternalformativ(GL_RENDERBUFFER, ..., GL_SAMPLES) answers from.
+    static Int GetProbedMaxRenderbufferSamples(TextureInternalFormat format) {
+        if (MG_Backend::pActiveBackendObject == nullptr) {
+            return 0;
+        }
+        const SizeT targetIndex = MG_Backend::GetRenderbufferFormatCapabilityTargetIndex();
+        const SizeT formatIndex = static_cast<SizeT>(format);
+        if (targetIndex >= MG_Backend::kFormatCapabilityTargetCount ||
+            formatIndex >= MG_Backend::kFormatCapabilityFormatCount) {
+            return 0;
+        }
+        const auto& sampleCounts =
+            MG_Backend::pActiveBackendObject->GetFormatCapabilities().SampleCounts[targetIndex][formatIndex];
+        return sampleCounts.empty() ? 0 : sampleCounts.front();
+    }
+
     Int GetMaxRenderbufferSamplesForFormat_State(TextureInternalFormat format) {
         if (MG_Backend::pActiveBackendObject == nullptr) {
             return std::numeric_limits<Int>::max();
         }
-        const auto& dynamicParameters = MG_Backend::pActiveBackendObject->GetDynamicParameters();
 
         GLenum normalizedInternalFormat = MG_Util::ConvertTextureInternalFormatToGLEnum(format);
         GLenum normalizedFormat = GL_RGBA;
@@ -644,13 +739,24 @@ namespace MobileGL::MG_Impl::GLImpl {
                                                               &normalizedType);
         const Bool isIntegerFormat = normalizedFormat == GL_RED_INTEGER || normalizedFormat == GL_RG_INTEGER ||
                                      normalizedFormat == GL_RGB_INTEGER || normalizedFormat == GL_RGBA_INTEGER;
+        // The per-format probe first, for the same reason the texture path takes it first: GL 4.6
+        // core 9.2.4 words the error as "samples is greater than the maximum number of samples
+        // supported for internalformat (see GetInternalformativ)", and
+        // glGetInternalformativ(GL_RENDERBUFFER, ..., GL_SAMPLES) is answered from exactly this
+        // list. It was never consulted here - the TODO that deferred it was written before the
+        // query was backed and had gone stale - so a format whose multisample probes fail inside
+        // a category that allows four was accepted at four, quietly allocated at one by
+        // ClampSamplesToBackendSupport, and then reported as four by
+        // glGetRenderbufferParameteriv(GL_RENDERBUFFER_SAMPLES).
+        const Int probedMaxSamples = GetProbedMaxRenderbufferSamples(format);
+        if (probedMaxSamples > 0) {
+            return probedMaxSamples;
+        }
         if (!isIntegerFormat) {
             return GetMaxRenderbufferSamples_State();
         }
-        // Per-format still, but never below the ceiling glGetIntegerv(GL_MAX_SAMPLES) promised:
-        // the driver's raw GL_MAX_INTEGER_SAMPLES stays the *backend* limit and the backend
-        // clamps to it, while the frontend honours what it advertised.
-        return std::max(dynamicParameters.MaxIntegerSamples, GetAdvertisedMaxSamples());
+        // Exactly what glGetIntegerv(GL_MAX_INTEGER_SAMPLES) reports.
+        return GetAdvertisedIntegerMaxSamples();
     }
 
     Bool ValidateRenderbufferStorageSize_State(GLsizei width, GLsizei height, const char* caller) {
@@ -682,8 +788,10 @@ namespace MobileGL::MG_Impl::GLImpl {
             return false;
         }
 
-        // TODO: Resolve the remaining per-internalformat renderbuffer sample limits once
-        // glGetInternalformativ is backed; integer formats are handled below.
+        // Per-internalformat, from the probe list glGetInternalformativ answers with, falling back
+        // to the format's category pname where nothing was probed. (This carried a TODO deferring
+        // the per-format resolution "once glGetInternalformativ is backed"; it has been backed for
+        // both renderbuffers and multisample textures since, so the deferral was collected.)
         const Int maxSamples = GetMaxRenderbufferSamplesForFormat_State(format);
         if (samples > maxSamples) {
             // GL 4.6 core 9.2.4 makes asking for more samples than the format supports
@@ -1048,13 +1156,7 @@ namespace MobileGL::MG_Impl::GLImpl {
 
         auto& bindingSlot = MG_State::pGLContext->GetFramebufferBindingSlot(framebufferTarget);
         auto& framebufferObject = bindingSlot.GetBoundObject();
-        if (!framebufferObject) {
-            MG_State::pGLContext->RecordError(
-                ErrorCode::InvalidOperation,
-                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", functionName,
-                                             "Framebuffer target is bound to no framebuffer object."));
-            return;
-        }
+        if (!ValidateFramebufferTextureAttachmentPoint(functionName, framebufferObject, attachmentType)) return;
 
         if (texture == 0) {
             framebufferObject->Detach(attachmentType);
@@ -1069,6 +1171,7 @@ namespace MobileGL::MG_Impl::GLImpl {
                                              std::format("Texture object {} is not valid.", texture)));
             return;
         }
+        if (!ValidateFramebufferTextureLevel(functionName, textureObject, level)) return;
         if (layer < 0) {
             MG_State::pGLContext->RecordError(
                 ErrorCode::InvalidValue,
@@ -1191,6 +1294,13 @@ namespace MobileGL::MG_Impl::GLImpl {
                                              "Framebuffer target is bound to no framebuffer object."));
             return;
         }
+        // glFramebufferTexture2D is by far the most-used member of the family and the only one
+        // that inlines its own logic instead of going through the shared helper, so the 9.2.8
+        // conditions have to be asked here explicitly.
+        if (!ValidateFramebufferTextureAttachmentPoint("FramebufferTexture2D_State", framebufferObject,
+                                                       attachmentType)) {
+            return;
+        }
 
         if (texture == 0) {
             framebufferObject->Detach(attachmentType);
@@ -1205,6 +1315,7 @@ namespace MobileGL::MG_Impl::GLImpl {
                                              std::format("Texture object {} is not valid.", texture)));
             return;
         }
+        if (!ValidateFramebufferTextureLevel("FramebufferTexture2D_State", textureObject, level)) return;
 
         const auto expectedTextureTarget = MG_Util::ConvertTextureUploadTargetToTextureTarget(textureUploadTarget);
         if (expectedTextureTarget == TextureTarget::Unknown ||
@@ -1240,6 +1351,12 @@ namespace MobileGL::MG_Impl::GLImpl {
                                                      TextureUploadTarget::Texture2D);
             return;
         }
+
+        // The name's validity is an INVALID_VALUE condition (GL 4.6 core 9.2.8), and it has to be
+        // asked BEFORE the object is resolved: reporting the miss as the INVALID_OPERATION below
+        // pre-empted the shared helper's ValidateTextureName and answered the wrong error code for
+        // every texture name that was never generated.
+        if (!TextureImpl::ValidateTextureName(texture, true)) return;
 
         auto& textureObject = MG_State::pGLContext->GetTextureObject(texture);
         if (!textureObject) {
@@ -1291,13 +1408,10 @@ namespace MobileGL::MG_Impl::GLImpl {
                                              std::format("Texture object {} is not valid.", texture)));
             return;
         }
-        if (level < 0) {
-            MG_State::pGLContext->RecordError(
-                ErrorCode::InvalidValue,
-                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "NamedFramebufferTexture_State",
-                                             "Texture level must be non-negative."));
-            return;
-        }
+        // The whole level condition, not just its negative half: glNamedFramebufferTexture and
+        // glFramebufferTexture are equivalent in 9.2.8, so an out-of-range immutable level has to
+        // be rejected on both or a CTS case gets two answers for one rule.
+        if (!ValidateFramebufferTextureLevel("NamedFramebufferTexture_State", textureObject, level)) return;
 
         TextureUploadTarget textureUploadTarget = TextureUploadTarget::Unknown;
         Bool layered = false;

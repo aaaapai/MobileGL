@@ -9,6 +9,7 @@
 #include <gtest/gtest.h>
 
 #include <limits>
+#include <vector>
 
 #include "Includes.h"
 #include "Init.h"
@@ -556,10 +557,12 @@ TEST_F(TextureTest, SamplerMaxAnisotropyUsesTheSameStateAndValidationSemantics) 
     EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
 }
 
-// GL 3.3 core 3.8.2: BindSampler rejects a never-generated or already-deleted name with
-// INVALID_OPERATION, while SamplerParameter* on the same name is INVALID_VALUE - the two paths
-// must not share one validator. Delete of an unknown name stays silent.
-TEST_F(TextureTest, BindSamplerRejectsUnknownNameWithInvalidOperationUnlikeSamplerParameter) {
+// GL 4.6 core 8.2: EVERY sampler entry point rejects a never-generated or already-deleted name with
+// INVALID_OPERATION - BindSampler, SamplerParameter* and GetSamplerParameter* alike. The two paths
+// used to disagree (BindSampler answered INVALID_OPERATION from a bespoke check while
+// SamplerParameter* answered the GL 3.3 wording's INVALID_VALUE from the shared validator), and this
+// test enshrined the disagreement. Delete of an unknown name stays silent.
+TEST_F(TextureTest, EverySamplerEntryPointRejectsAnUnknownNameWithInvalidOperation) {
     GLuint sampler = 0;
     MG_Impl::GLImpl::GenSamplers(1, &sampler);
     ASSERT_NE(sampler, 0u);
@@ -575,10 +578,593 @@ TEST_F(TextureTest, BindSamplerRejectsUnknownNameWithInvalidOperationUnlikeSampl
     MG_Impl::GLImpl::BindSampler(0, sampler);
     ExpectSingleGlError(GL_INVALID_OPERATION);
 
-    // Same dead name through SamplerParameter*: INVALID_VALUE, so the two paths cannot share one
-    // validator - and neither may queue the other's code alongside its own.
+    // The same dead name through the parameter entry points, in every spelling the CTS's
+    // samplerparameteri_non_gen_sampler_error walks: one error each, and always the same class.
     MG_Impl::GLImpl::SamplerParameteri(sampler, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    ExpectSingleGlError(GL_INVALID_VALUE);
+    ExpectSingleGlError(GL_INVALID_OPERATION);
+
+    const GLint signedValue = GL_NEAREST;
+    MG_Impl::GLImpl::SamplerParameterIiv(sampler, GL_TEXTURE_MIN_FILTER, &signedValue);
+    ExpectSingleGlError(GL_INVALID_OPERATION);
+
+    const GLuint unsignedValue = GL_NEAREST;
+    MG_Impl::GLImpl::SamplerParameterIuiv(sampler, GL_TEXTURE_MIN_FILTER, &unsignedValue);
+    ExpectSingleGlError(GL_INVALID_OPERATION);
+
+    GLint queried = 0;
+    MG_Impl::GLImpl::GetSamplerParameterIiv(sampler, GL_TEXTURE_MIN_FILTER, &queried);
+    ExpectSingleGlError(GL_INVALID_OPERATION);
+
+    GLuint queriedUnsigned = 0;
+    MG_Impl::GLImpl::GetSamplerParameterIuiv(sampler, GL_TEXTURE_MIN_FILTER, &queriedUnsigned);
+    ExpectSingleGlError(GL_INVALID_OPERATION);
+}
+
+// ===================== GL_TEXTURE_BORDER_COLOR (KHR-GL46.texture_border_clamp) =====================
+
+// GL 4.6 core 8.10 / equation 2.2, and 8.11 / equation 2.3: glTexParameteriv normalizes its integer
+// components into the floating-point border colour and glGetTexParameteriv converts back. The pair is
+// exact for small integers, which is what the CTS's samplerparameteri_border_color checks with
+// {0,1,2,4}; reading the float back with a truncating cast answered {0,0,0,0}.
+TEST_F(TextureTest, BorderColorIntegerFormNormalizesAndRoundTripsPerEquations22And23) {
+    GLuint texture = 0;
+    MG_Impl::GLImpl::GenTextures(1, &texture);
+    ASSERT_NE(texture, 0u);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, texture);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    const GLint written[4] = {0, 1, 2, 4};
+    MG_Impl::GLImpl::TexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, written);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    GLint readBack[4] = {-1, -1, -1, -1};
+    MG_Impl::GLImpl::GetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, readBack);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    EXPECT_EQ(readBack[0], 0);
+    EXPECT_EQ(readBack[1], 1);
+    EXPECT_EQ(readBack[2], 2);
+    EXPECT_EQ(readBack[3], 4);
+
+    // The stored value really is the normalized fraction, not the raw integer - otherwise the round
+    // trip above would pass for the wrong reason (two missing conversions cancelling).
+    GLfloat asFloats[4] = {-1.0f, -1.0f, -1.0f, -1.0f};
+    MG_Impl::GLImpl::GetTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, asFloats);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    EXPECT_FLOAT_EQ(asFloats[0], 0.0f);
+    EXPECT_FLOAT_EQ(asFloats[3], 4.0f / 2147483647.0f);
+
+    // Out of range in both directions clamps rather than wrapping (equation 2.3's domain is [-1,1]).
+    const GLfloat outOfRange[4] = {2.0f, -2.0f, 0.0f, 1.0f};
+    MG_Impl::GLImpl::TexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, outOfRange);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    MG_Impl::GLImpl::GetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, readBack);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    EXPECT_EQ(readBack[0], 2147483647);
+    EXPECT_EQ(readBack[1], -2147483647);
+    EXPECT_EQ(readBack[2], 0);
+    EXPECT_EQ(readBack[3], 2147483647);
+
+    MG_Impl::GLImpl::DeleteTextures(1, &texture);
+    DrainPendingGlErrors();
+}
+
+// The sampler-object twin of the test above. It used to pass for the wrong reason: glSamplerParameteriv
+// and glSamplerParameterIiv were literally the same call, so the raw integers went in and came back
+// out unconverted and the two missing conversions cancelled - which also meant a border of 255 set
+// through glSamplerParameteriv became float 255.0 instead of the spec's ~1.19e-7.
+TEST_F(TextureTest, SamplerBorderColorSeparatesTheIntegerFormFromTheNormalizedForm) {
+    GLuint sampler = 0;
+    MG_Impl::GLImpl::GenSamplers(1, &sampler);
+    ASSERT_NE(sampler, 0u);
+
+    const GLint normalized[4] = {0, 1, 2, 4};
+    MG_Impl::GLImpl::SamplerParameteriv(sampler, GL_TEXTURE_BORDER_COLOR, normalized);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    GLint readBack[4] = {-1, -1, -1, -1};
+    MG_Impl::GLImpl::GetSamplerParameteriv(sampler, GL_TEXTURE_BORDER_COLOR, readBack);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    EXPECT_EQ(readBack[0], 0);
+    EXPECT_EQ(readBack[1], 1);
+    EXPECT_EQ(readBack[2], 2);
+    EXPECT_EQ(readBack[3], 4);
+
+    GLfloat asFloats[4] = {-1.0f, -1.0f, -1.0f, -1.0f};
+    MG_Impl::GLImpl::GetSamplerParameterfv(sampler, GL_TEXTURE_BORDER_COLOR, asFloats);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    EXPECT_FLOAT_EQ(asFloats[3], 4.0f / 2147483647.0f) << "the non-I integer form must normalize";
+
+    // The "I" form is the other thing entirely: raw integers, stored and returned unmodified.
+    const GLint raw[4] = {255, -1, 0, 7};
+    MG_Impl::GLImpl::SamplerParameterIiv(sampler, GL_TEXTURE_BORDER_COLOR, raw);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    MG_Impl::GLImpl::GetSamplerParameterIiv(sampler, GL_TEXTURE_BORDER_COLOR, readBack);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    EXPECT_EQ(readBack[0], 255);
+    EXPECT_EQ(readBack[1], -1);
+    EXPECT_EQ(readBack[2], 0);
+    EXPECT_EQ(readBack[3], 7);
+
+    MG_Impl::GLImpl::DeleteSamplers(1, &sampler);
+    DrainPendingGlErrors();
+}
+
+// A border colour's FORM is state in its own right: the three representations are kept numerically in
+// step, so a float (0,0,0,1) followed by an integer (0,0,0,1) moves no number at all - but it is a
+// real change, and the backends memoise on the version. Swallowing it left DirectGLES forwarding the
+// colour through glTexParameterfv forever, which is what made an integer border of 255 come back from
+// an isampler2D as 1132396544 (the IEEE-754 bits of 255.0f).
+TEST_F(TextureTest, BorderColorFormChangeBumpsTheVersionEvenWhenTheNumbersDoNotMove) {
+    GLuint sampler = 0;
+    MG_Impl::GLImpl::GenSamplers(1, &sampler);
+    ASSERT_NE(sampler, 0u);
+    const auto& samplerObject = MG_State::pGLContext->GetSamplerObject(sampler);
+    ASSERT_NE(samplerObject, nullptr);
+
+    const GLint asInteger[4] = {0, 0, 0, 1};
+    MG_Impl::GLImpl::SamplerParameterIiv(sampler, GL_TEXTURE_BORDER_COLOR, asInteger);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    EXPECT_EQ(samplerObject->GetBorderColorForm(), BorderColorForm::Int);
+    const Uint16 afterInteger = samplerObject->GetVersion();
+
+    // Same four numbers, float spelling: the value is unchanged, the form is not.
+    const GLfloat asFloat[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+    MG_Impl::GLImpl::SamplerParameterfv(sampler, GL_TEXTURE_BORDER_COLOR, asFloat);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    EXPECT_EQ(samplerObject->GetBorderColorForm(), BorderColorForm::Float);
+    EXPECT_EQ(samplerObject->GetVersion(), static_cast<Uint16>(afterInteger + 1));
+
+    // And a genuinely redundant write - same form, same value - still costs nothing.
+    const Uint16 afterFloat = samplerObject->GetVersion();
+    MG_Impl::GLImpl::SamplerParameterfv(sampler, GL_TEXTURE_BORDER_COLOR, asFloat);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    EXPECT_EQ(samplerObject->GetVersion(), afterFloat);
+
+    const GLuint asUnsigned[4] = {0, 0, 0, 1};
+    MG_Impl::GLImpl::SamplerParameterIuiv(sampler, GL_TEXTURE_BORDER_COLOR, asUnsigned);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    EXPECT_EQ(samplerObject->GetBorderColorForm(), BorderColorForm::Uint);
+    EXPECT_EQ(samplerObject->GetVersion(), static_cast<Uint16>(afterFloat + 1));
+
+    MG_Impl::GLImpl::DeleteSamplers(1, &sampler);
+    DrainPendingGlErrors();
+}
+
+// GL 4.6 core 8.10: the scalar sampler setters take "the value of pname", so a four-component pname is
+// INVALID_ENUM there. Taking the address of the by-value argument and handing it to the vector path -
+// which is what these used to do - both lost the error and read twelve bytes past a stack scalar.
+TEST_F(TextureTest, ScalarSamplerParameterRejectsTheFourComponentBorderColorPname) {
+    GLuint sampler = 0;
+    MG_Impl::GLImpl::GenSamplers(1, &sampler);
+    ASSERT_NE(sampler, 0u);
+    const auto& samplerObject = MG_State::pGLContext->GetSamplerObject(sampler);
+    ASSERT_NE(samplerObject, nullptr);
+    const Uint16 initialVersion = samplerObject->GetVersion();
+
+    MG_Impl::GLImpl::SamplerParameteri(sampler, GL_TEXTURE_BORDER_COLOR, 1);
+    ExpectSingleGlError(GL_INVALID_ENUM);
+    MG_Impl::GLImpl::SamplerParameterf(sampler, GL_TEXTURE_BORDER_COLOR, 1.0f);
+    ExpectSingleGlError(GL_INVALID_ENUM);
+    EXPECT_EQ(samplerObject->GetVersion(), initialVersion) << "a rejected call must not touch state";
+
+    // The vector spellings of the same pname are of course still accepted.
+    const GLfloat color[4] = {0.25f, 0.5f, 0.75f, 1.0f};
+    MG_Impl::GLImpl::SamplerParameterfv(sampler, GL_TEXTURE_BORDER_COLOR, color);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    MG_Impl::GLImpl::DeleteSamplers(1, &sampler);
+    DrainPendingGlErrors();
+}
+
+// GL 4.6 core 8.10 / 8.11: the parameter entry points accept a SHORTER target list than the upload
+// entry points. A cube-map FACE and GL_TEXTURE_BUFFER are both legal glTexImage2D/glTexBuffer targets
+// and both illegal here, and MobileGL's permissive converter folded the faces onto the cube map and
+// mapped the buffer target to a real one - so both were silently accepted.
+TEST_F(TextureTest, TextureParameterEntryPointsRejectTargetsTheUploadPathAccepts) {
+    GLuint texture = 0;
+    MG_Impl::GLImpl::GenTextures(1, &texture);
+    ASSERT_NE(texture, 0u);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_CUBE_MAP, texture);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    // The positive control first: the cube map itself is a legal parameter target.
+    MG_Impl::GLImpl::TexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAX_LEVEL, 3);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    GLint queried = 0;
+    MG_Impl::GLImpl::GetTexParameteriv(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAX_LEVEL, &queried);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    EXPECT_EQ(queried, 3);
+
+    // A face is not.
+    MG_Impl::GLImpl::TexParameteri(GL_TEXTURE_CUBE_MAP_POSITIVE_X, GL_TEXTURE_MAX_LEVEL, 5);
+    ExpectSingleGlError(GL_INVALID_ENUM);
+    MG_Impl::GLImpl::GetTexParameteriv(GL_TEXTURE_CUBE_MAP_POSITIVE_X, GL_TEXTURE_MAX_LEVEL, &queried);
+    ExpectSingleGlError(GL_INVALID_ENUM);
+    const GLint borderColor[4] = {0, 0, 0, 0};
+    MG_Impl::GLImpl::TexParameterIiv(GL_TEXTURE_CUBE_MAP_NEGATIVE_Z, GL_TEXTURE_BORDER_COLOR, borderColor);
+    ExpectSingleGlError(GL_INVALID_ENUM);
+
+    // The rejected call must not have applied anything either.
+    MG_Impl::GLImpl::GetTexParameteriv(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAX_LEVEL, &queried);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    EXPECT_EQ(queried, 3) << "a rejected face-target call still reached the bound cube map";
+
+    // GL_TEXTURE_BUFFER carries no sampler or level state at all.
+    MG_Impl::GLImpl::TexParameteri(GL_TEXTURE_BUFFER, GL_TEXTURE_BASE_LEVEL, 0);
+    ExpectSingleGlError(GL_INVALID_ENUM);
+    GLuint queriedUnsigned = 0;
+    MG_Impl::GLImpl::GetTexParameterIuiv(GL_TEXTURE_BUFFER, GL_TEXTURE_MAX_LEVEL, &queriedUnsigned);
+    ExpectSingleGlError(GL_INVALID_ENUM);
+
+    // And an enum that is not a texture target in any sense used to be silent by construction: the
+    // converter answered Unknown, the lookup answered the null object and every caller just returned.
+    MG_Impl::GLImpl::TexParameteri(GL_RENDERBUFFER, GL_TEXTURE_BASE_LEVEL, 0);
+    ExpectSingleGlError(GL_INVALID_ENUM);
+
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_CUBE_MAP, 0);
+    MG_Impl::GLImpl::DeleteTextures(1, &texture);
+    DrainPendingGlErrors();
+}
+
+// The texture path applied wrap/filter/compare enums straight through the GL->internal converters and
+// threw the converters' Unknown away, so every one of these was GL_NO_ERROR. The sampler-object path
+// has had this exact validator all along (SamplerImpl::ValidateSamplerParam); the texture path now
+// calls it rather than growing a second copy.
+TEST_F(TextureTest, TexParameterRejectsIllegalSamplerEnumValues) {
+    GLuint texture = 0;
+    MG_Impl::GLImpl::GenTextures(1, &texture);
+    ASSERT_NE(texture, 0u);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, texture);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    // Exactly the pname/value pairs esextcTextureBorderClampTexParameterIErrors.cpp walks.
+    MG_Impl::GLImpl::TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_RED);
+    ExpectSingleGlError(GL_INVALID_ENUM);
+    MG_Impl::GLImpl::TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_RED);
+    ExpectSingleGlError(GL_INVALID_ENUM);
+    MG_Impl::GLImpl::TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_RED);
+    ExpectSingleGlError(GL_INVALID_ENUM);
+    MG_Impl::GLImpl::TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_RED);
+    ExpectSingleGlError(GL_INVALID_ENUM);
+    // MAG_FILTER needs more than an Unknown check: GL_NEAREST_MIPMAP_NEAREST converts perfectly well
+    // to SamplerFilterMode::Nearest, and only the explicit NEAREST-or-LINEAR rule catches it.
+    MG_Impl::GLImpl::TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST_MIPMAP_NEAREST);
+    ExpectSingleGlError(GL_INVALID_ENUM);
+    MG_Impl::GLImpl::TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_NEAREST);
+    ExpectSingleGlError(GL_INVALID_ENUM);
+    MG_Impl::GLImpl::TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_NEAREST);
+    ExpectSingleGlError(GL_INVALID_ENUM);
+
+    // The float spelling funnels through the same validator.
+    MG_Impl::GLImpl::TexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, static_cast<GLfloat>(GL_RED));
+    ExpectSingleGlError(GL_INVALID_ENUM);
+
+    // Positive controls: legal values on the same pnames, and a texture-only pname the sampler
+    // validator does not know, all still accepted.
+    MG_Impl::GLImpl::TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    MG_Impl::GLImpl::TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    MG_Impl::GLImpl::TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    MG_Impl::GLImpl::TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    MG_Impl::GLImpl::TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_GREATER);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    MG_Impl::GLImpl::TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 2);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, 0);
+    MG_Impl::GLImpl::DeleteTextures(1, &texture);
+    DrainPendingGlErrors();
+}
+
+// Two multisample gates that must NOT drift back together. GL 4.6 core 8.10: a multisample target does
+// not accept sampler-state pnames at all, which is INVALID_ENUM; a BASE_LEVEL it does accept but
+// cannot be non-zero, which is INVALID_OPERATION. The sampler-state gate was copied from the
+// BASE_LEVEL one and inherited its error class.
+TEST_F(TextureTest, MultisampleSamplerStateIsInvalidEnumWhileNonZeroBaseLevelIsInvalidOperation) {
+    GLuint texture = 0;
+    MG_Impl::GLImpl::GenTextures(1, &texture);
+    ASSERT_NE(texture, 0u);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D_MULTISAMPLE, texture);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    for (const GLenum pname : {GL_TEXTURE_WRAP_S, GL_TEXTURE_WRAP_T, GL_TEXTURE_WRAP_R, GL_TEXTURE_MIN_FILTER,
+                               GL_TEXTURE_MAG_FILTER, GL_TEXTURE_COMPARE_MODE, GL_TEXTURE_COMPARE_FUNC}) {
+        MG_Impl::GLImpl::TexParameteri(GL_TEXTURE_2D_MULTISAMPLE, pname, GL_NEAREST);
+        ExpectSingleGlError(GL_INVALID_ENUM);
+    }
+    MG_Impl::GLImpl::TexParameterf(GL_TEXTURE_2D_MULTISAMPLE, GL_TEXTURE_MIN_LOD, 0.0f);
+    ExpectSingleGlError(GL_INVALID_ENUM);
+    const GLfloat borderColor[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    MG_Impl::GLImpl::TexParameterfv(GL_TEXTURE_2D_MULTISAMPLE, GL_TEXTURE_BORDER_COLOR, borderColor);
+    ExpectSingleGlError(GL_INVALID_ENUM);
+
+    // The other class, unchanged - this one is a value error on an accepted pname.
+    MG_Impl::GLImpl::TexParameteri(GL_TEXTURE_2D_MULTISAMPLE, GL_TEXTURE_BASE_LEVEL, 1);
+    ExpectSingleGlError(GL_INVALID_OPERATION);
+    // ...and zero is fine, so the gate is about the value and not the pname.
+    MG_Impl::GLImpl::TexParameteri(GL_TEXTURE_2D_MULTISAMPLE, GL_TEXTURE_BASE_LEVEL, 0);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D_MULTISAMPLE, 0);
+    MG_Impl::GLImpl::DeleteTextures(1, &texture);
+    DrainPendingGlErrors();
+}
+
+// The whole (pname x entry-point) matrix, because the sampler getters funnel three spellings through
+// one void* function and used to write a FIXED destination type per pname regardless of which
+// spelling called. That returned the other type's bit pattern: 10497 punned into a GLfloat reads
+// 1.47e-41, and -1000.0f punned into a GLint reads -998637568. Sixteen pairs were broken; only
+// MAX_ANISOTROPY_EXT and BORDER_COLOR branched correctly, which is how the same bug class was found
+// and fixed once for a single pname and left standing for the rest.
+TEST_F(TextureTest, EverySamplerScalarPnameConvertsToTheQueriedType) {
+    GLuint sampler = 0;
+    MG_Impl::GLImpl::GenSamplers(1, &sampler);
+    ASSERT_NE(sampler, 0u);
+
+    MG_Impl::GLImpl::SamplerParameteri(sampler, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+    MG_Impl::GLImpl::SamplerParameteri(sampler, GL_TEXTURE_WRAP_T, GL_MIRRORED_REPEAT);
+    MG_Impl::GLImpl::SamplerParameteri(sampler, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+    MG_Impl::GLImpl::SamplerParameteri(sampler, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_NEAREST);
+    MG_Impl::GLImpl::SamplerParameteri(sampler, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    MG_Impl::GLImpl::SamplerParameteri(sampler, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+    MG_Impl::GLImpl::SamplerParameteri(sampler, GL_TEXTURE_COMPARE_FUNC, GL_GREATER);
+    MG_Impl::GLImpl::SamplerParameterf(sampler, GL_TEXTURE_MIN_LOD, -4.0f);
+    MG_Impl::GLImpl::SamplerParameterf(sampler, GL_TEXTURE_MAX_LOD, 9.0f);
+    MG_Impl::GLImpl::SamplerParameterf(sampler, GL_TEXTURE_LOD_BIAS, 2.0f);
+    MG_Impl::GLImpl::SamplerParameterf(sampler, GL_TEXTURE_MAX_ANISOTROPY_EXT, 4.0f);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR) << "sampler setup";
+
+    struct ScalarExpectation {
+        GLenum pname;
+        GLint asInteger;
+        const char* name;
+    };
+    // Every one of these is an ENUM-valued pname, so the float query must answer the enum's numeric
+    // value as a float - not its bit pattern.
+    const ScalarExpectation enumPnames[] = {
+        {GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER, "GL_TEXTURE_WRAP_S"},
+        {GL_TEXTURE_WRAP_T, GL_MIRRORED_REPEAT, "GL_TEXTURE_WRAP_T"},
+        {GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE, "GL_TEXTURE_WRAP_R"},
+        {GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_NEAREST, "GL_TEXTURE_MIN_FILTER"},
+        {GL_TEXTURE_MAG_FILTER, GL_NEAREST, "GL_TEXTURE_MAG_FILTER"},
+        {GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE, "GL_TEXTURE_COMPARE_MODE"},
+        {GL_TEXTURE_COMPARE_FUNC, GL_GREATER, "GL_TEXTURE_COMPARE_FUNC"},
+    };
+    for (const auto& entry : enumPnames) {
+        GLint asInt = 0;
+        MG_Impl::GLImpl::GetSamplerParameteriv(sampler, entry.pname, &asInt);
+        EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR) << entry.name;
+        EXPECT_EQ(asInt, entry.asInteger) << entry.name << " through glGetSamplerParameteriv";
+
+        GLfloat asFloat = 0.0f;
+        MG_Impl::GLImpl::GetSamplerParameterfv(sampler, entry.pname, &asFloat);
+        EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR) << entry.name;
+        EXPECT_FLOAT_EQ(asFloat, static_cast<GLfloat>(entry.asInteger))
+            << entry.name << " through glGetSamplerParameterfv returned the integer's bit pattern";
+
+        GLint asIntegerForm = 0;
+        MG_Impl::GLImpl::GetSamplerParameterIiv(sampler, entry.pname, &asIntegerForm);
+        EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR) << entry.name;
+        EXPECT_EQ(asIntegerForm, entry.asInteger) << entry.name << " through glGetSamplerParameterIiv";
+
+        GLuint asUnsignedForm = 0;
+        MG_Impl::GLImpl::GetSamplerParameterIuiv(sampler, entry.pname, &asUnsignedForm);
+        EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR) << entry.name;
+        EXPECT_EQ(asUnsignedForm, static_cast<GLuint>(entry.asInteger)) << entry.name
+                                                                       << " through glGetSamplerParameterIuiv";
+    }
+
+    // And the other half: float-valued pnames queried through the integer spellings. The values are
+    // chosen to be exactly representable so truncation and rounding agree and the test pins the
+    // conversion rather than the rounding mode.
+    const ScalarExpectation floatPnames[] = {
+        {GL_TEXTURE_MIN_LOD, -4, "GL_TEXTURE_MIN_LOD"},
+        {GL_TEXTURE_MAX_LOD, 9, "GL_TEXTURE_MAX_LOD"},
+        {GL_TEXTURE_LOD_BIAS, 2, "GL_TEXTURE_LOD_BIAS"},
+        {GL_TEXTURE_MAX_ANISOTROPY_EXT, 4, "GL_TEXTURE_MAX_ANISOTROPY_EXT"},
+    };
+    for (const auto& entry : floatPnames) {
+        GLfloat asFloat = 0.0f;
+        MG_Impl::GLImpl::GetSamplerParameterfv(sampler, entry.pname, &asFloat);
+        EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR) << entry.name;
+        EXPECT_FLOAT_EQ(asFloat, static_cast<GLfloat>(entry.asInteger)) << entry.name;
+
+        GLint asInt = 0;
+        MG_Impl::GLImpl::GetSamplerParameteriv(sampler, entry.pname, &asInt);
+        EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR) << entry.name;
+        EXPECT_EQ(asInt, entry.asInteger) << entry.name << " through glGetSamplerParameteriv returned the "
+                                                           "float's bit pattern";
+
+        GLint asIntegerForm = 0;
+        MG_Impl::GLImpl::GetSamplerParameterIiv(sampler, entry.pname, &asIntegerForm);
+        EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR) << entry.name;
+        EXPECT_EQ(asIntegerForm, entry.asInteger) << entry.name << " through glGetSamplerParameterIiv";
+    }
+
+    // The unsigned spelling of a NEGATIVE float state: the conversion has to go through GLint, since
+    // a direct float -> GLuint cast of a negative value is undefined behaviour.
+    GLuint negativeAsUnsigned = 0;
+    MG_Impl::GLImpl::GetSamplerParameterIuiv(sampler, GL_TEXTURE_MIN_LOD, &negativeAsUnsigned);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    EXPECT_EQ(negativeAsUnsigned, static_cast<GLuint>(-4));
+
+    // The texture-side twin of the same state must agree, since a texture and a sampler queried the
+    // same way answering different numbers is the defect class this pins.
+    GLuint texture = 0;
+    MG_Impl::GLImpl::GenTextures(1, &texture);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, texture);
+    MG_Impl::GLImpl::TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    GLfloat textureWrapAsFloat = 0.0f;
+    MG_Impl::GLImpl::GetTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, &textureWrapAsFloat);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    EXPECT_FLOAT_EQ(textureWrapAsFloat, static_cast<GLfloat>(GL_CLAMP_TO_BORDER));
+
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, 0);
+    MG_Impl::GLImpl::DeleteTextures(1, &texture);
+    MG_Impl::GLImpl::DeleteSamplers(1, &sampler);
+    DrainPendingGlErrors();
+}
+
+// The CPU-shadow readback path performs no format/type conversion and packs rows tightly. Asking it
+// for a layout it cannot produce used to be answered by memcpying the SHADOW's layout into the
+// caller's buffer: on glGetTexImage, which has no bufSize argument, that is a heap overflow of
+// (shadowTexelSize - clientTexelSize) * texelCount bytes. It must refuse instead.
+TEST_F(TextureTest, ShadowReadbackRefusesALayoutItCannotProduceInsteadOfOverrunningTheBuffer) {
+    GLuint texture = 0;
+    MG_Impl::GLImpl::GenTextures(1, &texture);
+    ASSERT_NE(texture, 0u);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, texture);
+    const std::vector<GLubyte> source(8 * 8 * 4, 0x5A);
+    MG_Impl::GLImpl::TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 8, 8, 0, GL_RGBA, GL_UNSIGNED_BYTE, source.data());
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    // The positive control first: the matching layout is answered, and answered correctly.
+    std::vector<GLubyte> matching(8 * 8 * 4, 0);
+    MG_Impl::GLImpl::GetTextureImage(texture, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                                     static_cast<GLsizei>(matching.size()), matching.data());
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    EXPECT_EQ(matching, source);
+
+    // GL_RED against an RGBA8 shadow: 1 client byte per texel against 4 shadow bytes. A verbatim copy
+    // would write 256 bytes into the 64 GL 4.6 core 8.11 says are required.
+    std::vector<GLubyte> narrow(8 * 8 * 1, 0xCD);
+    const std::vector<GLubyte> narrowBefore = narrow;
+    MG_Impl::GLImpl::GetTextureImage(texture, 0, GL_RED, GL_UNSIGNED_BYTE, static_cast<GLsizei>(narrow.size()),
+                                     narrow.data());
+    ExpectSingleGlError(GL_INVALID_OPERATION);
+    EXPECT_EQ(narrow, narrowBefore) << "a refused readback must not touch the destination";
+
+    // And the widening direction, which is not an overflow but is still the wrong bytes.
+    std::vector<GLfloat> wide(8 * 8 * 4, 0.0f);
+    MG_Impl::GLImpl::GetTextureImage(texture, 0, GL_RGBA, GL_FLOAT,
+                                     static_cast<GLsizei>(wide.size() * sizeof(GLfloat)), wide.data());
+    ExpectSingleGlError(GL_INVALID_OPERATION);
+
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, 0);
+    MG_Impl::GLImpl::DeleteTextures(1, &texture);
+    DrainPendingGlErrors();
+}
+
+// The same helper honours only GL_PACK_SWAP_BYTES and the bitmap LSB_FIRST path - the pixel-store
+// parameters carry a standing TODO in the pack processor. GL_PACK_ALIGNMENT defaults to 4, so a
+// 3-byte-per-texel format at an odd width needs row padding that would never be written, and the GPU
+// readback path DOES write it. Refusing keeps the two paths from answering the same call with two
+// different destination layouts.
+TEST_F(TextureTest, ShadowReadbackRefusesAPackStateItCannotHonour) {
+    GLuint texture = 0;
+    MG_Impl::GLImpl::GenTextures(1, &texture);
+    ASSERT_NE(texture, 0u);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, texture);
+    // The UNPACK side has the same default alignment of 4, and 5 * 3 = 15 is not a multiple of it -
+    // so a tightly-packed source would be read back out with a 16-byte row stride and the texture
+    // would hold the wrong bytes before the readback under test even runs. This is the pack rule
+    // being pinned below, seen from the upload side.
+    MG_Impl::GLImpl::PixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    const std::vector<GLubyte> source(5 * 5 * 3, 0x21);
+    MG_Impl::GLImpl::TexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, 5, 5, 0, GL_RGB, GL_UNSIGNED_BYTE, source.data());
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    // 5 * 3 = 15 bytes per row, which the default GL_PACK_ALIGNMENT of 4 pads to 16.
+    std::vector<GLubyte> padded(5 * 16, 0);
+    MG_Impl::GLImpl::GetTextureImage(texture, 0, GL_RGB, GL_UNSIGNED_BYTE, static_cast<GLsizei>(padded.size()),
+                                     padded.data());
+    ExpectSingleGlError(GL_INVALID_OPERATION);
+
+    // With the padding removed the rows are tight and the same call is answered.
+    MG_Impl::GLImpl::PixelStorei(GL_PACK_ALIGNMENT, 1);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    std::vector<GLubyte> tight(5 * 5 * 3, 0);
+    MG_Impl::GLImpl::GetTextureImage(texture, 0, GL_RGB, GL_UNSIGNED_BYTE, static_cast<GLsizei>(tight.size()),
+                                     tight.data());
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    EXPECT_EQ(tight, source);
+
+    // A skip offset is ignored outright by the pack processor, so it is refused even when the rows
+    // themselves are tight.
+    MG_Impl::GLImpl::PixelStorei(GL_PACK_SKIP_ROWS, 1);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    MG_Impl::GLImpl::GetTextureImage(texture, 0, GL_RGB, GL_UNSIGNED_BYTE, static_cast<GLsizei>(tight.size()),
+                                     tight.data());
+    ExpectSingleGlError(GL_INVALID_OPERATION);
+
+    MG_Impl::GLImpl::PixelStorei(GL_PACK_SKIP_ROWS, 0);
+    MG_Impl::GLImpl::PixelStorei(GL_PACK_ALIGNMENT, 4);
+    MG_Impl::GLImpl::PixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, 0);
+    MG_Impl::GLImpl::DeleteTextures(1, &texture);
+    DrainPendingGlErrors();
+}
+
+// glTextureParameter* has no target token, so GL 4.6 core 8.10 applies the ten-target list to the
+// texture's EFFECTIVE target. The four vector DSA forms reached that gate for free by re-entering
+// through the bound-target path; the two scalar forms called the per-object setter directly and
+// reached no gate at all, so one DSA family disagreed with itself about the same texture.
+TEST_F(TextureTest, ScalarDsaTextureParameterAppliesTheSameTargetRuleAsItsVectorTwins) {
+    GLuint bufferTexture = 0;
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_BUFFER, 1, &bufferTexture);
+    ASSERT_NE(bufferTexture, 0u);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    // The vector form has rejected this since the target gate landed...
+    const GLint baseLevel = 1;
+    MG_Impl::GLImpl::TextureParameteriv(bufferTexture, GL_TEXTURE_BASE_LEVEL, &baseLevel);
+    ExpectSingleGlError(GL_INVALID_ENUM);
+
+    // ...and the scalar forms must agree rather than silently applying the parameter.
+    MG_Impl::GLImpl::TextureParameteri(bufferTexture, GL_TEXTURE_BASE_LEVEL, 1);
+    ExpectSingleGlError(GL_INVALID_ENUM);
+    MG_Impl::GLImpl::TextureParameterf(bufferTexture, GL_TEXTURE_MIN_LOD, 1.0f);
+    ExpectSingleGlError(GL_INVALID_ENUM);
+
+    // A texture whose target IS legal still goes through, so the gate is about the target and not
+    // about the by-name spelling.
+    GLuint plainTexture = 0;
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_2D, 1, &plainTexture);
+    ASSERT_NE(plainTexture, 0u);
+    MG_Impl::GLImpl::TextureParameteri(plainTexture, GL_TEXTURE_MAX_LEVEL, 4);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    GLint queried = 0;
+    MG_Impl::GLImpl::GetTextureParameteriv(plainTexture, GL_TEXTURE_MAX_LEVEL, &queried);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    EXPECT_EQ(queried, 4);
+
+    MG_Impl::GLImpl::DeleteTextures(1, &plainTexture);
+    MG_Impl::GLImpl::DeleteTextures(1, &bufferTexture);
+    DrainPendingGlErrors();
+}
+
+// GL 4.6 core 8.10 and 8.11 enumerate exactly ten targets and no proxy. The spec's own asymmetry is
+// the proof: GetTexLevelParameter needs an explicit clause adding the proxies to ITS list, and these
+// two entry points carry no such clause - so the proxies must be rejected here and still accepted
+// there.
+TEST_F(TextureTest, TextureParameterRejectsProxyTargetsThatGetTexLevelParameterStillAccepts) {
+    MG_Impl::GLImpl::TexImage2D(GL_PROXY_TEXTURE_2D, 0, GL_RGBA8, 4, 4, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR) << "proxy allocation is still legal";
+
+    MG_Impl::GLImpl::TexParameteri(GL_PROXY_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 3);
+    ExpectSingleGlError(GL_INVALID_ENUM);
+    GLint queried = 0;
+    MG_Impl::GLImpl::GetTexParameteriv(GL_PROXY_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, &queried);
+    ExpectSingleGlError(GL_INVALID_ENUM);
+    MG_Impl::GLImpl::TexParameteri(GL_PROXY_TEXTURE_CUBE_MAP, GL_TEXTURE_BASE_LEVEL, 0);
+    ExpectSingleGlError(GL_INVALID_ENUM);
+
+    // The level query keeps its proxy support - that is the entire point of a proxy texture, and the
+    // predicate deliberately does not gate it. Only the ERROR is asserted, not the width: MobileGL
+    // does not currently report a proxy level's dimensions back (it answers 0), which is a separate
+    // pre-existing gap in GetTexLevelParameter and not something this predicate decides. What
+    // matters here is that the query is not turned into GL_INVALID_ENUM alongside the setters.
+    GLint proxyWidth = -1;
+    MG_Impl::GLImpl::GetTexLevelParameteriv(GL_PROXY_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &proxyWidth);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR)
+        << "the proxy target must still be accepted by GetTexLevelParameter";
+
+    DrainPendingGlErrors();
 }
 
 TEST_F(TextureTest, GenThenBindCreatesObjectForUnsizedPackedBgraSubImageUpload) {
@@ -1464,6 +2050,81 @@ TEST_F(TextureTest, GetTextureSubImageRejectsPartialReadbackForNow) {
                                         sizeof(output), output);
 
     EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_INVALID_OPERATION);
+}
+
+// A cube map keeps each face as its own stored image, so a level's texel size reads z = 1 whichever
+// face is asked - but GL 4.6 core 8.11.4 addresses the six faces through zoffset, which is the
+// by-name spelling of the face token glGetTexImage takes. Both halves of that were missing: the z
+// range was measured against the level's 1, so every face but +X came back INVALID_OPERATION as a
+// partial read, and the destination-size check summed all six faces, so even face +X could not be
+// read into the one face's worth of buffer a single-face read has any reason to pass.
+TEST_F(TextureTest, GetTextureSubImageSelectsTheCubeFaceZOffsetNames) {
+    GLuint texture = 0;
+    MG_Impl::GLImpl::GenTextures(1, &texture);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_CUBE_MAP, texture);
+    // Every face carries its own index in the red channel, so a read that answers the wrong face
+    // says which one it answered with.
+    for (int face = 0; face < 6; ++face) {
+        const Uint8 pixel[] = {static_cast<Uint8>(10 + face), 20, 30, 40};
+        MG_Impl::GLImpl::TexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + face, 0, GL_RGBA8, 1, 1, 0, GL_RGBA,
+                                    GL_UNSIGNED_BYTE, pixel);
+    }
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR) << "seeding the six faces failed";
+
+    for (int face = 0; face < 6; ++face) {
+        Uint8 output[4] = {};
+        MG_Impl::GLImpl::GetTextureSubImage(texture, 0, 0, 0, face, 1, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE,
+                                            sizeof(output), output);
+        EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR) << "reading face " << face << " errored";
+        EXPECT_EQ(static_cast<int>(output[0]), 10 + face)
+            << "zoffset " << face << " answered with face " << (static_cast<int>(output[0]) - 10);
+    }
+
+    // Past the last face. Still a partial read of a level with no sixth-and-beyond image.
+    Uint8 output[4] = {};
+    MG_Impl::GLImpl::GetTextureSubImage(texture, 0, 0, 0, 6, 1, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, sizeof(output),
+                                        output);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_INVALID_OPERATION);
+}
+
+// glGetTexImage of ONE cube face packs one face, so a PIXEL_PACK_BUFFER holding one face is
+// exactly the right size for it. The validator used to measure the bound PBO against all SIX
+// faces' worth and refuse - INVALID_OPERATION for a buffer the copy that follows would have filled
+// precisely. glGetTexImage passes no bufSize, which skips the destination-size branch but NOT the
+// PBO one, so this is the only spelling where the six-face sizing was reachable at all.
+TEST_F(TextureTest, GetTexImageOfOneCubeFacePacksIntoAOneFacePixelPackBuffer) {
+    constexpr GLsizei kEdge = 2;
+    constexpr SizeT kFaceBytes = static_cast<SizeT>(kEdge) * kEdge * 4;
+
+    GLuint texture = 0;
+    MG_Impl::GLImpl::GenTextures(1, &texture);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_CUBE_MAP, texture);
+    MG_Impl::GLImpl::TexStorage2D(GL_TEXTURE_CUBE_MAP, 1, GL_RGBA8, kEdge, kEdge);
+    for (int face = 0; face < 6; ++face) {
+        Uint8 seed[kFaceBytes];
+        for (SizeT i = 0; i < kFaceBytes; ++i) seed[i] = static_cast<Uint8>(10 + face);
+        MG_Impl::GLImpl::TexSubImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + face, 0, 0, 0, kEdge, kEdge, GL_RGBA,
+                                       GL_UNSIGNED_BYTE, seed);
+    }
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR) << "seeding the six faces failed";
+
+    GLuint buffer = 0;
+    MG_Impl::GLImpl::GenBuffers(1, &buffer);
+    MG_Impl::GLImpl::BindBuffer(GL_PIXEL_PACK_BUFFER, buffer);
+    MG_Impl::GLImpl::BufferData(GL_PIXEL_PACK_BUFFER, static_cast<GLsizeiptr>(kFaceBytes), nullptr, GL_STREAM_READ);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR) << "creating the one-face pixel pack buffer failed";
+
+    MG_Impl::GLImpl::GetTexImage(GL_TEXTURE_CUBE_MAP_NEGATIVE_Z, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR)
+        << "a pixel pack buffer sized for the one face this call packs was refused";
+
+    Uint8 packed[kFaceBytes] = {};
+    MG_Impl::GLImpl::GetBufferSubData(GL_PIXEL_PACK_BUFFER, 0, static_cast<GLsizeiptr>(kFaceBytes), packed);
+    EXPECT_EQ(static_cast<int>(packed[0]), 15) << "the PBO holds face " << (static_cast<int>(packed[0]) - 10)
+                                               << ", not -Z";
+
+    MG_Impl::GLImpl::BindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
 }
 
 TEST_F(TextureTest, TextureParameteriAndBindTextureUnitAreDirectStateAccess) {
@@ -2724,6 +3385,46 @@ TEST_F(TextureTest, NormalizePixelFormatKeepsPackedTransferTypesForPackedSizedFo
         EXPECT_EQ(outInternal, c.internalFormat) << "internalformat 0x" << std::hex << c.internalFormat;
         EXPECT_EQ(outFormat, c.expectedFormat) << "internalformat 0x" << std::hex << c.internalFormat;
         EXPECT_EQ(outType, c.expectedType) << "internalformat 0x" << std::hex << c.internalFormat;
+    }
+}
+
+// The packed16 field-order quirk (PixelFormatNormalizeOptionBit::WidenPacked16Norm): where the
+// driver's 16-bit packed storage mirrors its field order at a non-zero array mip level (the
+// Mali defect behind the KHR-GL4x.copy_image rgb5/rgb5_a1/rgba4 x *2d_array* failures), the
+// three ES narrow formats move to 8-bit-per-channel storage. The transfer pair must NOT move
+// with the bit - it is already the UNorm8 component layout the canonical shadow holds - and
+// no other format may move with it either.
+TEST_F(TextureTest, NormalizePixelFormatWidensThePacked16FormatsUnderTheQuirkBit) {
+    using MG_Util::TextureFormatProcessor::NormalizePixelFormat;
+    struct {
+        GLenum requested;
+        GLenum expectedNarrow;
+        GLenum expectedWidened;
+        GLenum expectedFormat;
+    } cases[] = {
+        {GL_RGB565, GL_RGB565, GL_RGB8, GL_RGB},
+        {GL_RGB5_A1, GL_RGB5_A1, GL_RGBA8, GL_RGBA},
+        {GL_RGBA4, GL_RGBA4, GL_RGBA8, GL_RGBA},
+        // Negative controls: a 32-bit packed format and an already-8-bit one stay put with
+        // the bit set - the quirk is about 16-bit packed normalized storage and nothing else.
+        {GL_RGB10_A2, GL_RGB10_A2, GL_RGB10_A2, GL_RGBA},
+        {GL_RGBA8, GL_RGBA8, GL_RGBA8, GL_RGBA},
+    };
+    for (const auto& c : cases) {
+        GLenum narrowInternal = 0, narrowFormat = 0, narrowType = 0;
+        NormalizePixelFormat(c.requested, PixelFormatNormalizeOptionBit::None, &narrowInternal, &narrowFormat,
+                             &narrowType);
+        EXPECT_EQ(narrowInternal, c.expectedNarrow) << "internalformat 0x" << std::hex << c.requested;
+
+        GLenum widenedInternal = 0, widenedFormat = 0, widenedType = 0;
+        NormalizePixelFormat(c.requested, PixelFormatNormalizeOptionBit::WidenPacked16Norm, &widenedInternal,
+                             &widenedFormat, &widenedType);
+        EXPECT_EQ(widenedInternal, c.expectedWidened) << "internalformat 0x" << std::hex << c.requested;
+        // The transfer pair is identical narrow and widened: the widening changes only the ES
+        // storage, never how client data is described to it.
+        EXPECT_EQ(widenedFormat, narrowFormat) << "internalformat 0x" << std::hex << c.requested;
+        EXPECT_EQ(widenedType, narrowType) << "internalformat 0x" << std::hex << c.requested;
+        EXPECT_EQ(widenedFormat, c.expectedFormat) << "internalformat 0x" << std::hex << c.requested;
     }
 }
 
@@ -5544,4 +6245,463 @@ TEST_F(TextureTest, ImageWidenedUploadSplitsAPacked2101010RevShadowIntoFourChann
         EXPECT_EQ(PreparePackedIntWidenedUpload(texelSize, nullptr, 0, empty), nullptr);
         EXPECT_TRUE(empty.empty());
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// GL_TEXTURE_CUBE_MAP_ARRAY: the shape rules, the shared-exponent level query, and the
+// three-dimensional bound-texture copy. All three were front-end gaps rather than backend ones -
+// the DirectVulkan baseline failed the identical conformance bodies.
+// ---------------------------------------------------------------------------------------------
+
+// glTexStorage3D carried the two cube-array shape rules inline and glTexImage3D carried neither,
+// which is exactly why esextcTextureCubeMapArrayTex3DValidation failed on its two glTexImage3D
+// assertions and passed both glTexStorage3D ones. The predicate now lives in one validator that
+// every level-defining entry point calls.
+TEST_F(TextureTest, TexImage3DAppliesTheCubeMapArrayShapeRules) {
+    GLuint texture = 0;
+    MG_Impl::GLImpl::GenTextures(1, &texture);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_CUBE_MAP_ARRAY, texture);
+    DrainPendingGlErrors();
+
+    // Non-square faces are GL_INVALID_VALUE.
+    MG_Impl::GLImpl::TexImage3D(GL_TEXTURE_CUBE_MAP_ARRAY, 0, GL_RGBA8, 4, 8, 6, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                                nullptr);
+    ExpectSingleGlError(GL_INVALID_VALUE);
+
+    // A depth that is not a whole number of cubes is GL_INVALID_VALUE.
+    MG_Impl::GLImpl::TexImage3D(GL_TEXTURE_CUBE_MAP_ARRAY, 0, GL_RGBA8, 4, 4, 5, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                                nullptr);
+    ExpectSingleGlError(GL_INVALID_VALUE);
+
+    // The legal shape still goes through untouched.
+    MG_Impl::GLImpl::TexImage3D(GL_TEXTURE_CUBE_MAP_ARRAY, 0, GL_RGBA8, 4, 4, 12, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                                nullptr);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    // And the rules are not applied to targets they do not belong to: a 2D array may be any
+    // rectangle with any layer count.
+    GLuint arrayTexture = 0;
+    MG_Impl::GLImpl::GenTextures(1, &arrayTexture);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D_ARRAY, arrayTexture);
+    MG_Impl::GLImpl::TexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_RGBA8, 4, 8, 5, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D_ARRAY, 0);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_CUBE_MAP_ARRAY, 0);
+}
+
+TEST_F(TextureTest, TexStorage3DKeepsTheCubeMapArrayShapeRulesAfterTheyMovedIntoTheSharedValidator) {
+    GLuint texture = 0;
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_CUBE_MAP_ARRAY, 1, &texture);
+    DrainPendingGlErrors();
+
+    MG_Impl::GLImpl::TextureStorage3D(texture, 1, GL_RGBA8, 4, 8, 6);
+    ExpectSingleGlError(GL_INVALID_VALUE);
+
+    GLuint second = 0;
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_CUBE_MAP_ARRAY, 1, &second);
+    MG_Impl::GLImpl::TextureStorage3D(second, 1, GL_RGBA8, 4, 4, 5);
+    ExpectSingleGlError(GL_INVALID_VALUE);
+
+    GLuint third = 0;
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_CUBE_MAP_ARRAY, 1, &third);
+    MG_Impl::GLImpl::TextureStorage3D(third, 1, GL_RGBA8, 4, 4, 6);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
+// GL_TEXTURE_SHARED_SIZE (0x8C3F) had no case in either glGetTexLevelParameter switch, so it fell
+// into the terminal default arm and raised GL_INVALID_ENUM. esextcTextureCubeMapArrayGetterCalls
+// walks a fixed pname list and TCU_FAILs on the first error, so the whole body died there even
+// though every other pname it asks for was already implemented.
+TEST_F(TextureTest, GetTexLevelParameterAnswersSharedSize) {
+    GLuint texture = 0;
+    MG_Impl::GLImpl::GenTextures(1, &texture);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, texture);
+    MG_Impl::GLImpl::TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 4, 4, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    DrainPendingGlErrors();
+
+    GLint sharedSize = -1;
+    MG_Impl::GLImpl::GetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_SHARED_SIZE, &sharedSize);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    EXPECT_EQ(sharedSize, 0) << "only a shared-exponent format has a shared exponent";
+
+    GLfloat sharedSizeF = -1.0f;
+    MG_Impl::GLImpl::GetTexLevelParameterfv(GL_TEXTURE_2D, 0, GL_TEXTURE_SHARED_SIZE, &sharedSizeF);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    EXPECT_FLOAT_EQ(sharedSizeF, 0.0f) << "the fv switch is a copy of the iv one and must not drift";
+
+    // RGB9_E5 is the one format that HAS one, and it is five bits wide.
+    GLuint sharedTexture = 0;
+    MG_Impl::GLImpl::GenTextures(1, &sharedTexture);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, sharedTexture);
+    MG_Impl::GLImpl::TexImage2D(GL_TEXTURE_2D, 0, GL_RGB9_E5, 4, 4, 0, GL_RGB, GL_FLOAT, nullptr);
+    DrainPendingGlErrors();
+
+    sharedSize = -1;
+    MG_Impl::GLImpl::GetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_SHARED_SIZE, &sharedSize);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    EXPECT_EQ(sharedSize, 5);
+
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, 0);
+}
+
+// glCopyTexSubImage3D was `{ // TODO: implement }` - no validation, no error, no copy - while its
+// DSA sibling was fully implemented right next door. The two now share one body, so the target
+// rules are the only thing that separates them.
+TEST_F(TextureTest, CopyTexSubImage3DRejectsTargetsTheThreeDimensionalFormDoesNotTake) {
+    GLuint texture = 0;
+    MG_Impl::GLImpl::GenTextures(1, &texture);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, texture);
+    MG_Impl::GLImpl::TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 4, 4, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    DrainPendingGlErrors();
+
+    // GL 4.6 core 8.6: the 3D form takes only TEXTURE_3D / TEXTURE_2D_ARRAY /
+    // TEXTURE_CUBE_MAP_ARRAY. A cube map's faces are two-dimensional targets and go through
+    // glCopyTexSubImage2D. This used to be accepted silently, which is how the defect hid.
+    MG_Impl::GLImpl::CopyTexSubImage3D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, 0, 2, 2);
+    ExpectSingleGlError(GL_INVALID_ENUM);
+    MG_Impl::GLImpl::CopyTexSubImage3D(GL_TEXTURE_CUBE_MAP, 0, 0, 0, 0, 0, 0, 2, 2);
+    ExpectSingleGlError(GL_INVALID_ENUM);
+
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, 0);
+}
+
+TEST_F(TextureTest, CopyTexSubImage3DValidatesTheDestinationRegionOnACubeMapArray) {
+    GLuint texture = 0;
+    MG_Impl::GLImpl::GenTextures(1, &texture);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_CUBE_MAP_ARRAY, texture);
+    MG_Impl::GLImpl::TexImage3D(GL_TEXTURE_CUBE_MAP_ARRAY, 0, GL_RGBA8, 4, 4, 6, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                                nullptr);
+    DrainPendingGlErrors();
+
+    // A negative level is GL_INVALID_VALUE, and reaching it at all proves the entry point now
+    // validates instead of returning silently.
+    MG_Impl::GLImpl::CopyTexSubImage3D(GL_TEXTURE_CUBE_MAP_ARRAY, -1, 0, 0, 0, 0, 0, 2, 2);
+    ExpectSingleGlError(GL_INVALID_VALUE);
+
+    // So is a negative extent.
+    MG_Impl::GLImpl::CopyTexSubImage3D(GL_TEXTURE_CUBE_MAP_ARRAY, 0, 0, 0, 0, 0, 0, -2, 2);
+    ExpectSingleGlError(GL_INVALID_VALUE);
+
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_CUBE_MAP_ARRAY, 0);
+}
+
+TEST_F(TextureTest, CopyTexSubImage1DRejectsAnythingButTexture1D) {
+    GLuint texture = 0;
+    MG_Impl::GLImpl::GenTextures(1, &texture);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, texture);
+    MG_Impl::GLImpl::TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 4, 4, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    DrainPendingGlErrors();
+
+    MG_Impl::GLImpl::CopyTexSubImage1D(GL_TEXTURE_2D, 0, 0, 0, 0, 2);
+    ExpectSingleGlError(GL_INVALID_ENUM);
+
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, 0);
+}
+
+// ---------------------------------------------------------------------------------------------
+// The buffer-texture entry points' error taxonomy (GL 4.6 core 8.9 / GL_EXT_texture_buffer).
+// esextcTextureBufferErrors walks every OTHER texture target through glTexBuffer and
+// glTexBufferRange and reads the code back each time, then does the same for a format a buffer
+// texture cannot take. glTexBuffer carried `// TODO: make sure internalformat is in one of
+// supported format for TexBuffer` and never checked, and the wrong-target code came out of a
+// deeper "the bound object is not a buffer texture" arm whose code depends on which entry point
+// reached it - GL_INVALID_OPERATION, which belongs only to the name-taking DSA forms.
+// ---------------------------------------------------------------------------------------------
+
+TEST_F(TextureTest, TexBufferAndTexBufferRangeRejectANonBufferTargetWithInvalidEnum) {
+    GLuint buffer = 0;
+    MG_Impl::GLImpl::GenBuffers(1, &buffer);
+    MG_Impl::GLImpl::BindBuffer(GL_TEXTURE_BUFFER, buffer);
+    MG_Impl::GLImpl::BufferData(GL_TEXTURE_BUFFER, 64, nullptr, GL_STATIC_DRAW);
+    DrainPendingGlErrors();
+
+    static constexpr GLenum kWrongTargets[] = {
+        GL_TEXTURE_2D, GL_TEXTURE_2D_ARRAY, GL_TEXTURE_3D, GL_TEXTURE_CUBE_MAP, GL_TEXTURE_CUBE_MAP_ARRAY,
+    };
+    for (const GLenum target : kWrongTargets) {
+        MG_Impl::GLImpl::TexBuffer(target, GL_RGBA32I, buffer);
+        ExpectSingleGlError(GL_INVALID_ENUM);
+        MG_Impl::GLImpl::TexBufferRange(target, GL_RGBA32I, buffer, 0, 64);
+        ExpectSingleGlError(GL_INVALID_ENUM);
+    }
+
+    MG_Impl::GLImpl::BindBuffer(GL_TEXTURE_BUFFER, 0);
+    MG_Impl::GLImpl::DeleteBuffers(1, &buffer);
+    DrainPendingGlErrors();
+}
+
+TEST_F(TextureTest, TexBufferRejectsAnInternalFormatABufferTextureCannotTake) {
+    GLuint texture = 0;
+    MG_Impl::GLImpl::GenTextures(1, &texture);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_BUFFER, texture);
+    GLuint buffer = 0;
+    MG_Impl::GLImpl::GenBuffers(1, &buffer);
+    MG_Impl::GLImpl::BindBuffer(GL_TEXTURE_BUFFER, buffer);
+    MG_Impl::GLImpl::BufferData(GL_TEXTURE_BUFFER, 64, nullptr, GL_STATIC_DRAW);
+    DrainPendingGlErrors();
+
+    // GL_DEPTH_COMPONENT32F is the one the conformance suite passes: a sized format, just not one
+    // of the sized formats table 8.15 lists for a buffer texture.
+    MG_Impl::GLImpl::TexBuffer(GL_TEXTURE_BUFFER, GL_DEPTH_COMPONENT32F, buffer);
+    ExpectSingleGlError(GL_INVALID_ENUM);
+    MG_Impl::GLImpl::TexBufferRange(GL_TEXTURE_BUFFER, GL_DEPTH_COMPONENT32F, buffer, 0, 64);
+    ExpectSingleGlError(GL_INVALID_ENUM);
+
+    // A format the table DOES list still goes through.
+    MG_Impl::GLImpl::TexBuffer(GL_TEXTURE_BUFFER, GL_RGBA32I, buffer);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_BUFFER, 0);
+    MG_Impl::GLImpl::BindBuffer(GL_TEXTURE_BUFFER, 0);
+    MG_Impl::GLImpl::DeleteBuffers(1, &buffer);
+    DrainPendingGlErrors();
+}
+
+// The DSA form keeps its own, DIFFERENT code for the corresponding shape: a texture that is not a
+// buffer texture is a wrong OBJECT, not a wrong token. The two must not be unified.
+TEST_F(TextureTest, TextureBufferKeepsInvalidOperationForANonBufferTexture) {
+    GLuint texture = 0;
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_2D, 1, &texture);
+    GLuint buffer = 0;
+    MG_Impl::GLImpl::GenBuffers(1, &buffer);
+    MG_Impl::GLImpl::BindBuffer(GL_TEXTURE_BUFFER, buffer);
+    MG_Impl::GLImpl::BufferData(GL_TEXTURE_BUFFER, 64, nullptr, GL_STATIC_DRAW);
+    DrainPendingGlErrors();
+
+    MG_Impl::GLImpl::TextureBuffer(texture, GL_RGBA32I, buffer);
+    ExpectSingleGlError(GL_INVALID_OPERATION);
+
+    MG_Impl::GLImpl::BindBuffer(GL_TEXTURE_BUFFER, 0);
+    MG_Impl::GLImpl::DeleteBuffers(1, &buffer);
+    DrainPendingGlErrors();
+}
+
+// ---------------------------------------------------------------------------------------------
+// The destination box of a copy is bounded by the LEVEL it writes, not by level 0.
+//
+// glCopyTexSubImage3D/1D validated through ValidateTextureSubImageOffsets, whose bound is
+// ITextureObject::GetBaseSize() - hardcoded to level 0 - while CopyReadFramebufferIntoMipmapRegion
+// indexes GetMipmapTexelSize(uploadTarget, level) and memcpys into the exact-sized allocation
+// MipmapStorage made for that level. A box legal at level 0 and out of range at level N wrote past
+// the end of the heap buffer. Both entry points were `// TODO: implement` no-ops before this
+// branch, so implementing them is what opened the path.
+//
+// The region check runs BEFORE the read-framebuffer check on purpose, which is what lets this
+// GPU-free binary assert it: no complete read FBO is needed to prove the box was rejected.
+// ---------------------------------------------------------------------------------------------
+
+TEST_F(TextureTest, CopyTexSubImage3DBoundsTheDestinationByTheRequestedLevelNotLevelZero) {
+    GLuint texture = 0;
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_2D_ARRAY, 1, &texture);
+    // 4 levels of an 8x8x4 array: level 0 is 8x8, level 1 4x4, level 2 2x2; the layer count stays
+    // 4 at every level.
+    MG_Impl::GLImpl::TextureStorage3D(texture, 4, GL_RGBA8, 8, 8, 4);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D_ARRAY, texture);
+    DrainPendingGlErrors();
+
+    // THE OVERFLOW: 4+4 <= 8 and 4+4 <= 8 against level 0, but level 2 is only 2x2. This used to
+    // pass validation and write 24 bytes past a 64-byte allocation.
+    MG_Impl::GLImpl::CopyTexSubImage3D(GL_TEXTURE_2D_ARRAY, 2, 4, 4, 0, 0, 0, 4, 4);
+    ExpectSingleGlError(GL_INVALID_VALUE);
+
+    // The same box one axis at a time, so a check that only looked at x or only at y cannot pass.
+    MG_Impl::GLImpl::CopyTexSubImage3D(GL_TEXTURE_2D_ARRAY, 1, 3, 0, 0, 0, 0, 2, 2);
+    ExpectSingleGlError(GL_INVALID_VALUE);
+    MG_Impl::GLImpl::CopyTexSubImage3D(GL_TEXTURE_2D_ARRAY, 1, 0, 3, 0, 0, 0, 2, 2);
+    ExpectSingleGlError(GL_INVALID_VALUE);
+
+    // A box that IS inside level 1 (4x4) must get past the region check. It cannot complete here -
+    // this binary has no complete read framebuffer - but it must not be the box that is refused.
+    MG_Impl::GLImpl::CopyTexSubImage3D(GL_TEXTURE_2D_ARRAY, 1, 2, 2, 3, 0, 0, 2, 2);
+    EXPECT_NE(MG_Impl::GLImpl::GetError(), GL_INVALID_VALUE)
+        << "an in-range level-1 box must reach the framebuffer check, not be rejected as out of range";
+    DrainPendingGlErrors();
+
+    // The layer axis is bounded by the level's layer count, which does NOT shrink down the chain.
+    MG_Impl::GLImpl::CopyTexSubImage3D(GL_TEXTURE_2D_ARRAY, 1, 0, 0, 4, 0, 0, 2, 2);
+    ExpectSingleGlError(GL_INVALID_VALUE);
+
+    // A level the texture never had is INVALID_OPERATION, not a write into an empty allocation.
+    MG_Impl::GLImpl::CopyTexSubImage3D(GL_TEXTURE_2D_ARRAY, 5, 0, 0, 0, 0, 0, 1, 1);
+    ExpectSingleGlError(GL_INVALID_OPERATION);
+
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D_ARRAY, 0);
+    DrainPendingGlErrors();
+}
+
+TEST_F(TextureTest, CopyTexSubImage1DBoundsTheDestinationByTheRequestedLevel) {
+    GLuint texture = 0;
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_1D, 1, &texture);
+    MG_Impl::GLImpl::TextureStorage1D(texture, 4, GL_RGBA8, 8);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_1D, texture);
+    DrainPendingGlErrors();
+
+    // Level 2 is two texels, i.e. eight bytes; this used to write sixteen bytes starting sixteen
+    // bytes in - entirely outside the allocation.
+    MG_Impl::GLImpl::CopyTexSubImage1D(GL_TEXTURE_1D, 2, 4, 0, 0, 4);
+    ExpectSingleGlError(GL_INVALID_VALUE);
+
+    // In range at level 1 (four texels).
+    MG_Impl::GLImpl::CopyTexSubImage1D(GL_TEXTURE_1D, 1, 2, 0, 0, 2);
+    EXPECT_NE(MG_Impl::GLImpl::GetError(), GL_INVALID_VALUE);
+    DrainPendingGlErrors();
+
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_1D, 0);
+    DrainPendingGlErrors();
+}
+
+// glCopyTextureSubImage3D documents zoffset as the cube-map FACE selector, but the face mapping
+// ran AFTER a z-bounds check taken from GetBaseSize().z(), which for a cube map is one face's
+// depth - i.e. 1. Every zoffset in 1..5 was rejected with GL_INVALID_VALUE, so five of the six
+// faces were unreachable. The mapping now runs first and is bounded by the face count.
+TEST_F(TextureTest, CopyTextureSubImage3DCanAddressEveryCubeMapFace) {
+    GLuint texture = 0;
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_CUBE_MAP, 1, &texture);
+    MG_Impl::GLImpl::TextureStorage2D(texture, 2, GL_RGBA8, 4, 4);
+    DrainPendingGlErrors();
+
+    for (GLint face = 0; face < 6; ++face) {
+        MG_Impl::GLImpl::CopyTextureSubImage3D(texture, 0, 0, 0, face, 0, 0, 4, 4);
+        EXPECT_NE(MG_Impl::GLImpl::GetError(), GL_INVALID_VALUE)
+            << "face " << face << " must be reachable; the z bound is the face count, not a face's depth";
+        DrainPendingGlErrors();
+    }
+
+    // Past the last face is still GL_INVALID_VALUE.
+    MG_Impl::GLImpl::CopyTextureSubImage3D(texture, 0, 0, 0, 6, 0, 0, 4, 4);
+    ExpectSingleGlError(GL_INVALID_VALUE);
+    MG_Impl::GLImpl::CopyTextureSubImage3D(texture, 0, 0, 0, -1, 0, 0, 4, 4);
+    ExpectSingleGlError(GL_INVALID_VALUE);
+
+    // And the per-FACE extent still bounds x/y at the requested level: level 1 of a 4x4 cube is
+    // 2x2, so a 4x4 box into face 3 is out of range even though it fits level 0.
+    MG_Impl::GLImpl::CopyTextureSubImage3D(texture, 1, 0, 0, 3, 0, 0, 4, 4);
+    ExpectSingleGlError(GL_INVALID_VALUE);
+
+    DrainPendingGlErrors();
+}
+
+// ---------------------------------------------------------------------------------------------
+// glGenerateMipmap allocates the chain in the FRONTEND before it dispatches to the backend, and
+// that allocator used a two-way "does depth mip?" flag which had no way to say that a 1D array's
+// HEIGHT is its layer count. It therefore both counted the layer axis into the chain length and
+// halved it per level. The backend allocator cannot repair that - it only ever GROWS a chain, and
+// the frontend's (wrong) count is always the longer one - so the layer-shrinking chain survived on
+// both backends, and ComputeMipmapCompleteForFilter (which knows height is not a dimension for
+// this target) then judged the texture mipmap-INCOMPLETE, i.e. sampling returns (0,0,0,1).
+// ---------------------------------------------------------------------------------------------
+
+namespace {
+    // glGenerateMipmap dispatches to the backend after the frontend allocation; this binary has no
+    // GL context, so the hook is stubbed for the duration of the case. What is under test is the
+    // frontend allocation the stub cannot influence.
+    struct ScopedNoOpGenerateMipmap {
+        ScopedNoOpGenerateMipmap(): m_snapshot(MobileGL::MG_Backend::gBackendFunctionsTable) {
+            MobileGL::MG_Backend::gBackendFunctionsTable.GL.GenerateMipmap = [](GLenum) {};
+        }
+        ~ScopedNoOpGenerateMipmap() { MobileGL::MG_Backend::gBackendFunctionsTable = m_snapshot; }
+        ScopedNoOpGenerateMipmap(const ScopedNoOpGenerateMipmap&) = delete;
+        ScopedNoOpGenerateMipmap& operator=(const ScopedNoOpGenerateMipmap&) = delete;
+
+    private:
+        MobileGL::MG_Backend::GlobalBackendFunctionsTable m_snapshot;
+    };
+
+    GLint LevelParam(GLenum target, GLint level, GLenum pname) {
+        GLint value = -1;
+        MG_Impl::GLImpl::GetTexLevelParameteriv(target, level, pname, &value);
+        return value;
+    }
+} // namespace
+
+TEST_F(TextureTest, GenerateMipmapKeepsA1DArrayLayerCountAtEveryLevel) {
+    ScopedNoOpGenerateMipmap noOpBackend;
+
+    GLuint texture = 0;
+    MG_Impl::GLImpl::GenTextures(1, &texture);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_1D_ARRAY, texture);
+    // Width 8, FOUR layers. The layer count is carried in `height` for this target.
+    MG_Impl::GLImpl::TexImage2D(GL_TEXTURE_1D_ARRAY, 0, GL_RGBA8, 8, 4, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    DrainPendingGlErrors();
+
+    MG_Impl::GLImpl::GenerateMipmap(GL_TEXTURE_1D_ARRAY);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    // The chain length comes from the WIDTH alone: 8 -> 4 -> 2 -> 1 is four levels. Counting the
+    // layer axis too would give the same four here, so the width is chosen larger than the layer
+    // count on purpose and the layer assertions below are what actually discriminate.
+    for (GLint level = 0; level < 4; ++level) {
+        EXPECT_EQ(LevelParam(GL_TEXTURE_1D_ARRAY, level, GL_TEXTURE_WIDTH), std::max(8 >> level, 1))
+            << "level " << level << " width";
+        EXPECT_EQ(LevelParam(GL_TEXTURE_1D_ARRAY, level, GL_TEXTURE_HEIGHT), 4)
+            << "level " << level << " must keep all four layers; height is the layer count for a 1D array";
+    }
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_1D_ARRAY, 0);
+    DrainPendingGlErrors();
+}
+
+// The mirror case: more layers than texels. The chain must be as long as the WIDTH admits, not as
+// long as the layer count admits - a chain sized off the layers would allocate levels whose width
+// has already bottomed out at 1 while the layer count kept halving.
+TEST_F(TextureTest, GenerateMipmapSizesA1DArrayChainFromWidthAloneEvenWithMoreLayersThanTexels) {
+    ScopedNoOpGenerateMipmap noOpBackend;
+
+    GLuint texture = 0;
+    MG_Impl::GLImpl::GenTextures(1, &texture);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_1D_ARRAY, texture);
+    // Width 2, sixteen layers: counting the layer axis would ask for five levels, the width for two.
+    MG_Impl::GLImpl::TexImage2D(GL_TEXTURE_1D_ARRAY, 0, GL_RGBA8, 2, 16, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    DrainPendingGlErrors();
+
+    MG_Impl::GLImpl::GenerateMipmap(GL_TEXTURE_1D_ARRAY);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    EXPECT_EQ(LevelParam(GL_TEXTURE_1D_ARRAY, 1, GL_TEXTURE_WIDTH), 1);
+    EXPECT_EQ(LevelParam(GL_TEXTURE_1D_ARRAY, 1, GL_TEXTURE_HEIGHT), 16);
+    // Level 2 must not exist: the chain ends where the width does.
+    EXPECT_EQ(LevelParam(GL_TEXTURE_1D_ARRAY, 2, GL_TEXTURE_WIDTH), 0);
+    DrainPendingGlErrors();
+
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_1D_ARRAY, 0);
+    DrainPendingGlErrors();
+}
+
+// The 2D-array/cube-array side of the same rule, so a fix that swung the other way (making depth
+// mip-able again) cannot pass. Depth is the layer count for these; only width and height reduce.
+TEST_F(TextureTest, GenerateMipmapKeepsA2DArrayLayerCountAtEveryLevel) {
+    ScopedNoOpGenerateMipmap noOpBackend;
+
+    GLuint texture = 0;
+    MG_Impl::GLImpl::GenTextures(1, &texture);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D_ARRAY, texture);
+    MG_Impl::GLImpl::TexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_RGBA8, 8, 8, 3, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    DrainPendingGlErrors();
+
+    MG_Impl::GLImpl::GenerateMipmap(GL_TEXTURE_2D_ARRAY);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    for (GLint level = 0; level < 4; ++level) {
+        EXPECT_EQ(LevelParam(GL_TEXTURE_2D_ARRAY, level, GL_TEXTURE_WIDTH), std::max(8 >> level, 1));
+        EXPECT_EQ(LevelParam(GL_TEXTURE_2D_ARRAY, level, GL_TEXTURE_HEIGHT), std::max(8 >> level, 1));
+        EXPECT_EQ(LevelParam(GL_TEXTURE_2D_ARRAY, level, GL_TEXTURE_DEPTH), 3)
+            << "level " << level << " must keep all three layers";
+    }
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    // And a true 3D texture still halves all three, which is the case the layer rule must not eat.
+    GLuint volume = 0;
+    MG_Impl::GLImpl::GenTextures(1, &volume);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_3D, volume);
+    MG_Impl::GLImpl::TexImage3D(GL_TEXTURE_3D, 0, GL_RGBA8, 8, 8, 8, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    DrainPendingGlErrors();
+    MG_Impl::GLImpl::GenerateMipmap(GL_TEXTURE_3D);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    EXPECT_EQ(LevelParam(GL_TEXTURE_3D, 1, GL_TEXTURE_DEPTH), 4);
+
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_3D, 0);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D_ARRAY, 0);
+    DrainPendingGlErrors();
 }

@@ -787,6 +787,33 @@ namespace MobileGL::MG_State::GLState {
         void MarkUBOContentDirty() const {
             if (++m_uboContentVersion == ~0u) m_uboContentVersion = 0;
         }
+
+        // ---- the reserved gl_NumSamples stand-in (ShaderTranspiler::NUM_SAMPLES_UNIFORM_NAME) ----
+        //
+        // PHASE A: answerable without joining the SPIR-V job, which is what lets the draw path ask
+        // every program this question and pay nothing for the overwhelming majority that say no.
+        Bool UsesReservedNumSamples() const { return Artifacts().usesReservedNumSamples; }
+
+        // Publishes `samples` into the global-UBO shadow. Returns false when there is nowhere to
+        // put it - no shim in this program, no SPIR-V (a cancelled phase B), or the optimizer
+        // dropped the member because nothing read it after all - all of which are ordinary states,
+        // not errors. A value-identical write is dropped without bumping the content version, so a
+        // steady stream of draws into one framebuffer does not force a re-upload per draw.
+        Bool WriteReservedNumSamples(Int samples) {
+            if (!UsesReservedNumSamples()) return false;
+            SpirvArtifacts& spirv = Spirv();
+            const Uint offset = spirv.reservedNumSamplesOffset;
+            if (offset == kInvalidUniformOffset) return false;
+            if (static_cast<SizeT>(offset) + sizeof(Int) > spirv.globalUboScratch.size()) return false;
+
+            Uint8* const slot = spirv.globalUboScratch.data() + offset;
+            Int current = 0;
+            Memcpy(&current, slot, sizeof(Int));
+            if (current == samples) return true;
+            Memcpy(slot, &samples, sizeof(Int));
+            MarkUBOContentDirty();
+            return true;
+        }
         // ---- glUniform* inside the phase-A -> phase-B window ----
         //
         // True while the program is fully linked and fully queryable but its uniform shadow's
@@ -888,6 +915,14 @@ namespace MobileGL::MG_State::GLState {
         // subset of the stages of a program pipeline. Only takes effect on the next link,
         // which is why it is plain state here rather than something Link() consults.
         Bool GetSeparable() const { return m_separable; }
+        // What GL_PROGRAM_SEPARABLE actually reports, and what glUseProgramStages actually
+        // requires: the value the flag held at the program's LAST LINK, not the live flag.
+        // GL 4.6 core 7.3 - "the flag takes effect the next time the program is linked" - so a
+        // program that was told to be separable and then never linked is still NOT separable,
+        // which is precisely what es31cSeparateShaderObjsTests's PipelineApi and CreateShadProgApi
+        // assert. The live flag stays available as GetSeparable() for glGetProgramiv's sibling
+        // state and for the next link to latch.
+        Bool GetLinkedSeparable() const { return m_linkedSeparable; }
         void SetSeparable(Bool separable) {
             m_separable = separable;
             // ---- arming the uniform-write tracking latch ----
@@ -1296,6 +1331,14 @@ namespace MobileGL::MG_State::GLState {
             std::set<String> uniformBlocksWithoutBinding;
 
             Uint activeUniformCount = 0;
+            // This program's fragment stage read gl_NumSamples, so the source pipeline lowered it
+            // onto the reserved default-block uniform (ShaderTranspiler::NUM_SAMPLES_UNIFORM_NAME)
+            // and the draw path owes it the draw framebuffer's sample count before every draw.
+            //
+            // PHASE A on purpose, even though the byte offset it needs is phase-B output: the
+            // gate has to be answerable without joining the SPIR-V job, or every draw of every
+            // program would pay a join to discover it has nothing to write.
+            Bool usesReservedNumSamples = false;
             Uint maxUniformLocation = 0;
             Int uniformNameMaxLength = 0;
             Int attribInNameMaxLength = 0;
@@ -1317,6 +1360,27 @@ namespace MobileGL::MG_State::GLState {
             Vector<Uint32> gsStripTriangles;
             Bool gsStripCaptureFixup = false;
             GLenum gsInputPrimitive = GL_NONE;
+            // GL_TESS_CONTROL_OUTPUT_VERTICES: the `layout(vertices = N) out` of the linked
+            // tessellation control stage, or 0 when the program has none. Checked against
+            // GL_MAX_PATCH_VERTICES at link (GL 4.6 core 11.2.1.1).
+            Int tcsOutputVertices = 0;
+            // The rest of the geometry stage's link properties, and the tessellation evaluation
+            // stage's. Every one of these is a glGetProgramiv answer that had no source at all:
+            // the query surface listed the geometry pnames only to fall through to
+            // GL_INVALID_ENUM, and the GL_TESS_GEN_* pnames were not mentioned anywhere. They
+            // come from the linked intermediates for the same reason gsInputPrimitive and
+            // tcsOutputVertices do - glslang has already merged the compilation units' layout
+            // qualifiers and diagnosed contradictions, so the linked program is the thing that
+            // knows.
+            GLenum gsOutputPrimitive = GL_NONE;
+            Int gsMaxVertices = 0;
+            Int gsInvocations = 0;
+            // The tessellation evaluation stage's layout: GL_QUADS / GL_TRIANGLES / GL_ISOLINES,
+            // GL_EQUAL / GL_FRACTIONAL_EVEN / GL_FRACTIONAL_ODD, GL_CW / GL_CCW, and point mode.
+            GLenum tessGenMode = GL_NONE;
+            GLenum tessGenSpacing = GL_NONE;
+            GLenum tessGenVertexOrder = GL_NONE;
+            Bool tessGenPointMode = false;
             GLenum xfbBufferMode = GL_INTERLEAVED_ATTRIBS;
             Int xfbVaryingNameMaxLength = 0;
             Bool xfbNeedsScatteredCapture = false;
@@ -1344,6 +1408,11 @@ namespace MobileGL::MG_State::GLState {
             // kInvalidUniformOffset. Sized maxUniformLocation + 1 by the routing pass.
             Vector<Uint> uniformOffsets;
             Vector<Uint8> globalUboScratch;
+            // Byte offset of the reserved gl_NumSamples stand-in inside globalUboScratch, or
+            // kInvalidUniformOffset. Taken by NAME from the SPIR-V metadata rather than through
+            // uniformOffsets, because the member has no GL location at all: the link task keeps
+            // it out of the GL-visible uniform index space so no application can see or write it.
+            Uint reservedNumSamplesOffset = kInvalidUniformOffset;
             // False for a program whose SPIR-V was never produced (phase B cancelled at
             // teardown or by a relink) or whose optimizer run failed. GL has no way to
             // retract a LINK_STATUS it already reported true, so such a program stays
@@ -1467,6 +1536,14 @@ namespace MobileGL::MG_State::GLState {
             m_requestedXfbVaryings = Move(names);
             m_requestedXfbBufferMode = bufferMode;
         }
+        // NO ACCESSOR FOR THE PENDING REQUEST, deliberately. A program pipeline's draw composite
+        // needs the capture list of the stage program it flattens, and the obvious source - what
+        // glTransformFeedbackVaryings last recorded - is the wrong one: that request does not take
+        // effect until the stage program's next link, and it bumps no version, so reading it makes
+        // the composite's capture list depend on when the composite cache happened to be
+        // invalidated. GetTransformFeedbackInterfaceNames() below is the source that is correct
+        // AND cache-safe, because linked state only moves at a link and the composite signature
+        // already keys on the link version. See GLContext::GetProgramForDraw.
         GLenum GetTransformFeedbackBufferMode() const { return Artifacts().xfbBufferMode; }
         SizeT GetTransformFeedbackVaryingCount() const { return Artifacts().xfbVaryings.size(); }
         const XfbVarying* GetTransformFeedbackVarying(SizeT index) const {
@@ -1501,6 +1578,22 @@ namespace MobileGL::MG_State::GLState {
         // GL_LINES_ADJACENCY, GL_TRIANGLES or GL_TRIANGLES_ADJACENCY), or GL_NONE when the
         // program has no geometry stage. Draws must present a compatible primitive type.
         GLenum GetGeometryInputType() const { return Artifacts().gsInputPrimitive; }
+        // GL_GEOMETRY_OUTPUT_TYPE (GL_POINTS, GL_LINE_STRIP or GL_TRIANGLE_STRIP),
+        // GL_GEOMETRY_VERTICES_OUT and GL_GEOMETRY_SHADER_INVOCATIONS of the linked geometry
+        // stage. Meaningless without one - glGetProgramiv raises INVALID_OPERATION there.
+        GLenum GetGeometryOutputType() const { return Artifacts().gsOutputPrimitive; }
+        Int GetGeometryVerticesOut() const { return Artifacts().gsMaxVertices; }
+        Int GetGeometryShaderInvocations() const { return Artifacts().gsInvocations; }
+        // GL_TESS_CONTROL_OUTPUT_VERTICES of the linked tessellation control stage, or 0 when
+        // the program has no such stage. Never greater than GL_MAX_PATCH_VERTICES: a program
+        // that declared more does not link at all (GL 4.6 core 11.2.1.1).
+        Int GetTessControlOutputVertices() const { return Artifacts().tcsOutputVertices; }
+        // GL_TESS_GEN_MODE / _SPACING / _VERTEX_ORDER / _POINT_MODE of the linked tessellation
+        // evaluation stage.
+        GLenum GetTessGenMode() const { return Artifacts().tessGenMode; }
+        GLenum GetTessGenSpacing() const { return Artifacts().tessGenSpacing; }
+        GLenum GetTessGenVertexOrder() const { return Artifacts().tessGenVertexOrder; }
+        Bool GetTessGenPointMode() const { return Artifacts().tessGenPointMode; }
 
         Uint GetExternalIndex() const { return m_externalIndex; }
         // Globally-unique, never-reused id for this program object's lifetime. Unlike the GL
@@ -1626,6 +1719,11 @@ namespace MobileGL::MG_State::GLState {
         Bool m_deleteStatus = false;
         Bool m_binaryRetrievableHint = false;
         Bool m_separable = false;
+        // m_separable as of the last link; see GetLinkedSeparable. Latched by Link() rather than
+        // carried in LinkArtifacts because it is a GL-thread-owned decision made at enqueue time,
+        // not a result the worker computes - and because a FAILED link still latches it, exactly
+        // as a successful one does.
+        Bool m_linkedSeparable = false;
         // Monotone "this program may ever be a pipeline stage" latch; see SetSeparable for why
         // it is a latch and not just m_separable. Outside LinkArtifacts on purpose: a relink
         // clears the write SET, but a program that was separable is still separable after it.

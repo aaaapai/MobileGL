@@ -584,6 +584,30 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         // needs no feature). Both cached at device creation and drive a hard-fail-at-draw when absent.
         Bool m_dualSrcBlendFeatureEnabled = false;
         Bool m_primitiveTopologyListRestartFeatureEnabled = false;
+        // shaderTessellationAndGeometryPointSize gates the PointSize built-in in a tessellation
+        // or geometry stage, which desktop GL treats as an ordinary per-vertex output (writable,
+        // and capturable by name through transform feedback). Cached at device creation and
+        // handed to ProgramFactory, which refuses a program whose tessellation or geometry module
+        // declares the matching SPIR-V capability while this is false - SetupDraw then skips its
+        // draws (VkProgramObject::pointSizeCapabilityUnsupported) rather than building a pipeline
+        // that is invalid usage.
+        Bool m_tessellationAndGeometryPointSizeFeatureEnabled = false;
+        // VK_EXT_custom_border_color. Vulkan's four predefined VkBorderColor values cover only
+        // transparent/opaque black and opaque white; GL_TEXTURE_BORDER_COLOR is an arbitrary vec4 (or
+        // an arbitrary ivec4/uvec4 through the "I" entry points). Without this extension a border
+        // colour outside the palette has to be snapped to the nearest predefined one. Both features
+        // are required together: customBorderColorWithoutFormat is what lets a sampler carry a custom
+        // colour without naming the image format it will be paired with, which GL's sampler objects
+        // cannot know. maxCustomBorderColorSamplers is a real device limit, so the sampler cache has
+        // to be able to fall back to the snapped value once it is reached.
+        Bool m_customBorderColorFeatureEnabled = false;
+        Uint32 m_maxCustomBorderColorSamplers = 0;
+        // sampleRateShading gates VkPipelineMultisampleStateCreateInfo::sampleShadingEnable, i.e.
+        // glEnable(GL_SAMPLE_SHADING) + glMinSampleShading. Unlike dualSrcBlend this does NOT
+        // hard-fail the draw when absent: sample shading is a rate hint, and every sample-rate
+        // pipeline is still correct (just not per-sample) at the default rate - so the enable is
+        // dropped and the draw proceeds, which is what a GL implementation with SAMPLES=1 does too.
+        Bool m_sampleRateShadingFeatureEnabled = false;
         // multiViewport gates rasterizing into more than one of ARB_viewport_array's 16 viewports
         // (gl_ViewportIndex). m_maxRasterizableViewports is min(MAX_VIEWPORTS, device limit), or 1
         // when the feature is off, and is the viewportCount a gl_ViewportIndex-writing pipeline
@@ -733,6 +757,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             // values the memo already holds.
             Uint64 pipelineStateHash = 0;
             ProgramFactory::CompileOptionFlags transformFlags = {};
+            // Baked into the pipeline (PipelineFactory::ComputeHash mixes it), and NOT derivable
+            // from anything else in this key: it depends on whether the draw is indexed and on the
+            // index type, neither of which the mode/program/state hashes carry. Without it an
+            // indexed and a non-indexed draw over the same program and state collide on one entry
+            // and the second one gets the first one's restart setting.
+            Bool primitiveRestartEnable = false;
             VkPipeline pipeline = VK_NULL_HANDLE;
         };
         static constexpr Uint32 kPipelineMemoSize = 8;
@@ -746,9 +776,18 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         // version: the version is monotonic and bumps on every pipeline-state
         // change, so an unchanged (version, colorAttachmentCount) proves the state
         // bytes are unchanged and the hash can be reused without re-reading them.
-        Uint64 ComputePipelineStateHash(Uint32 colorAttachmentCount) const;
+        Uint64 ComputePipelineStateHash(Uint32 colorAttachmentCount,
+                                        VkSampleCountFlagBits rasterizationSamples) const;
+        // The effective GL_SAMPLE_MASK word for a draw at this rasterization sample count; see
+        // the definition for the GL-vs-Vulkan rule it reconciles. Shared by the pipeline payload
+        // and the pipeline-state memo word so the two cannot disagree.
+        Uint32 ResolveEffectiveSampleMask(VkSampleCountFlagBits rasterizationSamples) const;
         Uint m_pipelineStateHashVersion = 0;
         Uint32 m_pipelineStateHashColorCount = 0;
+        // The sample count the cached hash was computed at. A pipeline-state input now depends on
+        // it (the effective sample mask), so a draw that changes only the target's sample count
+        // has to recompute rather than reuse.
+        VkSampleCountFlagBits m_pipelineStateHashSampleCount = VK_SAMPLE_COUNT_1_BIT;
         Uint64 m_pipelineStateHash = 0;
         Bool m_pipelineStateHashValid = false;
         // GetShaderTransformFlags memo. NOT pure in the pre-transform alone: the
@@ -790,7 +829,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         // Skip the per-draw CollectSampledTextures walk (~5% of the render thread) when the sampled
         // texture SET is provably unchanged from the previous draw: same program (lifetime id +
         // backend-state version, which covers sampler-uniform reassignment / relink) and transform
-        // flags, and no texture bind/unbind/delete since (GetTextureBindGeneration). On a hit,
+        // flags, no texture bind/unbind/delete since (GetTextureBindGeneration), and nothing that
+        // moves a texture's shape or a sampler's parameters since (GetSamplingResolutionGeneration
+        // - membership depends on mipmap-completeness, which both of those decide). On a hit,
         // m_sampledTexturesScratch still holds the previous draw's list and steps 2-4 (feedback /
         // layout probe / transition) re-run on it, so layout correctness is unaffected - only the GL
         // walk is skipped. The program lifetime id (never reused, unlike the GL name) and the
@@ -801,6 +842,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Uint32 m_lastSampledSetProgramVersion = 0;
         ProgramFactory::CompileOptionFlags m_lastSampledSetTransformFlags = {};
         Uint64 m_lastSampledSetBindGeneration = 0;
+        Uint64 m_lastSampledSetSamplingGeneration = 0;
+        // Set from the draw's resolved VkProgramObject on both the full and the fast setup paths;
+        // read by BeginXfbCaptureForDraw, which has only GL state otherwise. See
+        // VkProgramObject::xfbCaptureDeclined.
+        Bool m_currentDrawXfbCaptureDeclined = false;
 
         // Memo for the per-draw explicit-LOD-0 eligibility probe
         // (ProgramSamplesOnlySingleLevelTextures): same key family as the
@@ -865,6 +911,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             Uint64 bindGeneration = 0;
             Uint32 baseTransformFlags = 0;
             Uint32 resolvedTransformFlags = 0;
+            // What ResolvePrimitiveRestartEnable answered for the draw this snapshot was taken
+            // from, i.e. what its pipeline's primitiveRestartEnable was built with. `aspects`
+            // already separates indexed from non-indexed draws, but not one index TYPE from
+            // another, and a restart index that fits GL_UNSIGNED_INT but not GL_UNSIGNED_SHORT
+            // makes those two draws want different pipelines.
+            Bool primitiveRestartEnable = false;
             Uint64 renderPassHash = 0;
             Uint32 imageIndex = 0;
             Uint64 textureEraseEpoch = 0;
@@ -893,6 +945,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             // probe the pipeline memo after a state change without re-fetching the
             // render-pass entry (the pass itself is pinned by renderPassHash above).
             Uint32 renderPassColorCount = 0;
+            // Pinned with the colour count and for the same reason: the fast path recomputes the
+            // pipeline-state value hash from the snapshot, and that hash reads the sample count.
+            VkSampleCountFlagBits renderPassSampleCount = VK_SAMPLE_COUNT_1_BIT;
             VkPipeline pipeline = VK_NULL_HANDLE;
             // layoutHash of the snapshotting draw's vertex-input state. The pipeline and
             // the vertex-input pre-flight depend on the VAO only through this (plus the
@@ -1168,13 +1223,23 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void CreateSwapchain();
         void CreateCommandPool();
 
+        // Whether THIS draw's primitive stream restarts, and therefore what
+        // VkPipelineInputAssemblyStateCreateInfo::primitiveRestartEnable must be. Resolved by the
+        // caller because it needs two facts a pipeline cannot see: whether the draw is indexed at
+        // all (GL primitive restart acts on the index stream, so it is a no-op for glDrawArrays),
+        // and the index TYPE (an application restart index that does not fit the type matches no
+        // index, so that draw restarts nowhere - see UploadAndBindIndexBuffer).
+        Bool ResolvePrimitiveRestartEnable(Flags<DrawSetupAspect> aspects,
+                                           const IndexBufferView* pIndexBufferView) const;
+
         VkPipeline GetOrCreatePipeline(
             GLenum mode,
             const MG_State::GLState::ProgramObject& program,
             const ProgramFactory::VkProgramObject& programObj,
             ProgramFactory::CompileOptionFlags transformFlags,
             const MG_State::GLState::VertexArrayObject& vao,
-            const RenderPassEntry& renderPassEntry);
+            const RenderPassEntry& renderPassEntry,
+            Bool primitiveRestartEnable);
         VkPipeline GetOrCreateComputePipeline(const ProgramFactory::VkProgramObject& programObj);
         void DestroyComputePipelines();
         // Takes the frame rather than a command buffer: a first-time storage-usage upgrade has to
@@ -1241,13 +1306,25 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                                    GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1,
                                                    GLint dstX0, GLint dstY0, GLint dstX1, GLint dstY1,
                                                    GLenum filter);
-        // Clears one z slice of a VK_IMAGE_TYPE_3D colour image. See the call site in
-        // MaterializePendingClearForTexture for why a transfer clear cannot do this.
+        // Clears one layer of a colour image through a throwaway render pass whose entire content
+        // is its LOAD_OP_CLEAR. Two callers, both of which a transfer clear cannot serve: a z
+        // slice of a VK_IMAGE_TYPE_3D image (vkCmdClearColorImage cannot name one), and a
+        // MULTISAMPLE image (which carries no TRANSFER_DST usage at all). `finalLayout` is the
+        // layout the caller already tracks for the whole image, so this never has to touch
+        // resource->layout.
         Bool ClearDepthSliceWithRenderPass(VkCommandBuffer commandBuffer,
                                            MG_State::GLState::ITextureObject& texture, Uint32 mipLevel,
-                                           Uint32 depthSlice, const VkClearValue& clearValue);
+                                           Uint32 depthSlice, const VkClearValue& clearValue,
+                                           VkImageLayout finalLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         Bool MaterializePendingClearForTexture(VkCommandBuffer commandBuffer,
                                                MG_State::GLState::ITextureObject& texture);
+        // The multisample arm of the above. Split out rather than branched inline because it
+        // shares none of the transfer path: a multisample image carries no TRANSFER_DST usage, so
+        // neither the TRANSFER_DST transition nor vkCmdClearColorImage is legal on one.
+        Bool MaterializeMultisamplePendingClear(VkCommandBuffer commandBuffer,
+                                                MG_State::GLState::ITextureObject& texture,
+                                                VkTextureManager::TextureResource& resource,
+                                                const Vector<PendingClearEntry>& pendingClears);
         Bool MaterializePendingClearForRenderbuffer(
             VkCommandBuffer commandBuffer,
             const SharedPtr<MG_State::GLState::RenderbufferObject>& renderbuffer);

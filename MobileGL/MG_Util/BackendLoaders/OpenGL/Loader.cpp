@@ -984,6 +984,20 @@ namespace MobileGL::MG_Util::BackendLoader {
                 if (std::strcmp(extension, "GL_OES_viewport_array") == 0) {
                     caps.SupportsViewportArray = true;
                 }
+                // EXT wins where both are advertised: it is the spelling the Android Extension
+                // Pack mandates, so it is the one a driver is most likely to have tested.
+                if (std::strcmp(extension, "GL_EXT_tessellation_point_size") == 0) {
+                    caps.TessellationPointSizeSupport = MG_External::GLESCapabilities::PointSizeTier::ExtensionEXT;
+                } else if (std::strcmp(extension, "GL_OES_tessellation_point_size") == 0 &&
+                           caps.TessellationPointSizeSupport == MG_External::GLESCapabilities::PointSizeTier::None) {
+                    caps.TessellationPointSizeSupport = MG_External::GLESCapabilities::PointSizeTier::ExtensionOES;
+                }
+                if (std::strcmp(extension, "GL_EXT_geometry_point_size") == 0) {
+                    caps.GeometryPointSizeSupport = MG_External::GLESCapabilities::PointSizeTier::ExtensionEXT;
+                } else if (std::strcmp(extension, "GL_OES_geometry_point_size") == 0 &&
+                           caps.GeometryPointSizeSupport == MG_External::GLESCapabilities::PointSizeTier::None) {
+                    caps.GeometryPointSizeSupport = MG_External::GLESCapabilities::PointSizeTier::ExtensionOES;
+                }
             }
         }
         // The pointer check on top of the extension check makes each flag sufficient on its own
@@ -1055,6 +1069,19 @@ namespace MobileGL::MG_Util::BackendLoader {
         MGLOG_I("    clip distances (EXT_clip_cull_distance): %s", caps.SupportsClipDistance ? "yes" : "no");
         MGLOG_I("    viewport array (OES_viewport_array; gl_ViewportIndex collapses to viewport 0 when absent): %s",
                 caps.SupportsViewportArray ? "yes" : "no");
+        {
+            const auto pointSizeTierName = [](MG_External::GLESCapabilities::PointSizeTier tier) {
+                switch (tier) {
+                    case MG_External::GLESCapabilities::PointSizeTier::ExtensionEXT: return "EXT";
+                    case MG_External::GLESCapabilities::PointSizeTier::ExtensionOES: return "OES";
+                    default: return "no";
+                }
+            };
+            MGLOG_I("    tessellation gl_PointSize (EXT/OES_tessellation_point_size): %s",
+                    pointSizeTierName(caps.TessellationPointSizeSupport));
+            MGLOG_I("    geometry gl_PointSize (EXT/OES_geometry_point_size): %s",
+                    pointSizeTierName(caps.GeometryPointSizeSupport));
+        }
 
         // LOAD-BEARING STRING, not just a banner. android-plugin/trace-replay-ci.sh's
         // is_angle_surface_lost() greps mobilegl.log for exactly "OpenGL ES capabilities:" to
@@ -1139,6 +1166,11 @@ namespace MobileGL::MG_Util::BackendLoader {
         // optimistic 8 behind, so the frontend promised eight clip planes and every draw with a
         // clipping program silently rendered nothing. The guarded probe below only ever widens it.
         GLint maxClipDistances = 0;
+        // The cull half of the same extension, and the same "zero is a legal answer" rule: a cull
+        // distance discards the whole primitive, so promising eight on a driver that has none does
+        // not fail loudly, it drops every draw of a culling program.
+        GLint maxCullDistances = 0;
+        GLint maxCombinedClipAndCullDistances = 0;
         GLint maxViewports = 16;
         // GL_UNDEFINED_VERTEX is what stands when the probes below cannot run, and it is a legal
         // answer rather than a placeholder: with neither geometry shaders nor a viewport array
@@ -1332,6 +1364,23 @@ namespace MobileGL::MG_Util::BackendLoader {
                 MGLOG_W("GL_EXT_clip_cull_distance is advertised but GL_MAX_CLIP_DISTANCES was "
                         "rejected; reporting no clip distances");
                 maxClipDistances = 0;
+            }
+            // GL_MAX_CULL_DISTANCES_EXT (0x82F9) and GL_MAX_COMBINED_CLIP_AND_CULL_DISTANCES_EXT
+            // (0x82FA) are the same tokens as their desktop spellings and arrive with the same
+            // extension, so they are probed under the same guard and the same drain sandwich.
+            drainErrors();
+            glesFuncs.glGetIntegerv(GL_MAX_CULL_DISTANCES, &maxCullDistances);
+            if (drainErrors()) {
+                MGLOG_W("GL_EXT_clip_cull_distance is advertised but GL_MAX_CULL_DISTANCES was "
+                        "rejected; reporting no cull distances");
+                maxCullDistances = 0;
+            }
+            drainErrors();
+            glesFuncs.glGetIntegerv(GL_MAX_COMBINED_CLIP_AND_CULL_DISTANCES, &maxCombinedClipAndCullDistances);
+            if (drainErrors()) {
+                MGLOG_W("GL_EXT_clip_cull_distance is advertised but "
+                        "GL_MAX_COMBINED_CLIP_AND_CULL_DISTANCES was rejected; deriving it from the pair");
+                maxCombinedClipAndCullDistances = 0;
             }
         }
         glesFuncs.glGetIntegerv(GL_MAX_VIEWPORT_DIMS, maxViewportDims);
@@ -1562,6 +1611,14 @@ namespace MobileGL::MG_Util::BackendLoader {
         // A driver is free to write nonsense into an out-param it then rejects, and without the
         // extension the probe above never ran at all - so the flag, not the local, decides.
         caps.MaxClipDistances = caps.SupportsClipDistance ? std::max(maxClipDistances, 0) : 0;
+        caps.MaxCullDistances = caps.SupportsClipDistance ? std::max(maxCullDistances, 0) : 0;
+        // The combined limit can never be smaller than either half (GL 4.6 core 11.1.3.10 / the
+        // EXT spec say so), so a driver that rejected the combined query but answered the other
+        // two still gets a usable - and never over-stated - number.
+        caps.MaxCombinedClipAndCullDistances =
+            caps.SupportsClipDistance
+                ? std::max({maxCombinedClipAndCullDistances, caps.MaxClipDistances, caps.MaxCullDistances})
+                : 0;
         caps.MaxViewports = maxViewports;
         caps.LayerProvokingVertex = layerProvokingVertex;
         caps.ViewportIndexProvokingVertex = viewportIndexProvokingVertex;
@@ -1651,6 +1708,8 @@ namespace MobileGL::MG_Util::BackendLoader {
         // and "this driver has no clip distances".
         MGLOG_I("    GL_MAX_CLIP_DISTANCES: %d%s", caps.MaxClipDistances,
                 caps.SupportsClipDistance ? "" : " (no GL_EXT_clip_cull_distance on this driver)");
+        MGLOG_I("    GL_MAX_CULL_DISTANCES: %d", caps.MaxCullDistances);
+        MGLOG_I("    GL_MAX_COMBINED_CLIP_AND_CULL_DISTANCES: %d", caps.MaxCombinedClipAndCullDistances);
         MGLOG_I("    GL_MAX_VIEWPORTS: %d", caps.MaxViewports);
         MGLOG_I("    GL_MAX_VIEWPORT_DIMS: [%d, %d]", caps.MaxViewportWidth, caps.MaxViewportHeight);
         MGLOG_I("    GL_VIEWPORT_BOUNDS_RANGE: [%.3f, %.3f]", caps.ViewportBoundsRangeMin,
@@ -1664,6 +1723,40 @@ namespace MobileGL::MG_Util::BackendLoader {
             ProbeIndirectInstanceIdIncludesBaseInstance(caps, glesFuncs);
         MGLOG_I("    Indirect draw gl_InstanceID includes baseInstance: %s",
                 caps.IndirectDrawInstanceIdIncludesBaseInstance ? "true" : "false");
+
+        // ForceOn means "emit the blocks unlocated", i.e. treat the driver as NOT supporting
+        // located blocks - which is why the override reads inverted here. Auto is the probe's
+        // own answer and is what every real run uses; the two forced settings exist so the
+        // emulation can be exercised on a healthy driver (the integration lane) and turned
+        // off again as a negative control.
+        switch (MG_Config::Features.EsprytUnlocatedIoBlocks) {
+            case MG_Config::QuirkOverride::ForceOn:
+                caps.SupportsLocatedInterStageIoBlocks = false;
+                MGLOG_I("    Located inter-stage interface blocks: forced OFF by "
+                        "MOBILEGL_ESPRYT_UNLOCATED_IO_BLOCKS; the driver was not probed");
+                break;
+            case MG_Config::QuirkOverride::ForceOff:
+                caps.SupportsLocatedInterStageIoBlocks = true;
+                MGLOG_I("    Located inter-stage interface blocks: forced ON by "
+                        "MOBILEGL_ESPRYT_UNLOCATED_IO_BLOCKS; the driver was not probed");
+                break;
+            case MG_Config::QuirkOverride::Auto:
+            default:
+                // SelfTest::ProbeLocatedIoBlocksLosePayload - the Mali-G1-Ultra ES driver
+                // delivers nothing through an interface block that carries an explicit
+                // layout(location=) once a tessellation or geometry stage is in the pipeline.
+                // Probed with its own controls rather than matched on a renderer string; see
+                // DriverBugProbes.h for the shape and for why the two controls decide what the
+                // finding is allowed to claim.
+                caps.SupportsLocatedInterStageIoBlocks =
+                    !SelfTest::LocatedIoBlocksLosePayload(glesFuncs).detected;
+                break;
+        }
+        MGLOG_I("    Located inter-stage interface blocks transport their payload: %s",
+                caps.SupportsLocatedInterStageIoBlocks
+                    ? "true"
+                    : "false (DirectGLES will emit tessellation/geometry programs' interface "
+                      "blocks without a location qualifier)");
 
         caps.IsAngleRenderer = caps.GLESRendererString.find("ANGLE") != String::npos;
         caps.IsAngleLlvmpipeRenderer =

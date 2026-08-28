@@ -37,11 +37,39 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             VkRenderPass renderPass = VK_NULL_HANDLE;
             Uint32 colorAttachmentCount = 1;
             VkSampleCountFlagBits rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+            // glEnable(GL_SAMPLE_SHADING) + glMinSampleShading, which Vulkan bakes into the
+            // pipeline rather than exposing as dynamic state - so both are part of the pipeline's
+            // identity and both are hashed. The renderer leaves the enable false unless the
+            // device's sampleRateShading feature was enabled
+            // (VUID-VkPipelineMultisampleStateCreateInfo-sampleShadingEnable-00784).
+            Bool sampleShadingEnable = false;
+            Float minSampleShading = 0.0f;
+            // glEnable(GL_SAMPLE_MASK) + glSampleMaski, the fixed-function coverage mask, already
+            // reduced to what GL says this draw gets (VulkanRenderer::ResolveEffectiveSampleMask:
+            // all-ones unless the target is genuinely multisampled). Pipeline state like the two
+            // above - Vulkan has no dynamic sample mask before VK_EXT_extended_dynamic_state3 -
+            // so it is hashed with them, and all-ones has to keep producing the pipeline a null
+            // pSampleMask always did.
+            //
+            // TWO words, though GL only ever fills the first. GL_MAX_SAMPLE_MASK_WORDS is clamped
+            // to 1 on both backends, so glSampleMaski writes index 0 and nothing else - but the
+            // count Vulkan READS is ceil(rasterizationSamples / 32), which is 2 on a 64-sample
+            // target, and GetAdvertisedMaxSamples does not cap the driver's sample count. A
+            // single Uint32 here let such a pipeline read one word past the member (the next
+            // struct field). The second word is all-ones: full coverage for samples 32..63, which
+            // is the only honest answer when GL has no state describing them.
+            Uint32 sampleMask[2] = {0xffffffffu, 0xffffffffu};
             Uint32 subpass = 0;
             VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
             Bool primitiveRestartEnable = false;
             // GL_PATCH_VERTICES; only read for a PATCH_LIST topology.
             Uint32 patchControlPoints = 3;
+            // ProgramFactory::ComputePassthroughTessControlKey of the synthesized pass-through
+            // tessellation control stage below, or 0 when this pipeline has none. Hashed, because
+            // the levels glPatchParameterfv set are compiled INTO that module and are not a
+            // function of the program or of patchControlPoints - see the note on
+            // passthroughTessControlStage.
+            Uint64 passthroughTessControlKey = 0;
             // How many of ARB_viewport_array's viewports this pipeline rasterizes into. 1 for
             // every program that never assigns gl_ViewportIndex, which is all of them outside the
             // conformance suite - the wide shape costs a longer vkCmdSetViewport/Scissor per state
@@ -87,8 +115,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             // renderer could not build one, and CreatePipeline refuses the pipeline - the same
             // refusal it applies when `stages` itself is half-tessellated.
             //
-            // NOT hashed: it is a pure function of the program and of patchControlPoints, both
-            // of which ComputeHash already mixes in.
+            // NOT hashed directly: it is a pure function of the program, of patchControlPoints and
+            // of the default tessellation levels - the first two of which ComputeHash already
+            // mixes in, and the third of which arrives through passthroughTessControlKey above.
             VkPipelineShaderStageCreateInfo passthroughTessControlStage{};
             const VkPipelineVertexInputStateCreateInfo* vertexInputState = nullptr;
             // Diagnostic only; may be null. Read solely from the pipeline-creation failure path.

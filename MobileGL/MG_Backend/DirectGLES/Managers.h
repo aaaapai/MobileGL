@@ -102,9 +102,98 @@ namespace MobileGL::MG_Backend::DirectGLES {
     // Brings the whole draw-relevant frontend state onto the native ES context and binds
     // the program; every GL draw entry point calls it exactly once before issuing draws.
     void PrepareForDraw(DrawSyncFlags syncBits);
-    // GLES core supports only GL_PRIMITIVE_RESTART_FIXED_INDEX. Throws when the app enabled
-    // the arbitrary GL_PRIMITIVE_RESTART with a non-fixed index for this index type.
-    void CheckPrimitiveRestartSupported(GLenum indexType);
+    // What an indexed draw has to do about primitive restart before it can be issued.
+    //
+    // Desktop GL restarts on an application-chosen index (glPrimitiveRestartIndex under
+    // GL_PRIMITIVE_RESTART); GLES core restarts only on the all-ones value of the index type
+    // (GL_PRIMITIVE_RESTART_FIXED_INDEX), which the render-state push enables for BOTH caps.
+    // That leaves three cases, and the difference between the last two is not cosmetic - one
+    // adds restarts, the other has to take away restarts the driver would otherwise make.
+    enum class RestartSubstitutionKind : Uint8 {
+        // Nothing to do: restart is off, the fixed-index cap is on, or the application's
+        // restart index already IS the type's all-ones value. The overwhelmingly common answer.
+        None,
+        // The application's index is representable in this index type and differs from the
+        // all-ones value: the index DATA has to be rewritten so the driver restarts where the
+        // application asked.
+        RewriteIndices,
+        // The application's index cannot be held by this index type at all. GL 4.6 core 10.3.6
+        // compares the fetched index, zero-extended, against the full 32-bit
+        // PRIMITIVE_RESTART_INDEX, so no index can match and the draw restarts NOWHERE - but the
+        // render-state push has already enabled the driver's fixed-index restart, so the
+        // all-ones value has to be un-restarted for the duration of the draw.
+        SuppressRestart,
+    };
+    RestartSubstitutionKind ResolveRestartSubstitution(GLenum indexType);
+
+    // Turns the driver's fixed-index restart off for one draw and back on afterwards, for the
+    // SuppressRestart case above. Separate from the substitution below because the multi-draw
+    // tiers need it on its own: they rewrite the index stream themselves and only ever need the
+    // cap half. Inert for every other kind, and it never touches the render-state shadow - it
+    // puts the driver back exactly where SyncRenderState left it.
+    class ScopedSuppressedPrimitiveRestart {
+    public:
+        explicit ScopedSuppressedPrimitiveRestart(RestartSubstitutionKind kind);
+        ~ScopedSuppressedPrimitiveRestart();
+        ScopedSuppressedPrimitiveRestart(const ScopedSuppressedPrimitiveRestart&) = delete;
+        ScopedSuppressedPrimitiveRestart& operator=(const ScopedSuppressedPrimitiveRestart&) = delete;
+
+    private:
+        Bool m_suppressed = false;
+    };
+
+    // Swaps in a scratch element array buffer holding a copy of the index data in which the
+    // application's restart index has been replaced by the value GLES restarts on. Inert
+    // (and free) unless ResolveRestartSubstitution asks for it. The swap lives for the
+    // object's lifetime, so it covers every pass of a viewport-routed draw, and the previous
+    // GL_ELEMENT_ARRAY_BUFFER name is restored on destruction - which matters beyond tidiness,
+    // because the VAO twin memoises that it already synced that binding.
+    //
+    // The copy may be WIDER than the source (see IndexType): when the source already contains
+    // the type's all-ones value as an ordinary vertex index, that value cannot double as the
+    // restart sentinel, and widening is the only way to keep both meanings. Callers must
+    // therefore take the index type from this object, not from their own argument.
+    class ScopedRestartIndexSubstitution {
+    public:
+        // count/indices describe the draw's index range when the CPU knows it. Pass
+        // count == 0 for an indirect draw, whose count lives in GPU memory: the whole bound
+        // element array buffer is rewritten instead, so every element keeps its position and
+        // a GPU-resident firstIndex - an ELEMENT index, so it survives widening too - still
+        // addresses the index it named.
+        ScopedRestartIndexSubstitution(GLenum indexType, GLsizei count, const void* indices);
+        ~ScopedRestartIndexSubstitution();
+        ScopedRestartIndexSubstitution(const ScopedRestartIndexSubstitution&) = delete;
+        ScopedRestartIndexSubstitution& operator=(const ScopedRestartIndexSubstitution&) = delete;
+
+        // False only when a substitution was needed and could not be made. The draw must
+        // then be skipped: issuing it would let the driver silently drop every restart and
+        // weld the primitives on either side together, which is worse than drawing nothing.
+        Bool DrawIsValid() const { return m_valid; }
+        // The element-array offset (or client pointer) the draw must use. Identical to what
+        // was passed in unless a substitution was made.
+        const void* Indices() const { return m_indices; }
+        // The index type the draw must be issued with. Identical to the constructor's unless
+        // the copy had to be widened to keep an all-ones vertex index distinguishable from the
+        // restart sentinel.
+        GLenum IndexType() const { return m_indexType; }
+
+    private:
+        // Declared before m_capOverride so it is initialised first (members initialise in
+        // declaration order): the whole decision is made once, and both the cap override and the
+        // constructor body read the same answer.
+        RestartSubstitutionKind m_kind = RestartSubstitutionKind::None;
+        ScopedSuppressedPrimitiveRestart m_capOverride;
+        const void* m_indices = nullptr;
+        GLenum m_indexType = 0;
+        Uint m_previousBinding = 0;
+        Bool m_substituted = false;
+        Bool m_valid = true;
+    };
+
+    // Drops the scratch element array buffer the substitution above stages through. Like
+    // MultiDrawImpl's scratch names it is abandoned rather than deleted: the name belongs to
+    // the dead ES context, and deleting it would target whatever its successor handed out.
+    void OnRestartSubstitutionContextDestroyed();
     // Feed the current program's gl_BaseInstance / gl_DrawID / gl_BaseVertex emulation
     // uniforms. All are no-ops when the program does not read the corresponding builtin.
     void SetCurrentBaseInstance(Uint32 baseInstance);
@@ -455,12 +544,21 @@ namespace MobileGL::MG_Backend::DirectGLES {
         // BackendVertexArrayObject::SyncToBackend.
         extern Uint64 g_bufferBackendIdGeneration;
         // Redundant-bind cache for INDEXED buffer bindings (glBindBufferBase/Range on
-        // GL_UNIFORM_BUFFER / GL_SHADER_STORAGE_BUFFER): skips the GL call when the
-        // (id, range) already at that index matches, like the array-buffer/texture/
-        // sampler caches already do. Invalidated on MakeCurrent (context may reset).
+        // GL_UNIFORM_BUFFER / GL_SHADER_STORAGE_BUFFER / GL_TRANSFORM_FEEDBACK_BUFFER):
+        // skips the GL call when the (id, range) already at that index matches, like the
+        // array-buffer/texture/sampler caches already do. Invalidated on MakeCurrent
+        // (context may reset).
+        // Binds the transform feedback capture points [0, bufferCount) from the frontend
+        // state, and touches nothing else - in particular it never binds a zero the
+        // application did not ask for. See the definition for why that matters on Mali.
+        void SyncTransformFeedbackBindingPoints(SizeT bufferCount);
         void BindBufferBaseCached(GLenum glTarget, Uint index, Uint id);
         void BindBufferRangeCached(GLenum glTarget, Uint index, Uint id, GLintptr offset, GLsizeiptr size);
         void InvalidateIndexedBufferBindingCache();
+        // The transform feedback capture points are per-transform-feedback-OBJECT state, so
+        // every glBindTransformFeedback swaps all of them under the shadow above. XfbImpl
+        // calls this on each bind/delete.
+        void InvalidateTransformFeedbackBindingShadows();
         // Re-issues the GL_ATOMIC_COUNTER_BUFFER binding points a program's shaders declare as
         // GL_SHADER_STORAGE_BUFFER bindings at the reserved slots the transpiled ESSL was built
         // against (BackendProgramObjectImpl::GetAtomicCounterBindings /
@@ -544,6 +642,23 @@ namespace MobileGL::MG_Backend::DirectGLES {
         // Largest single staging request the ring can ever satisfy.
         SizeT UnpackRingMaxBytes();
         void UnpackRingOnPresent();
+
+        // --- Buffer upload ring ---------------------------------------------------
+        // The same persistent-mapped bump allocator, staging APP BUFFER UPDATES
+        // (glBufferSubData / non-persistent map flushes) whose destination store may
+        // still be referenced by in-flight GPU work. Mali resolves that WAR hazard by
+        // BLOCKING the calling glBufferSubData (osup_sync_object_wait) until every
+        // referencing job retires - Minecraft 26.3 rewrites its chunk-section and
+        // dynamic-transform UBOs and streams chunk meshes with per-frame SubData, and
+        // each such call serialized against the whole GPU queue (~1 fps while chunks
+        // stream in, and again on every camera pan). App SubData ranges are queued on
+        // the resource instead (the frontend shadow already holds the bytes) and
+        // draw-time sync drains them: bytes staged into this ring, then one
+        // glCopyBufferSubData per merged range - the copy is ordered on the GPU
+        // timeline, so the hazard costs no CPU wait. Reclamation contract identical
+        // to the other two rings. MOBILEGL_DISABLE_UPLOAD_RING restores the
+        // historical immediate-upload path (negative control / escape hatch).
+        void UploadRingOnPresent();
     } // namespace BufferImpl
 
     namespace VertexArrayImpl {
@@ -961,7 +1076,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
             Uint16 m_syncedShapeParamsVersion = 0;
             SamplerParameters m_cacheSamplerParameters;
             UintVec2 m_cacheLodRange = {0, 1000};
+            // All three representations plus the form, because none of them alone identifies the
+            // border colour the driver texture is holding: two integer borders can share one float
+            // (anything differing above 2^24), and a Float -> Int transition can leave every number
+            // unchanged while still needing a different driver entry point.
             FloatVec4 m_cacheBorderColor = {0.0f, 0.0f, 0.0f, 0.0f};
+            IntVec4 m_cacheBorderColorI = {0, 0, 0, 0};
+            UintVec4 m_cacheBorderColorUI = {0, 0, 0, 0};
+            BorderColorForm m_cacheBorderColorForm = BorderColorForm::Float;
             Vec4<TextureSwizzleParam> m_cacheSwizzleParams = {TextureSwizzleParam::Red, TextureSwizzleParam::Green,
                                                               TextureSwizzleParam::Blue, TextureSwizzleParam::Alpha};
             // GL_DEPTH_STENCIL_TEXTURE_MODE. GL_DEPTH_COMPONENT is the GL and ES default, so a
@@ -1447,6 +1569,17 @@ namespace MobileGL::MG_Backend::DirectGLES {
             Int GetPassthroughTessControlPatchVertices() const {
                 return m_passthroughTessControlPatchVertices;
             }
+            // GL_PATCH_DEFAULT_{OUTER,INNER}_LEVEL the same synthesized stage was built with, for
+            // the same reason: ES has neither the state nor an entry point to forward it to, so
+            // glPatchParameterfv's values are compiled in as literals and a program built with one
+            // set is stale for another. Meaningless (and never read) when the patch-vertices field
+            // above is -1, which is the gate the draw path tests first.
+            const FloatVec4& GetPassthroughTessControlOuterLevel() const {
+                return m_passthroughTessControlOuterLevel;
+            }
+            const FloatVec2& GetPassthroughTessControlInnerLevel() const {
+                return m_passthroughTessControlInnerLevel;
+            }
 
             Bool HasGlobalUboBlock() const { return m_globalUboBackendBlockIndex >= 0; }
             const Vector<Int>& GetUniformBlockBackendIndices() const { return m_uniformBlockBackendIndices; }
@@ -1517,6 +1650,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                       const UnorderedMap<String, Int>& storageBlockBindingOverrides,
                                       const std::map<String, String>& inputBlockRenames,
                                       const std::map<String, String>& outputBlockRenames,
+                                      Bool stripInputBlockLocations, Bool stripOutputBlockLocations,
                                       Int atomicCounterEsslBindingTop, Bool enableSpirvValidation,
                                       String& outSource,
                                       std::set<String>& outFlattenedXfbBlockNames,
@@ -1547,6 +1681,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
             // all); otherwise the GL_PATCH_VERTICES the synthesized pass-through stage was built
             // with. See GetPassthroughTessControlPatchVertices.
             Int m_passthroughTessControlPatchVertices = -1;
+            // The default tessellation levels baked into that same stage. Only meaningful while
+            // the field above is not -1.
+            FloatVec4 m_passthroughTessControlOuterLevel = FloatVec4(1.0f, 1.0f, 1.0f, 1.0f);
+            FloatVec2 m_passthroughTessControlInnerLevel = FloatVec2(1.0f, 1.0f);
             Bool m_isInitialized = false;
             Bool m_backendProgramUsable = false;
             // Set by SyncToBackend every time it relinks the driver program, cleared by the

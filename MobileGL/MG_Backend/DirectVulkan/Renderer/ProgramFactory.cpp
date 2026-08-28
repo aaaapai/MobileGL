@@ -13,7 +13,10 @@
 #include "MG_Util/ShaderTranspiler/SpvcSession.h"
 #include "MG_Util/ShaderTranspiler/Types.h"
 #include <algorithm>
+#include <bit>
+#include <cmath>
 #include <cstring>
+#include <format>
 #include <map>
 #include <utility>
 #include <spirv-tools/libspirv.h>
@@ -74,6 +77,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             }
         };
 
+        // Where a gl_PerVertex built-in output lives, resolved from the module's annotations.
+        // Named for gl_Position because the clip-space fixup is what it was written for, and it
+        // is still the only shape that pass accepts - but the transform-feedback capture pass
+        // resolves gl_PointSize through the same struct, in which case `vectorTypeId` /
+        // `vectorPtrTypeId` hold the SCALAR float type and its Output pointer rather than a vec4.
         struct PositionTargetInfo {
             Uint32 variableId = 0;
             Uint32 vectorTypeId = 0;
@@ -98,6 +106,23 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             if (outFloatTypeId) *outFloatTypeId = floatTypeId;
             return true;
         }
+
+        // gl_PointSize's counterpart to IsVec4Float32. The two are the only shapes any
+        // gl_PerVertex member this file resolves can have, and each resolver takes whichever
+        // one its built-in is declared with, so a mismatched type declines rather than
+        // producing a mirror the driver would reject.
+        Bool IsFloat32Scalar(spvtools::opt::IRContext* context, Uint32 typeId, Uint32* outFloatTypeId) {
+            auto* floatInst = context->get_def_use_mgr()->GetDef(typeId);
+            if (!floatInst || floatInst->opcode() != spv::Op::OpTypeFloat) return false;
+            if (floatInst->GetSingleWordInOperand(0) != 32) return false;
+
+            if (outFloatTypeId) *outFloatTypeId = typeId;
+            return true;
+        }
+
+        // Which of the two shapes above a resolver should accept. A plain function pointer
+        // rather than a std::function: every call site is one of the two free functions.
+        using BuiltInTypeCheckFn = Bool (*)(spvtools::opt::IRContext*, Uint32, Uint32*);
 
         spvc_basetype MapReflectInterfaceToSpvcBasetype(const SpvReflectInterfaceVariable& variable) {
             if (variable.type_description == nullptr) {
@@ -378,9 +403,33 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return used;
         }
 
-        void ValidateTransformedSpirv(const Vector<Uint>& spirv, ShaderStage shaderStage, Uint programExternalIndex) {
+        // What a failed validation says, for a caller that wants to put it in its own message.
+        struct SpirvValidationFailure {
+            String message;
+            Int result = 0;
+            SizeT index = 0;
+        };
+
+        // Returns whether the module validates. The result used to be discarded everywhere: the
+        // call was DEBUG-or-env gated and only logged, so an invalid module produced by a backend
+        // transform went straight to vkCreateShaderModule. That is not a survivable outcome on
+        // this hardware - Mali r54 SIGSEGVs building the pipeline instead of returning an error,
+        // the same "not a validating entry point" behaviour PipelineFactory already documents for
+        // vkCreateGraphicsPipelines - so the callers that feed the driver now act on it.
+        //
+        // This function does NOT log the failure at E any more. It used to, unlatched, on the
+        // stated grounds that "reaching here already requires the validation switch to be armed,
+        // which bounds the volume" - and that premise died when the two GetOrCreateProgram call
+        // sites became unconditional: MGLOG_E is live at the production INFO level, and Log.h's
+        // own rule is that anything at W or E on a repeatable path must be latched or demoted.
+        // The failure text now travels back through `outFailure` so the LATCHED call-site
+        // messages carry the VUID instead of an unlatched inner one repeating it; what stays here
+        // is the D-level detail and the process-wide counter the test lanes assert on.
+        Bool ValidateTransformedSpirv(const Vector<Uint>& spirv, ShaderStage shaderStage, Uint programExternalIndex,
+                                      SpirvValidationFailure* outFailure = nullptr) {
+            if (outFailure != nullptr) *outFailure = {};
             if (spirv.empty()) {
-                return;
+                return true;
             }
 
             spv_const_binary_t binary = {spirv.data(), spirv.size()};
@@ -402,18 +451,24 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             spv_diagnostic diagnostic = nullptr;
             const spv_result_t result = spvValidateWithOptions(context, options, &binary, &diagnostic);
             if (result != SPV_SUCCESS) {
-                // MGLOG_E, unlatched: reaching here already requires the validation switch to
-                // be armed, which bounds the volume, and each VUID names a different defect.
-                // (Parked at MGLOG_I until the Log.h level ordering was fixed, when E was
-                // compiled out of every INFO build.) The latch is what a test harness asserts on.
+                const char* message =
+                    diagnostic != nullptr && diagnostic->error != nullptr ? diagnostic->error : "<null>";
+                const SizeT index = diagnostic != nullptr ? diagnostic->position.index : 0;
+                // The test-lane signal (ShaderCompiler.h documents harnesses snapshotting it and
+                // asserting on the delta). Bumped for every failed validation, including one a
+                // caller goes on to recover from: a transform that produced an invalid module is
+                // a real defect whether or not this run survived it.
                 MG_Util::ShaderTranspiler::ShaderCompiler::NoteSpirvValidationFailure();
-                MGLOG_E(
+                if (outFailure != nullptr) {
+                    *outFailure = {String(message), static_cast<Int>(result), index};
+                }
+                MGLOG_D(
                     "ProgramFactory::ValidateTransformedSpirv: validation failed for stage=%d program=%u result=%d index=%zu msg=%s",
                     static_cast<Int>(shaderStage),
                     programExternalIndex,
                     static_cast<Int>(result),
-                    diagnostic != nullptr ? diagnostic->position.index : 0,
-                    diagnostic != nullptr && diagnostic->error != nullptr ? diagnostic->error : "<null>");
+                    index,
+                    message);
             }
             MOBILEGL_ASSERT(
                 result == SPV_SUCCESS,
@@ -429,6 +484,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             spvDiagnosticDestroy(diagnostic);
             spvValidatorOptionsDestroy(options);
             spvContextDestroy(context);
+            return result == SPV_SUCCESS;
         }
 
         void ReflectStageInterfaceVariable(const SpvReflectInterfaceVariable& variable,
@@ -740,8 +796,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             }
         }
 
-        Bool ResolveDirectPositionTarget(spvtools::opt::IRContext* context, Uint32 variableId,
-                                         PositionTargetInfo* outTarget) {
+        Bool ResolveDirectBuiltInTarget(spvtools::opt::IRContext* context, Uint32 variableId,
+                                        BuiltInTypeCheckFn typeCheck, PositionTargetInfo* outTarget) {
             auto* varInst = context->get_def_use_mgr()->GetDef(variableId);
             if (!varInst || varInst->opcode() != spv::Op::OpVariable) return false;
             if (varInst->GetSingleWordInOperand(0) != static_cast<Uint32>(spv::StorageClass::Output)) return false;
@@ -753,7 +809,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             PositionTargetInfo target{};
             target.variableId = variableId;
             target.vectorTypeId = ptrTypeInst->GetSingleWordInOperand(1);
-            if (!IsVec4Float32(context, target.vectorTypeId, &target.floatTypeId)) return false;
+            if (!typeCheck(context, target.vectorTypeId, &target.floatTypeId)) return false;
             target.vectorPtrTypeId = varInst->type_id();
             target.isMember = false;
 
@@ -768,15 +824,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return context->get_type_mgr()->GetTypeInstruction(&ptrType);
         }
 
-        Bool ResolveMemberPositionTarget(spvtools::opt::IRContext* context, Uint32 structTypeId, Uint32 memberIndex,
-                                         PositionTargetInfo* outTarget) {
+        Bool ResolveMemberBuiltInTarget(spvtools::opt::IRContext* context, Uint32 structTypeId, Uint32 memberIndex,
+                                        BuiltInTypeCheckFn typeCheck, PositionTargetInfo* outTarget) {
             auto* structInst = context->get_def_use_mgr()->GetDef(structTypeId);
             if (!structInst || structInst->opcode() != spv::Op::OpTypeStruct) return false;
             if (memberIndex >= structInst->NumInOperands()) return false;
 
             const Uint32 vectorTypeId = structInst->GetSingleWordInOperand(memberIndex);
             Uint32 floatTypeId = 0;
-            if (!IsVec4Float32(context, vectorTypeId, &floatTypeId)) return false;
+            if (!typeCheck(context, vectorTypeId, &floatTypeId)) return false;
 
             const Uint32 vectorPtrTypeId = FindOutputVectorPointerTypeId(context, vectorTypeId);
             if (vectorPtrTypeId == 0) return false;
@@ -804,27 +860,130 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return false;
         }
 
-        Bool FindPositionTarget(spvtools::opt::IRContext* context, PositionTargetInfo* outTarget) {
+        // The OUTPUT variable (or gl_PerVertex member) carrying `builtIn`, if the module
+        // declares one of the expected type. Annotations are the search space deliberately:
+        // they survive the link-time sanitize chain's interface delisting, which is the whole
+        // reason EnsureEntryPointInterface exists.
+        Bool FindBuiltInTarget(spvtools::opt::IRContext* context, spv::BuiltIn builtIn,
+                               BuiltInTypeCheckFn typeCheck, PositionTargetInfo* outTarget) {
             Vector<Pair<Uint32, Uint32>> memberCandidates;
             constexpr auto kDecorationBuiltIn = static_cast<Uint32>(spv::Decoration::BuiltIn);
-            constexpr auto kBuiltInPosition = static_cast<Uint32>(spv::BuiltIn::Position);
+            const auto wantedBuiltIn = static_cast<Uint32>(builtIn);
 
             for (auto& inst : context->module()->annotations()) {
                 if (inst.opcode() == spv::Op::OpDecorate) {
                     if (inst.NumInOperands() < 3) continue;
                     if (inst.GetSingleWordInOperand(1) != kDecorationBuiltIn) continue;
-                    if (inst.GetSingleWordInOperand(2) != kBuiltInPosition) continue;
-                    if (ResolveDirectPositionTarget(context, inst.GetSingleWordInOperand(0), outTarget)) return true;
+                    if (inst.GetSingleWordInOperand(2) != wantedBuiltIn) continue;
+                    if (ResolveDirectBuiltInTarget(context, inst.GetSingleWordInOperand(0), typeCheck, outTarget)) {
+                        return true;
+                    }
                 } else if (inst.opcode() == spv::Op::OpMemberDecorate) {
                     if (inst.NumInOperands() < 4) continue;
                     if (inst.GetSingleWordInOperand(2) != kDecorationBuiltIn) continue;
-                    if (inst.GetSingleWordInOperand(3) != kBuiltInPosition) continue;
+                    if (inst.GetSingleWordInOperand(3) != wantedBuiltIn) continue;
                     memberCandidates.emplace_back(inst.GetSingleWordInOperand(0), inst.GetSingleWordInOperand(1));
                 }
             }
 
             for (const auto& [structTypeId, memberIndex] : memberCandidates) {
-                if (ResolveMemberPositionTarget(context, structTypeId, memberIndex, outTarget)) return true;
+                if (ResolveMemberBuiltInTarget(context, structTypeId, memberIndex, typeCheck, outTarget)) return true;
+            }
+            return false;
+        }
+
+        Bool FindPositionTarget(spvtools::opt::IRContext* context, PositionTargetInfo* outTarget) {
+            return FindBuiltInTarget(context, spv::BuiltIn::Position, IsVec4Float32, outTarget);
+        }
+
+        // Put `variableId` back on `entryPoint`'s interface list if it is not already there.
+        //
+        // SPIR-V requires every Input/Output global an entry point statically uses to be listed on
+        // its OpEntryPoint, and spirv-val enforces it ("Interface variable id <N> is used by entry
+        // point 'main' id <M>, but is not listed as an interface"). The link-time sanitize chain
+        // DELISTS a variable nothing referenced yet - ShaderCompiler::SanitizeAndOptimizeBinary
+        // runs CreateAggressiveDCEPass(false), which may never delete an Output, followed by
+        // CreateRemoveUnusedInterfaceVariablesPass, which rebuilds the operand list from the
+        // variables actually referenced. A TES that redeclares `out gl_PerVertex { vec4
+        // gl_Position; }` and never writes it therefore reaches the backend with the OpVariable
+        // and its BuiltIn Position decoration intact and its interface slot gone. Any pass that
+        // then injects a reference has to put the slot back, or it hands the driver a module no
+        // validator accepts - and Mali r54 answers that with a SIGSEGV inside pipeline creation
+        // rather than an error return.
+        //
+        // No SPIR-V version gate here, unlike GlFragCoordYFlipPass's identical call for its
+        // injected PRIVATE global: Input and Output belong on the interface in every version,
+        // and only 1.4 widened it to the other storage classes.
+        Bool EnsureEntryPointInterface(spvtools::opt::IRContext* context, spvtools::opt::Instruction& entryPoint,
+                                       Uint32 variableId) {
+            // In-operands: 0 = execution model, 1 = entry function id, 2 = name, 3.. = interface.
+            constexpr Uint32 kFirstInterfaceOperand = 3;
+            if (variableId == 0) return false;
+            for (Uint32 operand = kFirstInterfaceOperand; operand < entryPoint.NumInOperands(); ++operand) {
+                if (entryPoint.GetSingleWordInOperand(operand) == variableId) return false;
+            }
+            entryPoint.AddOperand({SPV_OPERAND_TYPE_ID, {variableId}});
+            context->AnalyzeUses(&entryPoint);
+            return true;
+        }
+
+        // Is `pointerId` the position target itself, or an access chain rooted at it?
+        Bool PointerReachesPositionTarget(spvtools::opt::IRContext* context, Uint32 pointerId,
+                                          const PositionTargetInfo& target) {
+            auto* defUse = context->get_def_use_mgr();
+            for (Uint32 current = pointerId; current != 0;) {
+                if (current == target.variableId) return true;
+                const auto* inst = defUse->GetDef(current);
+                if (inst == nullptr) return false;
+                switch (inst->opcode()) {
+                case spv::Op::OpAccessChain:
+                case spv::Op::OpInBoundsAccessChain:
+                case spv::Op::OpPtrAccessChain:
+                case spv::Op::OpInBoundsPtrAccessChain:
+                case spv::Op::OpCopyObject:
+                    current = inst->GetSingleWordInOperand(0);
+                    break;
+                default:
+                    return false;
+                }
+            }
+            return false;
+        }
+
+        // Does anything in the module write the position target?
+        //
+        // Deliberately conservative - it answers "assume yes" for every shape it cannot read
+        // exactly, because a false "no" would silently drop the clip-space fixup from a shader
+        // that does write gl_Position, while a false "yes" only reinstates the behaviour this
+        // pass has always had. Scans every function rather than just the entry point's: a shader
+        // that assigns gl_Position inside a helper is still a shader that writes it, and passing
+        // the pointer to a call is a write as far as this can tell.
+        Bool ModuleWritesPositionTarget(spvtools::opt::IRContext* context, const PositionTargetInfo& target) {
+            for (auto& function : *context->module()) {
+                for (auto& block : function) {
+                    for (const auto& inst : block) {
+                        switch (inst.opcode()) {
+                        case spv::Op::OpStore:
+                        case spv::Op::OpCopyMemory:
+                        case spv::Op::OpCopyMemorySized:
+                            if (PointerReachesPositionTarget(context, inst.GetSingleWordInOperand(0), target)) {
+                                return true;
+                            }
+                            break;
+                        case spv::Op::OpFunctionCall:
+                            // In-operand 0 is the callee; the rest are arguments.
+                            for (Uint32 argument = 1; argument < inst.NumInOperands(); ++argument) {
+                                if (PointerReachesPositionTarget(context, inst.GetSingleWordInOperand(argument),
+                                                                 target)) {
+                                    return true;
+                                }
+                            }
+                            break;
+                        default:
+                            break;
+                        }
+                    }
+                }
             }
             return false;
         }
@@ -911,6 +1070,18 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 PositionTargetInfo target{};
                 if (!FindPositionTarget(context(), &target)) return Status::SuccessWithoutChange;
 
+                // Nothing to remap in a Position the shader never writes. Declining is not just
+                // an optimisation: the fixup is load-modify-store, so on an unwritten Position it
+                // converts "undefined, never written" into "written with whatever the load
+                // returned", and the store is a reference to a variable the link-time sanitize
+                // chain has already delisted from the entry-point interface. glslang emits the
+                // OpVariable for every DECLARED interface block, so a redeclared-but-unwritten
+                // `out gl_PerVertex` is a shape real shaders have.
+                if (!ModuleWritesPositionTarget(context(), target)) {
+                    MGLOG_D("gl-to-vulkan-position-fix: the shader never writes gl_Position; leaving it alone");
+                    return Status::SuccessWithoutChange;
+                }
+
                 auto* floatType = context()->get_type_mgr()->GetType(target.floatTypeId);
                 if (!floatType) return Status::SuccessWithoutChange;
 
@@ -942,6 +1113,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                     auto* function = context()->GetFunction(entryPoint.GetSingleWordInOperand(1));
                     if (!function) continue;
 
+                    Bool modifiedThisEntryPoint = false;
                     for (auto& bb : *function) {
                         for (auto instIter = bb.begin(); instIter != bb.end(); ++instIter) {
                             auto* inst = &*instIter;
@@ -950,10 +1122,18 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                 (model != spv::ExecutionModel::Geometry && inst->opcode() == spv::Op::OpReturn);
                             if (!needsFixup) continue;
 
-                            modified |= InsertPositionFixup(context(), inst, target, halfConstId, doYFlip, doZRemap,
-                                                             doSurfaceRotate90, doSurfaceRotate180, doSurfaceRotate270);
+                            modifiedThisEntryPoint |=
+                                InsertPositionFixup(context(), inst, target, halfConstId, doYFlip, doZRemap,
+                                                    doSurfaceRotate90, doSurfaceRotate180, doSurfaceRotate270);
                         }
                     }
+                    // Per entry point, and only for one this pass actually injected into: the
+                    // injected load/store is a static use of the position variable, so the
+                    // variable has to be on THIS entry point's interface list.
+                    if (modifiedThisEntryPoint) {
+                        EnsureEntryPointInterface(context(), entryPoint, target.variableId);
+                    }
+                    modified |= modifiedThisEntryPoint;
                 }
 
                 if (!modified) return Status::SuccessWithoutChange;
@@ -1232,11 +1412,25 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 Bool needsPositionMirror = false;
                 Uint32 positionBufferIndex = 0;
                 Uint32 positionOffset = 0;
+                // gl_PointSize is a gl_PerVertex MEMBER, never a variable of its own, so the
+                // debug-name lookup below can never resolve it - it used to fall through to
+                // "no SPIR-V variable named 'gl_PointSize'" and leave the frontend's reserved
+                // slot unwritten, or, when it was the only capture, leave the module with no
+                // Xfb execution mode at all and the whole span declined.
+                Bool needsPointSizeMirror = false;
+                Uint32 pointSizeBufferIndex = 0;
+                Uint32 pointSizeOffset = 0;
                 for (const auto& varying : m_varyings) {
                     if (varying.name == "gl_Position") {
                         needsPositionMirror = true;
                         positionBufferIndex = varying.bufferIndex;
                         positionOffset = varying.offsetBytes;
+                        continue;
+                    }
+                    if (varying.name == "gl_PointSize") {
+                        needsPointSizeMirror = true;
+                        pointSizeBufferIndex = varying.bufferIndex;
+                        pointSizeOffset = varying.offsetBytes;
                         continue;
                     }
                     if (varying.blockMemberIndex >= 0) {
@@ -1303,8 +1497,16 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 }
 
                 if (needsPositionMirror) {
-                    modified |= MirrorPositionForCapture(entryFunctionId, *entryPoint, positionBufferIndex,
-                                                         positionOffset, decorateForXfb);
+                    modified |= MirrorPerVertexBuiltInForCapture(entryFunctionId, *entryPoint,
+                                                                 spv::BuiltIn::Position, IsVec4Float32,
+                                                                 "gl_Position", positionBufferIndex, positionOffset,
+                                                                 decorateForXfb);
+                }
+                if (needsPointSizeMirror) {
+                    modified |= MirrorPerVertexBuiltInForCapture(entryFunctionId, *entryPoint,
+                                                                 spv::BuiltIn::PointSize, IsFloat32Scalar,
+                                                                 "gl_PointSize", pointSizeBufferIndex,
+                                                                 pointSizeOffset, decorateForXfb);
                 }
 
                 if (!modified) return Status::SuccessWithoutChange;
@@ -1344,19 +1546,28 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 return 0;
             }
 
+            // gl_Position and gl_PointSize are captured the same way and differ only in which
+            // built-in is looked up and what type it has, so one injector serves both. Anything
+            // else in gl_PerVertex would need its own type check before it could be added here.
             template <typename DecorateFn>
-            Bool MirrorPositionForCapture(Uint32 entryFunctionId, spvtools::opt::Instruction& entryPoint,
-                                          Uint32 bufferIndex, Uint32 offsetBytes, const DecorateFn& decorateForXfb) {
+            Bool MirrorPerVertexBuiltInForCapture(Uint32 entryFunctionId, spvtools::opt::Instruction& entryPoint,
+                                                  spv::BuiltIn builtIn, BuiltInTypeCheckFn typeCheck,
+                                                  const char* glslName, Uint32 bufferIndex, Uint32 offsetBytes,
+                                                  const DecorateFn& decorateForXfb) {
                 const Uint32 entryPointModel = entryPoint.GetSingleWordInOperand(0);
                 using namespace spvtools::opt;
                 PositionTargetInfo target{};
-                if (!FindPositionTarget(context(), &target)) {
-                    MGLOG_E("XfbCaptureDecoratePass: gl_Position capture requested but no position output found");
+                if (!FindBuiltInTarget(context(), builtIn, typeCheck, &target)) {
+                    MGLOG_E("XfbCaptureDecoratePass: %s capture requested but no such output found", glslName);
                     return false;
                 }
                 if (!target.isMember) {
-                    // Standalone gl_Position variable: decorate it directly.
+                    // Standalone built-in variable: decorate it directly. It still has to be
+                    // on the interface - a transform-feedback decoration on a variable the entry
+                    // point does not list captures nothing, and the sanitize chain delists an
+                    // unwritten one (see EnsureEntryPointInterface).
                     decorateForXfb(target.variableId, bufferIndex, offsetBytes);
+                    EnsureEntryPointInterface(context(), entryPoint, target.variableId);
                     return true;
                 }
 
@@ -1409,6 +1620,16 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                         builder.AddStore(mirrorVariableId, value->result_id());
                         injected = true;
                     }
+                }
+                // The mirror was listed on the entry point above, but the loop just added a READ
+                // of the SOURCE block through an access chain, and the interface rule covers
+                // reads exactly as it covers writes. A built-in capture on a shader whose
+                // block the sanitize chain delisted - a TES that redeclares `out gl_PerVertex`
+                // and never writes it, which is what the tessellation_control_to_tessellation_
+                // evaluation.gl_MaxPatchVertices_Position_PointSize bodies do - produced an
+                // invalid module here for the same reason the position fixup did.
+                if (injected) {
+                    EnsureEntryPointInterface(context(), entryPoint, target.variableId);
                 }
                 return injected;
             }
@@ -3235,9 +3456,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         auto& spirv = program.GetGeneratedSpirv();
         Vector<Vector<Uint>> moduleSpirvs(spirv.size());
         const Bool enableSpirvValidation = program.GetSpirvValidationEnabled();
-        if (enableSpirvValidation) {
-            MG_Util::ShaderTranspiler::ShaderCompiler::PrepareSpirvValidation();
-        }
+        // Unconditional now: the two ValidateTransformedSpirv calls below run in every build,
+        // not only when the switch is armed, so the validator's static tables have to be pinned
+        // against process exit in every build too.
+        MG_Util::ShaderTranspiler::ShaderCompiler::PrepareSpirvValidation();
 
         const ShaderStage fixupStage = PickClipFixupStage(stages);
 
@@ -3261,6 +3483,46 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                     }
                 }
                 TransformSpirvForVulkanPositionFix(*fixupInput, moduleSpirvs[i], flags);
+                // These two passes INJECT references - a store for the clip fixup, an access
+                // chain and a load for the gl_Position capture mirror - and a reference to a
+                // variable the link-time sanitize chain delisted from the entry-point interface
+                // is invalid SPIR-V that Mali r54 turns into a SIGSEGV inside pipeline creation
+                // rather than an error return. EnsureEntryPointInterface keeps them honest; this
+                // is the backstop.
+                //
+                // The fallback UNWINDS ONE PASS AT A TIME, which matters because the two passes
+                // are not equally optional. Rewinding straight to `spv` would also throw away the
+                // XfbBuffer/XfbStride/Offset decorations, the TransformFeedback capability and the
+                // Xfb execution mode - while the renderer decides to call
+                // vkCmdBeginTransformFeedbackEXT purely from GL state and never looks at the
+                // module. That ships a pipeline whose last pre-rasterization stage has no Xfb mode
+                // into a transform-feedback span, violating
+                // VUID-vkCmdBeginTransformFeedbackEXT-None-04128 on exactly the driver class this
+                // guard exists for. So: try the post-XFB, pre-clip-fixup module first, which keeps
+                // capture working and costs only the clip-space remap.
+                //
+                // Once per program on a cache miss, and only for the single stage that carries the
+                // fixups - not per draw and not per module.
+                SpirvValidationFailure fixupFailure{};
+                if (!ValidateTransformedSpirv(moduleSpirvs[i], stages[i], program.GetExternalIndex(),
+                                              &fixupFailure)) {
+                    SpirvValidationFailure xfbFailure{};
+                    if (fixupInput != &spv &&
+                        ValidateTransformedSpirv(*fixupInput, stages[i], program.GetExternalIndex(), &xfbFailure)) {
+                        MGLOG_E_ONCE("ProgramFactory: the clip fixup produced an invalid module for program %u "
+                                     "stage %d (%s); keeping the capture-decorated one, so this program draws "
+                                     "without the clip-space remap",
+                                     program.GetExternalIndex(), static_cast<Int>(stages[i]),
+                                     fixupFailure.message.c_str());
+                        moduleSpirvs[i] = *fixupInput;
+                    } else {
+                        MGLOG_E_ONCE("ProgramFactory: the clip/XFB fixups produced an invalid module for program %u "
+                                     "stage %d (%s); keeping the untransformed one",
+                                     program.GetExternalIndex(), static_cast<Int>(stages[i]),
+                                     fixupFailure.message.c_str());
+                        moduleSpirvs[i] = spv;
+                    }
+                }
             } else {
                 moduleSpirvs[i] = spv;
             }
@@ -3469,15 +3731,63 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             auto& moduleSpv = moduleSpirvs[i];
             if (moduleSpv.empty()) continue;
 
-#if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG
-            ValidateTransformedSpirv(moduleSpv, stages[i], program.GetExternalIndex());
-#else
-            // Final module the driver receives; also checked in the INFO-level CI/test
-            // lanes, where the DEBUG gate above is compiled out.
-            if (enableSpirvValidation) {
-                ValidateTransformedSpirv(moduleSpv, stages[i], program.GetExternalIndex());
+            // Last look at the exact bytes the driver receives, in EVERY build rather than only
+            // in DEBUG or with MOBILEGL_ENABLE_SPIRV_VALIDATION armed. This one only reports:
+            // by here the descriptor bindings have been remapped and the layout about to be
+            // reflected describes the remapped module, so there is no module left that is both
+            // valid and consistent with it to fall back to. The recovery lives one step earlier,
+            // at the clip/XFB fixups (see the revert there) - which is where a transform can
+            // introduce a reference to a delisted interface variable, the failure this whole
+            // guard exists for. Anything that reaches this line names itself in the log of a
+            // shipping build instead of dying anonymously inside the driver.
+            SpirvValidationFailure finalFailure{};
+            if (!ValidateTransformedSpirv(moduleSpv, stages[i], program.GetExternalIndex(), &finalFailure)) {
+                MGLOG_E_ONCE("ProgramFactory: handing vkCreateShaderModule an INVALID module for program %u stage %d - "
+                             "a backend transform after the clip/XFB fixups broke it (%s)",
+                             program.GetExternalIndex(), static_cast<Int>(stages[i]),
+                             finalFailure.message.c_str());
             }
-#endif
+
+            // Does the stage the driver will treat as the last pre-rasterization one actually
+            // carry Xfb? Asked of the FINAL bytes, so it answers for whatever the whole transform
+            // chain produced - a rewound clip/XFB backstop, a capture pass that resolved no
+            // varying and changed nothing, anything later that might strip it. The renderer picks
+            // its capture commands from GL state alone and would otherwise open a span against a
+            // pipeline that cannot feed it.
+            if (stages[i] == fixupStage && (flags & ProgramFactory::CompileOptionBit::XfbCapture) &&
+                program.GetTransformFeedbackVaryingCount() > 0 &&
+                !MG_Util::ShaderTranspiler::ShaderCompiler::ModuleDeclaresTransformFeedback(moduleSpv)) {
+                MGLOG_E_ONCE("ProgramFactory: program %u was built as a transform-feedback capture variant but its "
+                             "stage %d carries no Xfb execution mode; its capture spans will be declined rather "
+                             "than recorded against a pipeline that cannot feed them",
+                             program.GetExternalIndex(), static_cast<Int>(stages[i]));
+                entry.xfbCaptureDeclined = true;
+            }
+
+            // Does this stage need a device feature the device did not give us? Asked ONLY when
+            // the feature is off, so a device that has it - the common case - pays nothing: the
+            // whole test is short-circuited before the module is parsed.
+            //
+            // gl_PointSize is an ordinary per-vertex output in desktop GL and any
+            // vertex-processing stage may write it, but Vulkan puts the built-in behind
+            // shaderTessellationAndGeometryPointSize in the tessellation and geometry stages
+            // (VUID-RuntimeSpirv-PointSize-06439). glslang emits TessellationPointSize /
+            // GeometryPointSize from the application's own access, so this program is legal GL
+            // that this device cannot run - the same shape the DirectGLES arm reports when a
+            // driver advertises neither EXT nor OES point-size extension, and it deserves the
+            // same named message rather than a pipeline the driver may fault on.
+            if (!m_tessellationAndGeometryPointSizeEnabled &&
+                (stages[i] == ShaderStage::TessControl || stages[i] == ShaderStage::TessEval ||
+                 stages[i] == ShaderStage::Geometry) &&
+                MG_Util::ShaderTranspiler::ShaderCompiler::ModuleDeclaresTessellationOrGeometryPointSize(
+                    moduleSpv)) {
+                MGLOG_E_ONCE("ProgramFactory: program %u stage %d accesses gl_PointSize, but this device does not "
+                             "support shaderTessellationAndGeometryPointSize; its draws are refused rather than "
+                             "built into a pipeline the driver may fault on. Point size from a non-vertex stage "
+                             "is not available on this device.",
+                             program.GetExternalIndex(), static_cast<Int>(stages[i]));
+                entry.pointSizeCapabilityUnsupported = true;
+            }
 
             VkShaderModuleCreateInfo smci{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
             smci.codeSize = moduleSpv.size() * sizeof(Uint);
@@ -3594,18 +3904,136 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
     }
 
-    String ProgramFactory::BuildPassthroughTessControlSource(Uint32 patchVertices) {
+    Uint64 ProgramFactory::ComputePassthroughTessControlKey(Uint32 patchVertices,
+                                                            const FloatVec4& defaultOuterLevel,
+                                                            const FloatVec2& defaultInnerLevel,
+                                                            Uint32 perVertexMembers) {
+        // A plain 32-byte blob of exactly what the generator reads, hashed once. Deliberately over
+        // the RAW BITS rather than the values: two levels that compare unequal must key apart, and
+        // a NaN level - which glPatchParameterfv accepts - compares unequal to itself.
+        struct Blob {
+            Uint32 patchVertices;
+            Uint32 outerBits[4];
+            Uint32 innerBits[2];
+            Uint32 perVertexMembers;
+        } blob{};
+        blob.patchVertices = patchVertices;
+        for (Uint32 i = 0; i < 4; ++i) blob.outerBits[i] = std::bit_cast<Uint32>(defaultOuterLevel[i]);
+        for (Uint32 i = 0; i < 2; ++i) blob.innerBits[i] = std::bit_cast<Uint32>(defaultInnerLevel[i]);
+        blob.perVertexMembers = perVertexMembers;
+        return XXH64(&blob, sizeof(blob), 0);
+    }
+
+    // The member list a gl_PerVertex redeclaration must spell, derived from the mask. Order is
+    // glslang's declaration order and is load-bearing: a redeclaration whose members are the same
+    // set in a different order is a different block.
+    static String BuildPerVertexMemberDeclarations(Uint32 perVertexMembers) {
+        using Bit = ProgramFactory::PerVertexMemberBit;
+        String members;
+        if (perVertexMembers & static_cast<Uint32>(Bit::Position)) members += "    vec4 gl_Position;\n";
+        if (perVertexMembers & static_cast<Uint32>(Bit::PointSize)) members += "    float gl_PointSize;\n";
+        // Sized at one, not left unsized: an unsized built-in array in a redeclared block is
+        // implicitly sized by use, and this stage never indexes either distance array.
+        if (perVertexMembers & static_cast<Uint32>(Bit::ClipDistance)) members += "    float gl_ClipDistance[1];\n";
+        if (perVertexMembers & static_cast<Uint32>(Bit::CullDistance)) members += "    float gl_CullDistance[1];\n";
+        return members;
+    }
+
+    Uint32 ProgramFactory::ReflectPerVertexInputMembers(const Vector<Uint>& spirv) {
+        // Minimal, self-contained SPIR-V walk. SPIRV-Reflect is deliberately NOT used: for an
+        // array of interface blocks it reports built_in == -1 on the block and leaves every
+        // member's built_in at 0 (which is SpvBuiltInPosition), so a member walk through it reads
+        // "Position, Position, Position" - the same trap ReflectPassthroughTessControlNeed
+        // documents. The decorations below are unambiguous.
+        constexpr SizeT kHeaderWords = 5;
+        constexpr Uint32 kOpName = 5;
+        constexpr Uint32 kOpDecorate = 71;
+        constexpr Uint32 kOpMemberDecorate = 72;
+        constexpr Uint32 kOpTypeArray = 28;
+        constexpr Uint32 kOpTypePointer = 32;
+        constexpr Uint32 kOpVariable = 59;
+        constexpr Uint32 kDecorationBlock = 2;
+        constexpr Uint32 kDecorationBuiltIn = 11;
+        constexpr Uint32 kStorageClassInput = 1;
+        constexpr Uint32 kBuiltInPosition = 0;
+        constexpr Uint32 kBuiltInPointSize = 1;
+        constexpr Uint32 kBuiltInClipDistance = 3;
+        constexpr Uint32 kBuiltInCullDistance = 4;
+        (void)kOpName;
+
+        if (spirv.size() <= kHeaderWords) return 0;
+
+        UnorderedMap<Uint32, Uint32> arrayElementType;             // array id   -> element type id
+        UnorderedMap<Uint32, Pair<Uint32, Uint32>> pointerPointee; // pointer id -> (storage class, pointee)
+        UnorderedMap<Uint32, Uint32> structMembers;                // struct id  -> PerVertexMemberBit mask
+        std::set<Uint32> blockStructs;
+        Vector<Uint32> inputVariablePointerTypes;
+
+        for (SizeT i = kHeaderWords; i < spirv.size();) {
+            const Uint32 wordCount = spirv[i] >> 16;
+            const Uint32 opcode = spirv[i] & 0xFFFFu;
+            if (wordCount == 0 || i + wordCount > spirv.size()) break;
+            const Uint32* words = &spirv[i];
+            switch (opcode) {
+            case kOpTypeArray:
+                if (wordCount >= 4) arrayElementType[words[1]] = words[2];
+                break;
+            case kOpTypePointer:
+                if (wordCount >= 4) pointerPointee[words[1]] = {words[2], words[3]};
+                break;
+            case kOpVariable:
+                if (wordCount >= 4 && words[3] == kStorageClassInput) inputVariablePointerTypes.push_back(words[1]);
+                break;
+            case kOpDecorate:
+                if (wordCount >= 3 && words[2] == kDecorationBlock) blockStructs.insert(words[1]);
+                break;
+            case kOpMemberDecorate:
+                if (wordCount >= 5 && words[3] == kDecorationBuiltIn) {
+                    Uint32 bit = 0;
+                    switch (words[4]) {
+                    case kBuiltInPosition: bit = static_cast<Uint32>(PerVertexMemberBit::Position); break;
+                    case kBuiltInPointSize: bit = static_cast<Uint32>(PerVertexMemberBit::PointSize); break;
+                    case kBuiltInClipDistance: bit = static_cast<Uint32>(PerVertexMemberBit::ClipDistance); break;
+                    case kBuiltInCullDistance: bit = static_cast<Uint32>(PerVertexMemberBit::CullDistance); break;
+                    default: break;
+                    }
+                    structMembers[words[1]] |= bit;
+                }
+                break;
+            default:
+                break;
+            }
+            i += wordCount;
+        }
+
+        // The one Input variable whose type is an array of a Block-decorated struct IS gl_in;
+        // gl_TessCoord and friends are plain scalars/vectors and never match.
+        for (const Uint32 pointerType : inputVariablePointerTypes) {
+            const auto pointer = pointerPointee.find(pointerType);
+            if (pointer == pointerPointee.end()) continue;
+            const auto array = arrayElementType.find(pointer->second.second);
+            if (array == arrayElementType.end()) continue;
+            if (!blockStructs.contains(array->second)) continue;
+            const auto members = structMembers.find(array->second);
+            if (members == structMembers.end()) continue;
+            return members->second;
+        }
+        return 0;
+    }
+
+    String ProgramFactory::BuildPassthroughTessControlSource(Uint32 patchVertices,
+                                                             const FloatVec4& defaultOuterLevel,
+                                                             const FloatVec2& defaultInnerLevel,
+                                                             Uint32 perVertexMembers) {
         // The stage GL 4.6 core 11.2.2 describes when a program has an evaluation shader and no
         // control shader: "the input patch is passed through unmodified", the output patch has
         // as many vertices as the input one (PATCH_VERTICES), and the levels come from the
         // PATCH_DEFAULT_OUTER_LEVEL / PATCH_DEFAULT_INNER_LEVEL state.
         //
-        // Those two levels default to 1.0 and are baked here as literals because
-        // glPatchParameterfv - their only setter - is not implemented in this frontend (it is a
-        // stub in MG_Impl/GLImpl/Exporting/Definitions.cpp). Implementing that entry point means
-        // making the levels a parameter of this source AND of the cache key in
-        // GetOrCreatePassthroughTessControlStage; the two must move together, so they are named
-        // together here.
+        // Those two levels are baked in as literals - Vulkan has no equivalent dynamic state, so
+        // compiling them in is the only way to honour glPatchParameterfv. That makes them part of
+        // this module's identity: GetOrCreatePassthroughTessControlStage keys its cache on them,
+        // and PipelineFactory hashes them into the pipeline key. The three must move together.
         //
         // gl_out carries gl_Position and nothing else on purpose. The evaluation stage that
         // reads it was linked against the VERTEX stage directly, so its input gl_PerVertex holds
@@ -3619,51 +4047,94 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         // this from having to know the domain.
         String source = "#version 450 core\n";
         source += "layout(vertices = " + std::to_string(patchVertices) + ") out;\n";
-        // gl_in and gl_out are redeclared to the exact gl_PerVertex the FRONTEND's linked programs
-        // carry - gl_Position, gl_PointSize, gl_ClipDistance[1], in that order - because Vulkan
-        // matches built-in interface blocks by their whole shape, and the two obvious spellings
-        // are both wrong:
+        // gl_in and gl_out are redeclared to the exact gl_PerVertex the NEIGHBOURING EVALUATION
+        // STAGE carries, because Vulkan matches built-in interface blocks by their whole shape,
+        // and the two obvious spellings are both wrong:
         //   * narrowing the block to gl_Position alone makes the evaluation stage read a patch of
         //     zeroes (degenerate triangles, nothing rasterized), and
-        //   * taking glslang's DEFAULT block for a standalone control stage yields FOUR members -
-        //     it appends gl_CullDistance - where a linked vertex+evaluation program has three.
-        // PassthroughTessControlTest.MatchesTheFrontendPerVertexBlock is the latch: it links a
-        // vertex+evaluation program through this same compiler and fails if the two shapes ever
-        // stop agreeing, rather than letting the mismatch show up as a black frame.
+        //   * taking glslang's DEFAULT block for a standalone control stage yields whatever THIS
+        //     source's #version implies, which is unrelated to the evaluation stage's.
         //
-        // Only gl_Position is written. gl_PointSize is declared but left alone deliberately:
-        // writing it from a tessellation stage requires the shaderTessellationAndGeometryPointSize
-        // feature, which this renderer does not enable, so a program whose evaluation stage reads
-        // gl_in[].gl_PointSize gets an undefined point size instead of the vertex stage's - a gap
-        // this trades for not making every tessellated pipeline depend on an optional feature.
-        source += "in gl_PerVertex {\n"
-                  "    vec4 gl_Position;\n"
-                  "    float gl_PointSize;\n"
-                  "    float gl_ClipDistance[1];\n"
-                  "} gl_in[gl_MaxPatchVertices];\n";
-        source += "out gl_PerVertex {\n"
-                  "    vec4 gl_Position;\n"
-                  "    float gl_PointSize;\n"
-                  "    float gl_ClipDistance[1];\n"
-                  "} gl_out[];\n";
+        // The member set is a PARAMETER rather than a constant, and that is the whole point: it
+        // was hardcoded to {gl_Position, gl_PointSize, gl_ClipDistance[1]}, which is the shape a
+        // program carries only below #version 450. glslang appends gl_CullDistance to the block
+        // from 450 upward, so every 450/460 program - and every ESSL program, which the source
+        // processor rewrites to "#version 460 core" - carried FOUR members against this stage's
+        // three and got the black-frame-no-error case described above. The mask comes from
+        // ReflectPerVertexInputMembers, read off the evaluation stage's own SPIR-V.
+        // PassthroughTessControlTest.MatchesTheFrontendPerVertexBlock is the latch, and it now
+        // links the program at both 430 and 460.
+        //
+        // Only gl_Position is written, and gl_PointSize is declared without being forwarded. That
+        // is a KNOWN GAP, not a design: GL 4.6 core 11.2.2 says the fixed-function pass-through
+        // hands the input patch to the evaluation stage unmodified, so an evaluation stage
+        // reading gl_in[].gl_PointSize should see the vertex stage's value and instead sees
+        // whatever this stage left in gl_out[] - which is nothing. A capture of it (the mirror in
+        // XfbCaptureDecoratePass) faithfully records that nothing.
+        //
+        // The reason this comment used to give - "the renderer does not enable
+        // shaderTessellationAndGeometryPointSize" - stopped being true when
+        // VulkanRenderer::CreateLogicalDeviceAndQueues started taking the feature wherever the
+        // device advertises it. Closing the gap is therefore possible now, but it is not free:
+        // the forwarding store has to be gated on that feature, because on a device without it
+        // the store is exactly the invalid usage the build-time refusal
+        // (VkProgramObject::pointSizeCapabilityUnsupported) exists to keep away from the driver -
+        // and this synthesized stage is not the application's, so refusing the program because
+        // MobileGL's own pass-through named a built-in would be the wrong trade. Nothing pins
+        // the shape either: every case in TessellationXfbCaptureScenario builds an explicit
+        // control stage, so a TES-without-TCS test has to come with the fix.
+        const String perVertexBody = BuildPerVertexMemberDeclarations(perVertexMembers);
+        source += "in gl_PerVertex {\n" + perVertexBody + "} gl_in[gl_MaxPatchVertices];\n";
+        source += "out gl_PerVertex {\n" + perVertexBody + "} gl_out[];\n";
         source += "void main() {\n";
         source += "    gl_out[gl_InvocationID].gl_Position = gl_in[gl_InvocationID].gl_Position;\n";
-        source += "    gl_TessLevelOuter[0] = 1.0;\n";
-        source += "    gl_TessLevelOuter[1] = 1.0;\n";
-        source += "    gl_TessLevelOuter[2] = 1.0;\n";
-        source += "    gl_TessLevelOuter[3] = 1.0;\n";
-        source += "    gl_TessLevelInner[0] = 1.0;\n";
-        source += "    gl_TessLevelInner[1] = 1.0;\n";
+        for (Uint32 i = 0; i < 4; ++i) {
+            source += "    gl_TessLevelOuter[" + std::to_string(i) +
+                      "] = " + MG_Util::ShaderTranspiler::TessellationLevelLiteral(defaultOuterLevel[i]) + ";\n";
+        }
+        for (Uint32 i = 0; i < 2; ++i) {
+            source += "    gl_TessLevelInner[" + std::to_string(i) +
+                      "] = " + MG_Util::ShaderTranspiler::TessellationLevelLiteral(defaultInnerLevel[i]) + ";\n";
+        }
         source += "}\n";
         return source;
     }
 
-    VkPipelineShaderStageCreateInfo ProgramFactory::GetOrCreatePassthroughTessControlStage(Uint32 patchVertices) {
+    VkPipelineShaderStageCreateInfo ProgramFactory::GetOrCreatePassthroughTessControlStage(
+        Uint32 patchVertices, const FloatVec4& defaultOuterLevel, const FloatVec2& defaultInnerLevel,
+        Uint32 perVertexMembers) {
+        // Everything compiled into the stage, folded into one key. The patch size alone stopped
+        // being enough once glPatchParameterfv could change the levels: two modules that differ
+        // only in a baked-in level are different modules, and pipelines built from either may be
+        // alive at the same time. The gl_PerVertex member set joins it for the same reason - two
+        // programs at different GLSL versions need differently-shaped blocks.
+        const Uint64 key =
+            ComputePassthroughTessControlKey(patchVertices, defaultOuterLevel, defaultInnerLevel, perVertexMembers);
         // A cached VK_NULL_HANDLE is a remembered failure, not a miss: returning it keeps a
         // generator that cannot compile from re-running glslang on every draw.
-        const auto cached = m_passthroughTessControlStages.find(patchVertices);
+        const auto cached = m_passthroughTessControlStages.find(key);
         if (cached != m_passthroughTessControlStages.end()) {
             return cached->second;
+        }
+
+        // The key stopped being bounded when the levels joined it: patchVertices alone could only
+        // take 32 values, but six unclamped application floats can take any number, and an
+        // application that ramps a level per frame would retain one VkShaderModule per frame for
+        // the lifetime of the device. Flushed wholesale rather than aged: a module is not
+        // referenced by the pipelines built from it (Vulkan copies what it needs at
+        // vkCreateGraphicsPipelines), everything here runs on the GL thread, and an application
+        // that can overflow this cap is already recompiling every frame - so the flush costs it
+        // nothing it was not paying anyway.
+        if (m_passthroughTessControlStages.size() >= kMaxPassthroughTessControlStages) {
+            MGLOG_D("ProgramFactory: flushing %zu pass-through tessellation control stages; the application has "
+                    "used more than %zu distinct (patch size, default level) combinations",
+                    m_passthroughTessControlStages.size(), kMaxPassthroughTessControlStages);
+            for (auto& entry : m_passthroughTessControlStages) {
+                if (entry.second.module != VK_NULL_HANDLE) {
+                    vkDestroyShaderModule(m_device, entry.second.module, nullptr);
+                }
+            }
+            m_passthroughTessControlStages.clear();
         }
 
         VkPipelineShaderStageCreateInfo stage{VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
@@ -3672,7 +4143,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         stage.pName = "main";
 
         using namespace MG_Util::ShaderTranspiler;
-        const String source = BuildPassthroughTessControlSource(patchVertices);
+        const String source =
+            BuildPassthroughTessControlSource(patchVertices, defaultOuterLevel, defaultInnerLevel, perVertexMembers);
         // Same compile configuration as every other stage of every other program: this runs on
         // the GL thread (the draw path), so the live compile env is the right one, and flags=0
         // is the Vulkan-targeting form (CompileForOpenGL is what the GLES backend adds).
@@ -3686,7 +4158,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             MGLOG_E("ProgramFactory: could not compile the pass-through tessellation control stage for "
                     "patchVertices=%u; a program with an evaluation stage and no control stage cannot draw. %s",
                     patchVertices, compiled.error().log.c_str());
-            m_passthroughTessControlStages.emplace(patchVertices, stage);
+            m_passthroughTessControlStages.emplace(key, stage);
             return stage;
         }
 
@@ -3696,7 +4168,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         if (!linked) {
             MGLOG_E("ProgramFactory: could not link the pass-through tessellation control stage for "
                     "patchVertices=%u. %s", patchVertices, linked.error().log.c_str());
-            m_passthroughTessControlStages.emplace(patchVertices, stage);
+            m_passthroughTessControlStages.emplace(key, stage);
             return stage;
         }
 
@@ -3705,19 +4177,33 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         if (!binary || binary.value().empty() || binary.value().front().empty()) {
             MGLOG_E("ProgramFactory: could not generate SPIR-V for the pass-through tessellation control stage "
                     "for patchVertices=%u", patchVertices);
-            m_passthroughTessControlStages.emplace(patchVertices, stage);
+            m_passthroughTessControlStages.emplace(key, stage);
             return stage;
         }
 
         const Vector<Uint>& spirv = binary.value().front();
+        {
+            // Still switch-gated, unlike the two in GetOrCreateProgram: this stage is synthesized
+            // by MobileGL from a fixed template rather than transformed from application SPIR-V,
+            // so a failure here is a MobileGL bug to catch in a validating lane, not something a
+            // shipping build can be handed by an application. The message is latched all the same
+            // - the pass-through cache is keyed on patchVertices, so a broken template would
+            // otherwise re-report once per distinct patch size.
+            Bool validateThisOne = false;
 #if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG
-        ValidateTransformedSpirv(spirv, ShaderStage::TessControl, 0);
+            validateThisOne = true;
 #else
-        if (m_enableSpirvValidation) {
-            MG_Util::ShaderTranspiler::ShaderCompiler::PrepareSpirvValidation();
-            ValidateTransformedSpirv(spirv, ShaderStage::TessControl, 0);
-        }
+            validateThisOne = m_enableSpirvValidation;
+            if (validateThisOne) MG_Util::ShaderTranspiler::ShaderCompiler::PrepareSpirvValidation();
 #endif
+            SpirvValidationFailure passthroughFailure{};
+            if (validateThisOne &&
+                !ValidateTransformedSpirv(spirv, ShaderStage::TessControl, 0, &passthroughFailure)) {
+                MGLOG_E_ONCE("ProgramFactory: the synthesized pass-through tessellation control stage for "
+                             "patchVertices=%u does not validate (%s)",
+                             patchVertices, passthroughFailure.message.c_str());
+            }
+        }
 
         VkShaderModuleCreateInfo smci{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
         smci.codeSize = spirv.size() * sizeof(Uint);
@@ -3727,14 +4213,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         if (result != VK_SUCCESS) {
             MGLOG_E("ProgramFactory: vkCreateShaderModule failed (%d) for the pass-through tessellation control "
                     "stage for patchVertices=%u", static_cast<Int>(result), patchVertices);
-            m_passthroughTessControlStages.emplace(patchVertices, stage);
+            m_passthroughTessControlStages.emplace(key, stage);
             return stage;
         }
 
         stage.module = module;
         MGLOG_D("ProgramFactory: built the pass-through tessellation control stage for patchVertices=%u "
                 "(GL 4.6 11.2.2; Vulkan has no fixed-function equivalent)", patchVertices);
-        m_passthroughTessControlStages.emplace(patchVertices, stage);
+        m_passthroughTessControlStages.emplace(key, stage);
         return stage;
     }
 
@@ -3744,6 +4230,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkProgramObject& entry) const {
         entry.needsPassthroughTessControl = false;
         entry.passthroughTessControlEmulatable = false;
+        entry.passthroughPerVertexMembers = 0;
 
         Bool hasTessEval = false;
         Bool hasTessControl = false;
@@ -3762,6 +4249,17 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         if (tessEvalModuleIndex >= spirv.size() || spirv[tessEvalModuleIndex].empty()) return;
         const auto& module = spirv[tessEvalModuleIndex];
+
+        // The shape the synthesized control stage has to redeclare. Read here because this is the
+        // only place that holds the evaluation stage's module; a zero mask means the walk found
+        // no input per-vertex block at all, in which case the pre-450 shape is the safe stand-in
+        // (it is what every program carried before gl_CullDistance joined the block).
+        const Uint32 perVertexMembers = ReflectPerVertexInputMembers(module);
+        entry.passthroughPerVertexMembers = perVertexMembers != 0 ? perVertexMembers : kDefaultPerVertexMembers;
+        if (perVertexMembers == 0) {
+            MGLOG_W("ProgramFactory: could not read the evaluation stage's gl_PerVertex block shape; the "
+                    "pass-through control stage falls back to the pre-450 three-member form");
+        }
 
         SpvReflectShaderModule reflectModule{};
         const SpvReflectResult createResult =

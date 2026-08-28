@@ -10,6 +10,7 @@
 
 #include <MG_State/GLState/ProgramState/ProgramTranslationCache.h>
 
+#include <MG_State/GLState/BufferState/BufferState.h>
 #include <MG_State/GLState/VertexArrayState/VertexArrayObject.h>
 #include <MG_Util/Async/ShaderCompilePool.h>
 #include <MG_Util/Converters/GLToStr/GLEnumConverter.h>
@@ -29,13 +30,11 @@ namespace {
     // capacity, which is also the width of the Uint32 masks backends build from it.
     static MobileGL::Int GetReflectionVertexAttribLimit(
         const MobileGL::MG_Util::ShaderTranspiler::CompileEnv& env) {
-        constexpr MobileGL::Int capacity =
-            static_cast<MobileGL::Int>(MobileGL::MG_State::GLState::VertexArrayObject::MAX_VERTEX_ATTRIBS);
-        if (!env.HasBackend()) return capacity;
-
-        const MobileGL::Int backendLimit = env.params.MaxVertexAttribs;
-        if (backendLimit <= 0) return capacity;
-        return std::min(backendLimit, capacity);
+        // One shared definition with glGetIntegerv(GL_MAX_VERTEX_ATTRIBS) and with
+        // BuildTBuiltInResource's gl_MaxVertexAttribs - the three used to carry three copies of
+        // this formula and glslang's copy was a hardcoded 64.
+        return MobileGL::MG_Util::ShaderTranspiler::ResolveMaxVertexAttribs(env.HasBackend(),
+                                                                            env.params.MaxVertexAttribs);
     }
 
     // Everything the post-link query surface ever asks a glslang::TType, flattened into a
@@ -622,13 +621,21 @@ namespace MobileGL::MG_State::GLState {
         // mapper's collect callback is the last point at which a resource's qualifier still
         // says what the SHADER declared rather than what glslang assigned, so both captures
         // have to be taken from inside the link. See TMglGlslIoResolver::reserverResourceSlot.
+        // The binding-range rule (GLSL 4.30 4.4.5): its ceilings in, and the first violation the
+        // resolver finds out. Enforced at the link because mapIO's collect callback is the last
+        // point at which a resource's qualifier still says what the SHADER declared - see
+        // TMglGlslIoResolver::CheckDeclaredBindingRange.
+        String resourceBindingViolation;
         ProgramAttrib attrib{.shaders = Move(shaders),
                              .explicitVertexInLocations = in.explicitAttribLocations,
                              .explicitFragmentOutLocations = in.explicitFragDataLocation,
                              .explicitFragmentOutIndices = in.explicitFragDataIndex,
                              .explicitOpaqueUniformBindings = &artifacts.explicitOpaqueUniformBindings,
                              .storageBlocksWithoutBinding = &artifacts.storageBlocksWithoutBinding,
-                             .uniformBlocksWithoutBinding = &artifacts.uniformBlocksWithoutBinding};
+                             .uniformBlocksWithoutBinding = &artifacts.uniformBlocksWithoutBinding,
+                             .resourceBindingLimits = in.env ? ResolveResourceBindingLimits(*in.env)
+                                                             : MG_Util::ShaderTranspiler::ResourceBindingLimits{},
+                             .resourceBindingViolation = &resourceBindingViolation};
 
         MGLOG_D("ProgramObject %u: Calling ShaderCompiler::LinkProgram", in.externalIndex);
         auto result = ShaderCompiler::LinkProgram(attrib);
@@ -672,9 +679,14 @@ namespace MobileGL::MG_State::GLState {
             return;
         }
 
-        // GL_GEOMETRY_INPUT_TYPE. A draw's primitive type has to be compatible with it
-        // (GL 4.6 core 11.3.1), so it is resolved for every link, not only a capturing one.
+        // The geometry stage's link properties. GL_GEOMETRY_INPUT_TYPE is load-bearing beyond the
+        // query surface - a draw's primitive type has to be compatible with it (GL 4.6 core
+        // 11.3.1) - so this block runs for every link, not only a capturing one. The other three
+        // are pure glGetProgramiv answers that previously had no source at all.
         artifacts.gsInputPrimitive = GL_NONE;
+        artifacts.gsOutputPrimitive = GL_NONE;
+        artifacts.gsMaxVertices = 0;
+        artifacts.gsInvocations = 0;
         if (const glslang::TIntermediate* gs = artifacts.program->getIntermediate(EShLangGeometry)) {
             switch (gs->getInputPrimitive()) {
             case glslang::ElgPoints: artifacts.gsInputPrimitive = GL_POINTS; break;
@@ -683,6 +695,77 @@ namespace MobileGL::MG_State::GLState {
             case glslang::ElgTriangles: artifacts.gsInputPrimitive = GL_TRIANGLES; break;
             case glslang::ElgTrianglesAdjacency: artifacts.gsInputPrimitive = GL_TRIANGLES_ADJACENCY; break;
             default: break;
+            }
+            switch (gs->getOutputPrimitive()) {
+            case glslang::ElgPoints: artifacts.gsOutputPrimitive = GL_POINTS; break;
+            case glslang::ElgLineStrip: artifacts.gsOutputPrimitive = GL_LINE_STRIP; break;
+            case glslang::ElgTriangleStrip: artifacts.gsOutputPrimitive = GL_TRIANGLE_STRIP; break;
+            default: break;
+            }
+            // glslang leaves both at TQualifier::layoutNotSet (-1) when the shader declared no
+            // such layout, and `invocations` defaults to one per GLSL 4.60 4.4.2.2 - so clamp
+            // rather than forward, or GL_GEOMETRY_SHADER_INVOCATIONS reports the sentinel.
+            artifacts.gsMaxVertices = std::max(gs->getVertices(), 0);
+            artifacts.gsInvocations = std::max(gs->getInvocations(), 1);
+        }
+
+        // The tessellation evaluation stage's link properties, GL 4.6 core table 23.35: the
+        // primitive generator's mode, spacing, winding and point mode. (The control stage's
+        // output patch size is captured below, together with the limit check that goes with it.)
+        artifacts.tessGenMode = GL_NONE;
+        artifacts.tessGenSpacing = GL_NONE;
+        artifacts.tessGenVertexOrder = GL_NONE;
+        artifacts.tessGenPointMode = false;
+        if (const glslang::TIntermediate* tes = artifacts.program->getIntermediate(EShLangTessEvaluation)) {
+            switch (tes->getInputPrimitive()) {
+            case glslang::ElgTriangles: artifacts.tessGenMode = GL_TRIANGLES; break;
+            case glslang::ElgQuads: artifacts.tessGenMode = GL_QUADS; break;
+            case glslang::ElgIsolines: artifacts.tessGenMode = GL_ISOLINES; break;
+            default: break;
+            }
+            // GLSL 4.60 4.4.2.3: equal_spacing and ccw are the defaults, which is what an unset
+            // qualifier means here.
+            switch (tes->getVertexSpacing()) {
+            case glslang::EvsFractionalEven: artifacts.tessGenSpacing = GL_FRACTIONAL_EVEN; break;
+            case glslang::EvsFractionalOdd: artifacts.tessGenSpacing = GL_FRACTIONAL_ODD; break;
+            default: artifacts.tessGenSpacing = GL_EQUAL; break;
+            }
+            switch (tes->getVertexOrder()) {
+            case glslang::EvoCw: artifacts.tessGenVertexOrder = GL_CW; break;
+            default: artifacts.tessGenVertexOrder = GL_CCW; break;
+            }
+            artifacts.tessGenPointMode = tes->getPointMode();
+        }
+
+        // GL_TESS_CONTROL_OUTPUT_VERTICES, i.e. the `layout(vertices = N) out` the control stage
+        // declared, and the limit that goes with it.
+        //
+        // GL 4.6 core 11.2.1.1: the LINK fails when N is greater than MAX_PATCH_VERTICES. Nothing
+        // enforced it - glslang's layout handling only rejects N <= 0 (ParseHelper.cpp "must be
+        // greater than 0") and carries maxPatchVertices in TBuiltInResource purely so
+        // gl_MaxPatchVertices can expand from it, exactly the gap ValidateImageUniformLimits
+        // documents for image uniforms. Checked at LINK rather than at compile on purpose: the CTS
+        // requires the offending shader to COMPILE ("Compilation passed as allowed") and only the
+        // link to fail, and turning it into a parse error would newly break an application that
+        // compiles such a shader and never links it.
+        //
+        // The limit is the one glGetIntegerv answers (GL_Getter.cpp reads the same
+        // DynamicBackendParameters field), so the advertised number and the enforced number cannot
+        // drift apart.
+        artifacts.tcsOutputVertices = 0;
+        if (const glslang::TIntermediate* tcs = artifacts.program->getIntermediate(EShLangTessControl)) {
+            artifacts.tcsOutputVertices = static_cast<Int>(tcs->getVertices());
+            if (artifacts.tcsOutputVertices > env.params.MaxPatchVertices) {
+                artifacts.linkStatus = false;
+                // Same invariant as the compute local-size gate above: a rejected link leaves no
+                // TProgram behind for a query surface to find.
+                artifacts.program.reset();
+                artifacts.infoLog = std::format(
+                    "Tessellation control shader declares an output patch of {} vertices, more than the {} "
+                    "GL_MAX_PATCH_VERTICES allows.",
+                    artifacts.tcsOutputVertices, env.params.MaxPatchVertices);
+                DeferLog(std::format("ProgramObject {}: Link failed - {}", in.externalIndex, artifacts.infoLog));
+                return;
             }
         }
 
@@ -1101,6 +1184,20 @@ namespace MobileGL::MG_State::GLState {
             if (isGlobalUboMember(uniform) && uniform.stages == 0) {
                 MGLOG_D("ProgramObject %u: Reflection - dead default-block uniform '%s' filtered from the GL "
                         "surface",
+                        in.externalIndex, uniform.name.c_str());
+                continue;
+            }
+            // The gl_NumSamples stand-in InjectNumSamplesBuiltinShim declared. It is a driver
+            // uniform, not the application's: gl_NumSamples is a BUILT-IN, so a conformant
+            // implementation reports nothing for it in GL_ACTIVE_UNIFORMS, glGetActiveUniform or
+            // glGetUniformLocation, and nothing may write it through glUniform* either. Filtering
+            // it here does both, and costs it no storage: BuildGlobalUboRouting takes its offset
+            // from the SPIR-V metadata by name, not from the GL location space.
+            if (isGlobalUboMember(uniform) &&
+                uniform.name == MG_Util::ShaderTranspiler::NUM_SAMPLES_UNIFORM_NAME) {
+                artifacts.usesReservedNumSamples = true;
+                MGLOG_D("ProgramObject %u: Reflection - reserved gl_NumSamples stand-in '%s' hidden from the GL "
+                        "uniform surface",
                         in.externalIndex, uniform.name.c_str());
                 continue;
             }
@@ -1595,6 +1692,25 @@ namespace MobileGL::MG_State::GLState {
                 artifacts.uniformBlocksWithoutBinding.contains(blockTypeName) ? 0 : ubo.getBinding();
             artifacts.uniformBlockBinding[i] =
                 declaredBinding < 0 ? declaredBinding : declaredBinding + BlockArrayElement(ubo.name);
+            // The second way a binding reaches the state layer's indexed-binding array, and the
+            // one glUniformBlockBinding's new bound cannot see. glslang does not range-check a
+            // uniform block's layout(binding = N) against anything - TBuiltInResource has no
+            // maxUniformBufferBindings field at all, and ParseHelper bounds only samplers and
+            // atomic counters - so `layout(binding = 5000) uniform Blk {...}` compiled and linked
+            // clean and then had both backends subscript the array at 5000 on the first draw.
+            // Stated against the same ceiling glGetIntegerv(GL_MAX_UNIFORM_BUFFER_BINDINGS)
+            // advertises; an instance array whose LAST element passes it is a link error even
+            // though its base fits, same rule as the explicit-location check above.
+            if (artifacts.uniformBlockBinding[i] >=
+                static_cast<Int>(MG_State::GLState::BufferBindingPointCount)) {
+                artifacts.infoLog =
+                    std::format("Uniform block '{}' declares binding {}, which is not less than "
+                                "GL_MAX_UNIFORM_BUFFER_BINDINGS ({}).",
+                                ubo.name, artifacts.uniformBlockBinding[i],
+                                static_cast<Int>(MG_State::GLState::BufferBindingPointCount));
+                ProgramObject::ResetLinkArtifacts(artifacts);
+                return false;
+            }
             MGLOG_D("ProgramObject %u: Reflection - UBO[%d] name='%s' size=%u binding=%d", in.externalIndex, i,
                     ubo.name.c_str(), ubo.size, ubo.getBinding());
         }
@@ -1740,7 +1856,13 @@ namespace MobileGL::MG_State::GLState {
         // them to the draw-buffer range fails the link of every such program.
         if (artifacts.program->getIntermediate(EShLangFragment) == nullptr) return true;
 
-        UnorderedMap<Int, String> colorNumberOwners;
+        // Keyed on (colour number, COLOUR INDEX), not on the colour number alone. Two fragment
+        // outputs may share a location as long as their index differs - that pair IS dual-source
+        // blending (GL 4.6 core 11.1.3 / ARB_blend_func_extended, core since 3.3), spelled either
+        // `layout(location = 0, index = 0)` + `layout(location = 0, index = 1)` in the shader or
+        // through two glBindFragDataLocationIndexed calls. Aliasing on the number alone made every
+        // such program fail to link with "alias color number 0", which is the whole feature.
+        UnorderedMap<Int64, String> colorSlotOwners;
         const Int outputCount = artifacts.program->getNumPipeOutputs();
         for (Int index = 0; index < outputCount; ++index) {
             const auto& output = artifacts.program->getPipeOutput(index);
@@ -1753,6 +1875,46 @@ namespace MobileGL::MG_State::GLState {
             const Int location = explicitLocation != in.explicitFragDataLocation.end()
                                      ? static_cast<Int>(explicitLocation->second)
                                      : static_cast<Int>(output.layoutLocation());
+            // The colour INDEX, under the one precedence rule the whole codebase uses: a NON-ZERO
+            // glBindFragDataLocationIndexed index wins, and a zero (or absent) one falls back to
+            // the shader's own layout(index = N).
+            //
+            // Zero has to mean "no override" rather than "index 0", because glBindFragDataLocation
+            // IS glBindFragDataLocationIndexed with index 0 (GL_Program.cpp) and writes a real 0
+            // into this map. Reading that 0 as an override made a blanket
+            // `glBindFragDataLocation(prog, 0, "b")` over a shader that declares
+            // `layout(location = 0, index = 1) out vec4 b;` collapse b onto slot (0,0) next to the
+            // index-0 output and fail the link as an alias - while the IO resolver had left b's
+            // qualifier at 1, the SPIR-V still carried Index 1, and glGetProgramResourceLocationIndex
+            // still answered 1. Validation was rejecting a program the backend had already emitted
+            // correctly, which is the one case where this branch can change the answer at all: this
+            // runs AFTER ShaderCompiler::LinkProgram/mapIO, so for every other shape the qualifier
+            // already carries the resolver's verdict.
+            //
+            // The two other consumers spell the same rule: TMglGlslIoResolver only writes the API
+            // index into the qualifier when it is non-zero, and ProgramInterface falls back to
+            // type.layoutIndex when GetFragmentDataIndex answers 0. All three now agree.
+            //
+            // Against the spec (GL 4.6 core 15.2.3): where a fragment output's index is given by a
+            // shader layout qualifier, that value is used and anything bound through
+            // BindFragDataLocation(Indexed) is IGNORED - the same precedence layout(location) has
+            // over glBindAttribLocation. That is stricter than "non-zero API wins", and the two
+            // differ in exactly one shape: an explicit `index = 0` in the shader against an API
+            // index of 1, where the spec keeps 0 and this codebase takes 1. That divergence lives
+            // in the resolver (it decides what is emitted); it is pre-existing, out of scope here,
+            // and deliberately not re-litigated in a third place - matching the resolver is what
+            // keeps validation checking what was actually built.
+            Int colorIndex = 0;
+            if (const auto explicitIndex = in.explicitFragDataIndex.find(outputName);
+                explicitIndex != in.explicitFragDataIndex.end()) {
+                colorIndex = static_cast<Int>(explicitIndex->second);
+            }
+            if (colorIndex == 0) {
+                if (const glslang::TType* outputType = output.getType();
+                    outputType != nullptr && outputType->getQualifier().hasIndex()) {
+                    colorIndex = static_cast<Int>(outputType->getQualifier().layoutIndex);
+                }
+            }
             const Int span = std::max<Int>(output.size, 1);
 
             if (location < 0 || location + span > in.maxFragmentOutputColorNumber) {
@@ -1765,10 +1927,16 @@ namespace MobileGL::MG_State::GLState {
             }
 
             for (Int colorNumber = location; colorNumber < location + span; ++colorNumber) {
-                auto [owner, inserted] = colorNumberOwners.emplace(colorNumber, outputName);
+                const Int64 slot = (static_cast<Int64>(colorIndex) << 32) |
+                                   static_cast<Int64>(static_cast<Uint32>(colorNumber));
+                auto [owner, inserted] = colorSlotOwners.emplace(slot, outputName);
                 if (!inserted) {
-                    artifacts.infoLog = std::format("Fragment outputs '{}' and '{}' alias color number {}.",
-                                                    owner->second, outputName, colorNumber);
+                    artifacts.infoLog =
+                        colorIndex == 0
+                            ? std::format("Fragment outputs '{}' and '{}' alias color number {}.", owner->second,
+                                          outputName, colorNumber)
+                            : std::format("Fragment outputs '{}' and '{}' alias color number {} at index {}.",
+                                          owner->second, outputName, colorNumber, colorIndex);
                     DeferLog(std::format("ProgramObject {}: Link failed - {}", in.externalIndex, artifacts.infoLog));
                     ProgramObject::ResetLinkArtifacts(artifacts);
                     return false;
@@ -1794,10 +1962,18 @@ namespace MobileGL::MG_State::GLState {
             return true;
         }
 
-        // Capture happens at the last vertex-processing stage (geometry, then
-        // tessellation evaluation, then vertex).
+        // Capture happens at the last vertex-processing stage (geometry, then tessellation
+        // evaluation, then tessellation CONTROL, then vertex). All four are vertex-processing
+        // stages in GL 4.6 core 11 - the control shader included - and in a separable program
+        // whose only stage is a TCS it is the last one that exists, so it is the capture stage
+        // and such a program MUST link (GL 4.6 core 7.3/11.1.2.1; the conformance suite spells
+        // the API split out at esextcTessellationShaderXFB.cpp:390-416, where a non-ES context
+        // takes should_succeed=true). TessControl sits AFTER TessEvaluation so a complete
+        // pipeline still captures at the evaluation stage and only a TCS-only program falls
+        // through to it. If MobileGL ever serves an ES context this arm has to be gated on the
+        // advertised API: ES requires the very same link to FAIL.
         const glslang::TIntermediate* captureIntermediate = nullptr;
-        for (EShLanguage stage : {EShLangGeometry, EShLangTessEvaluation, EShLangVertex}) {
+        for (EShLanguage stage : {EShLangGeometry, EShLangTessEvaluation, EShLangTessControl, EShLangVertex}) {
             captureIntermediate = artifacts.program->getIntermediate(stage);
             if (captureIntermediate != nullptr) {
                 break;

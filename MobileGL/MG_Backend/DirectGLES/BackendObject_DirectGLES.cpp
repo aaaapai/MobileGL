@@ -307,6 +307,23 @@ namespace MobileGL::MG_Backend::DirectGLES {
             return capabilities.MaxColorTextureSamples;
         }
 
+        // The RENDERBUFFER twin, and it is a different set of pnames on purpose.
+        // GL_MAX_{COLOR,DEPTH}_TEXTURE_SAMPLES bound multisample TEXTURES; a renderbuffer is
+        // bounded by GL_MAX_SAMPLES (GL 4.6 core 9.2.4), with GL_MAX_INTEGER_SAMPLES for the
+        // integer formats. Using the texture ceilings here - which is what the renderbuffer probe
+        // did - is not merely untidy: the two texture pnames are ES 3.1 state, so on an ES 3.0
+        // context the loader's rejected-probe clamp leaves them at 1 (see the multisample clamps
+        // in the GLES loader) and the walk below would never run past one sample, recording {1}
+        // for EVERY colour format while GL_MAX_SAMPLES - ES 3.0 core, so genuinely answered -
+        // reports 4. Once the frontend validates against this list, that would reject every
+        // multisample renderbuffer on such a context.
+        Int GetGLESRenderbufferFormatMaxSamples(const MG_External::GLESCapabilities& capabilities,
+                                                GLenum imageFormat) {
+            const Bool isInteger = imageFormat == GL_RED_INTEGER || imageFormat == GL_RG_INTEGER ||
+                                   imageFormat == GL_RGB_INTEGER || imageFormat == GL_RGBA_INTEGER;
+            return isInteger ? capabilities.MaxIntegerSamples : capabilities.MaxSamples;
+        }
+
         Bool ProbeFramebufferCompletenessForTexture(const MG_External::GLESFunctionsTable& gl, TextureTarget target,
                                                     GLuint texture, TextureInternalFormat format) {
             GLuint framebuffer = 0;
@@ -717,7 +734,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                         AddFullFormatCaps(cache, renderbufferTargetIndex, formatIndex,
                                           GetRenderbufferFeatureCaps(logicalFormat));
                         const Int maxSamples =
-                            GetGLESFormatMaxSamples(capabilities, logicalFormat, nativeInfo.ImageFormat);
+                            GetGLESRenderbufferFormatMaxSamples(capabilities, nativeInfo.ImageFormat);
                         cache.SampleCounts[renderbufferTargetIndex][formatIndex] =
                             ProbeRenderbufferSampleCounts(gl, nativeInfo.InternalFormat, logicalFormat, maxSamples);
                     } else {
@@ -731,7 +748,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                         LogGLESFormatCaveat(logicalFormat, renderbufferTargetIndex, renderbufferFallbackInfo);
                     }
                     const Int maxSamples =
-                        GetGLESFormatMaxSamples(capabilities, logicalFormat, renderbufferFallbackInfo.ImageFormat);
+                        GetGLESRenderbufferFormatMaxSamples(capabilities, renderbufferFallbackInfo.ImageFormat);
                     cache.SampleCounts[renderbufferTargetIndex][formatIndex] = ProbeRenderbufferSampleCounts(
                         gl, renderbufferFallbackInfo.InternalFormat, logicalFormat, maxSamples);
                 }
@@ -749,7 +766,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 .ExtraVendor = Nullopt,              // Extra vendor
                 .RendererGLInfo =
                     {
-                        .TargetGLVersion = {4, 3, 0},   // GL target version
+                        .TargetGLVersion = {4, 6, 0},   // GL target version
                         .TargetGLSLVersion = {4, 6, 0}, // Target Shading Language Version
                         // Baseline advertisement (no runtime capabilities yet); reconciled once
                         // the ES capabilities exist, see UpdateAdvertisedCapabilityExtensions.
@@ -995,10 +1012,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                                   Bool textureViewSupported, Bool cubeMapArraySupported) {
         Vector<GLExtension> extensions = {
             // The version tokens have to reach the version the backend actually claims:
-            // TargetGLVersion is {4,3,0}, and a list that stopped at OpenGL40 told an
+            // TargetGLVersion is {4,6,0}, and a list that stopped at OpenGL40 told an
             // application feature-detecting off these tokens the opposite of what
             // GL_MAJOR_VERSION / GL_MINOR_VERSION told it.
             V_OpenGL30, V_OpenGL31, V_OpenGL32, V_OpenGL33, V_OpenGL40, V_OpenGL41, V_OpenGL42, V_OpenGL43,
+            V_OpenGL44, V_OpenGL45, V_OpenGL46,
             E_GL_ARB_draw_buffers_blend,
             E_GL_ARB_compute_shader, E_GL_ARB_shader_storage_buffer_object, E_GL_ARB_shader_image_load_store,
             E_GL_ARB_clear_buffer_object, E_GL_ARB_program_interface_query, E_GL_ARB_framebuffer_object, E_GL_EXT_framebuffer_object,
@@ -1464,6 +1482,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
         m_dynamicParameters.MaxDrawBuffers = m_GLESCapabilities.MaxDrawBuffers;
         m_dynamicParameters.MaxColorAttachments = m_GLESCapabilities.MaxColorAttachments;
         m_dynamicParameters.MaxClipDistances = m_GLESCapabilities.MaxClipDistances;
+        // The loader already gated both on GL_EXT_clip_cull_distance and left 0 without it, which
+        // is the answer that keeps glslang from accepting a gl_CullDistance the ESSL compiler
+        // would reject.
+        m_dynamicParameters.MaxCullDistances = m_GLESCapabilities.MaxCullDistances;
+        m_dynamicParameters.MaxCombinedClipAndCullDistances = m_GLESCapabilities.MaxCombinedClipAndCullDistances;
         m_dynamicParameters.MaxViewports = m_GLESCapabilities.MaxViewports;
         // Whatever the driver said about which vertex supplies gl_Layer, and GL_UNDEFINED_VERTEX
         // for gl_ViewportIndex on every driver without GL_OES_viewport_array - which is both test

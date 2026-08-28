@@ -37,6 +37,24 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         // glGenTextures ever hands this out, and nothing looks a placeholder up by name - so the
         // id only has to stay clear of the application's, exactly like the sampled fallback's.
         constexpr Uint kUnboundStorageImageExternalIndex = 0xFFFFFF01u;
+        // The multisample sampled fallbacks: one per (target, numeric domain), because unlike the
+        // single-sampled fallback they cannot be reinterpreted into another domain at view time
+        // (see GetFallbackMultisampleTexture). Six reserved ids, contiguous from this base for the
+        // same reason as the two above - they must not collide with anything glGenTextures can
+        // hand out.
+        constexpr Uint kFallbackMultisampleExternalIndexBase = 0xFFFFFF02u;
+        constexpr Uint kFallbackMultisampleExternalIndexCount = 6u;
+
+        // MobileGL's own stand-in textures, by the reserved ids above. Nothing an application can
+        // do reaches one, so anything keyed on the GL object an application bound - image-unit
+        // aliasing above all - has to leave them alone.
+        Bool IsPlaceholderTexture(const MG_State::GLState::ITextureObject* texture) {
+            if (texture == nullptr) return false;
+            const Uint index = static_cast<Uint>(texture->GetExternalIndex());
+            return index == kFallbackTexture2DExternalIndex || index == kUnboundStorageImageExternalIndex ||
+                   (index >= kFallbackMultisampleExternalIndexBase &&
+                    index < kFallbackMultisampleExternalIndexBase + kFallbackMultisampleExternalIndexCount);
+        }
 
         // The R32 member of each numeric class. Every one of the three is a MANDATORY-support
         // format for uniform texel buffers, storage texel buffers and storage images alike
@@ -360,6 +378,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_textureManager = nullptr;
         m_samplerManager = nullptr;
         m_fallbackTexture2D.reset();
+        m_fallbackMultisampleTextures.clear();
     }
 
     void UniformManager::BeginFrame(Uint32 frameIndex) {
@@ -496,7 +515,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             texture = nullptr;
         }
         if (texture == nullptr) {
-            fallbackHolder = GetFallbackTexture(preferredTarget);
+            // The binding's sampler class, read here rather than through the `numericDomain`
+            // local further down (it is declared after this point): the multisample placeholder
+            // has to be built in the class the shader will read it in.
+            fallbackHolder = GetFallbackTexture(preferredTarget, programObj.samplerNumericDomainByBinding[binding]);
             texture = fallbackHolder.get();
             if (texture == nullptr) {
                 MGLOG_E_ONCE("ResolveSamplerDescriptor: no fallback texture available for binding=%u ('%s') "
@@ -1367,18 +1389,30 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return outImageInfo.imageView != VK_NULL_HANDLE;
     }
 
-    SharedPtr<MG_State::GLState::ITextureObject> UniformManager::GetFallbackTexture(TextureTarget target) const {
-        // The fallback is a single-sampled 2D image, so it can only stand in for a sampler that
-        // would accept one. A multisample sampler in particular cannot: its descriptor demands a
-        // multisample view, and handing it this one is invalid Vulkan, not a degraded picture.
-        // Report that there is no fallback and let the caller decline the draw - aborting the
-        // process over an unbound sampler is never the right answer.
+    SharedPtr<MG_State::GLState::ITextureObject> UniformManager::GetFallbackTexture(
+        TextureTarget target, SamplerNumericDomain numericDomain) const {
+        // A multisample sampler cannot be served by the single-sampled 2D image below - its
+        // descriptor demands a multisample view - so it gets its own placeholder rather than no
+        // placeholder at all. Without one, ResolveSamplerDescriptor declined and
+        // BindProgramUniformBuffers dropped the WHOLE draw, which is how every
+        // sample_variables.*.samples_0 body failed: the CTS's resolve program declares both a
+        // sampler2D and a sampler2DMS and deliberately points the unused one at an empty texture
+        // unit, and at samples_0 the unused one is the sampler2DMS. GL says sampling an
+        // incomplete texture is undefined, not fatal, so the draw has to happen.
+        if (target == TextureTarget::Texture2DMultisample ||
+            target == TextureTarget::Texture2DMultisampleArray) {
+            return GetFallbackMultisampleTexture(target, numericDomain);
+        }
         if (target != TextureTarget::Texture2D && target != TextureTarget::TextureRectangle) {
             MGLOG_E_ONCE("UniformManager::GetFallbackTexture: no fallback exists for target=%d",
                     static_cast<Int>(target));
             return nullptr;
         }
 
+        // The single-sampled fallback stays domain-agnostic: it is storage-image capable, so its
+        // image carries VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT and ResolveSampledImageViewFormat can
+        // hand an integer sampler an R8G8B8A8_UINT view of these same RGBA8 texels. A multisample
+        // image can never carry that bit, which is why the arm above needs one object per domain.
         if (m_fallbackTexture2D == nullptr) {
             auto fallbackTexture = MakeShared<MG_State::GLState::TextureObject2D>(kFallbackTexture2DExternalIndex);
             fallbackTexture->SetInternalFormat(TextureInternalFormat::RGBA8);
@@ -1394,6 +1428,83 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         return m_fallbackTexture2D;
+    }
+
+    SharedPtr<MG_State::GLState::ITextureObject> UniformManager::GetFallbackMultisampleTexture(
+        TextureTarget target, SamplerNumericDomain numericDomain) const {
+        // ONE PLACEHOLDER PER NUMERIC DOMAIN, unlike the single-sampled fallback.
+        //
+        // A descriptor whose image format is in a different numeric class than the sampler that
+        // reads it needs a format-reinterpreting view, and building one needs
+        // VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT on the image. A multisample image can never have it:
+        // SyncTextureResource computes storageImageCapable as `!isMultisampleTexture && ...`, and
+        // the only other source of the bit is the sRGB twin, which RGBA8 is not. So an RGBA8
+        // placeholder handed to a usampler2DMS made GetOrCreateSampledImageView bail with "needs
+        // mutable image format", ResolveSamplerDescriptor return false, and the draw be dropped -
+        // the exact outcome the placeholder exists to prevent, just reached later. Matching the
+        // image's own format to the sampler's class instead means no reinterpreting view is
+        // needed at all.
+        const Bool arrayed = target == TextureTarget::Texture2DMultisampleArray;
+        TextureInternalFormat internalFormat = TextureInternalFormat::RGBA8;
+        Uint32 domainSlot = 0;
+        switch (numericDomain) {
+        case SamplerNumericDomain::SignedInteger:
+            internalFormat = TextureInternalFormat::RGBA8I;
+            domainSlot = 1;
+            break;
+        case SamplerNumericDomain::UnsignedInteger:
+            internalFormat = TextureInternalFormat::RGBA8UI;
+            domainSlot = 2;
+            break;
+        case SamplerNumericDomain::Float:
+        case SamplerNumericDomain::Unknown:
+        default:
+            // Unknown reads as float, matching PlaceholderFormatForNumericDomain's own default:
+            // a shader whose sampler class could not be reflected is far likelier to be a plain
+            // sampler2DMS than an integer one, and a float view is the only one buildable without
+            // the mutable bit anyway.
+            break;
+        }
+        const Uint32 key = (arrayed ? kFallbackMultisampleExternalIndexCount / 2 : 0u) + domainSlot;
+        auto cached = m_fallbackMultisampleTextures.find(key);
+        if (cached != m_fallbackMultisampleTextures.end()) {
+            return cached->second;
+        }
+
+        const TextureUploadTarget uploadTarget = arrayed ? TextureUploadTarget::Texture2DMultisampleArray
+                                                         : TextureUploadTarget::Texture2DMultisample;
+        const Uint externalIndex = kFallbackMultisampleExternalIndexBase + key;
+        SharedPtr<MG_State::GLState::TextureObjectMipmap> texture;
+        if (arrayed) {
+            texture = MakeShared<MG_State::GLState::TextureObject2DMultisampleArray>(externalIndex);
+        } else {
+            texture = MakeShared<MG_State::GLState::TextureObject2DMultisample>(externalIndex);
+        }
+        texture->SetInternalFormat(internalFormat);
+        // TWO samples, never one. VUID-RuntimeSpirv-samples-08726 forbids an OpTypeImage with
+        // MS = 1 from reading a VK_SAMPLE_COUNT_1_BIT image, which is exactly the hazard
+        // VkTextureManager::SyncTextureResource's one-sample floor exists to avoid; a placeholder
+        // that re-created it would be worse than none.
+        texture->SetSamples(2);
+        texture->SetFixedSampleLocations(true);
+        // No upload, and MarkStorageDirty(dirty = false) to say so: a multisample image cannot be
+        // written by a transfer at all - it deliberately carries no TRANSFER_DST usage - so unlike
+        // the 2D fallback this one cannot be given (0, 0, 0, 1) content. Its texels are undefined,
+        // which is precisely what GL 4.6 core 8.17 promises for a texelFetch on a multisample
+        // texture that is not complete. The point of the placeholder is that the DRAW happens.
+        texture->AllocateStorage(uploadTarget, 0, {.texelSize = {1, 1, 1}, .byteSize = 0});
+        texture->TruncateMipmapLevels(uploadTarget, 1);
+        texture->MarkStorageDirty(uploadTarget, 0, false);
+        // Worth knowing if it ever fires: an integer multisample format can legitimately support
+        // no count above one on a device (framebufferIntegerColorSampleCounts is allowed to be
+        // VK_SAMPLE_COUNT_1_BIT), and SyncTextureResource's round-down would then hand this
+        // placeholder a single-sampled image, which is the samples-08726 shape the SetSamples(2)
+        // above exists to avoid. It already warns from there; nothing better is available - a
+        // one-sample integer image is still a draw, and declining is the outcome this whole
+        // placeholder replaced.
+        MGLOG_D("UniformManager::GetFallbackMultisampleTexture: created placeholder target=%d domain=%d format=%d",
+                static_cast<Int>(target), static_cast<Int>(numericDomain), static_cast<Int>(internalFormat));
+        return m_fallbackMultisampleTextures.emplace(key, Move(texture)).first->second;
     }
 
     VkBufferView UniformManager::AcquireUnboundTexelBufferView(VkFormat declaredFormat,
@@ -1551,25 +1662,49 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         const TextureTarget preferredTarget = programObj.samplerTextureTargetByBinding[binding];
         MG_State::GLState::ITextureObject* texture =
             textureUnit.GetBindingSlot(preferredTarget).GetBoundObject().get();
+        // The sampler in effect, resolved BEFORE the completeness test below rather than after:
+        // GL's completeness rules are a property of (texture, sampler in effect), so the test
+        // cannot be asked without it.
+        const auto& samplerOverride = textureUnit.GetSamplerObject();
+        const MG_State::GLState::SamplerObject* effectiveSampler =
+            samplerOverride ? samplerOverride.get()
+                            : (texture != nullptr ? texture->GetSamplerObject().get() : nullptr);
         // Undefined default texture (name 0, no image) resolves as "unbound", exactly
         // like ResolveSamplerTextureRaw reports it.
         if (MG_State::GLState::IsUndefinedDefaultTexture(texture)) {
+            texture = nullptr;
+        }
+        // ...and so does a texture that fails the completeness rules for the filter in effect,
+        // because that is precisely what ResolveSamplerDescriptor does with it. The two used to
+        // disagree: this one asked only whether the default texture was UNDEFINED, so a default
+        // texture that had been given a base level but no mip chain - which is what the GL-CTS
+        // state reset between test cases leaves behind, and what any application that uploads to
+        // texture 0 has - stayed in the sampled set while the descriptor path swapped it for the
+        // fallback. SetupDraw then synced a texture no descriptor would use, the sync declined
+        // (GL calls it incomplete), and the null it returned was dereferenced one line later.
+        // Keeping the two predicates identical is the invariant; CollectSampledTextures exists to
+        // pre-sync exactly the textures the descriptors will hold.
+        if (MG_State::GLState::SamplesAsIncompleteTexture(texture, effectiveSampler)) {
             texture = nullptr;
         }
         if (texture == nullptr) {
             // ResolveSamplerDescriptor will substitute the fallback texture for this binding;
             // include it in the sampled set so the pre-render-pass sync/transition pass covers
             // its first use instead of leaving that work to happen inside an active pass.
-            if (preferredTarget != TextureTarget::Texture2D &&
-                preferredTarget != TextureTarget::TextureRectangle) {
+            // Ask GetFallbackTexture rather than re-listing the targets it serves: that list grew
+            // a multisample arm and the two must not drift apart.
+            texture = GetFallbackTexture(preferredTarget, programObj.samplerNumericDomainByBinding[binding]).get();
+            if (texture == nullptr) {
                 return false;
             }
-            texture = GetFallbackTexture(preferredTarget).get();
+            // The substitution changed the texture, so the "no override" arm of the effective
+            // sampler has to follow it to the fallback's own.
+            if (!samplerOverride) {
+                effectiveSampler = texture != nullptr ? texture->GetSamplerObject().get() : nullptr;
+            }
         }
-        const auto& samplerOverride = textureUnit.GetSamplerObject();
         outTexture = texture;
-        outSampler = samplerOverride ? samplerOverride.get()
-                                     : (texture != nullptr ? texture->GetSamplerObject().get() : nullptr);
+        outSampler = effectiveSampler;
         return true;
     }
 
@@ -1765,9 +1900,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 if (!ResolveSampledBinding(program, programObj, samplerBinding, samplerElement,
                                            sampledTexture, sampledSampler) ||
                     sampledTexture == nullptr || sampledSampler == nullptr ||
-                    MG_State::GLState::SamplesAsIncompleteTexture(sampledTexture, sampledSampler)) {
+                    IsPlaceholderTexture(sampledTexture)) {
                     // ResolveSamplerDescriptor uses a fallback in these cases, which cannot
-                    // alias the image-unit binding of the original texture.
+                    // alias the image-unit binding of the original texture. The unbound and
+                    // incomplete cases both arrive here AS that fallback now that
+                    // ResolveSampledBinding applies the completeness rule itself, so the test is
+                    // "is this one of ours" rather than a second completeness check.
                     continue;
                 }
                 // Multisample source images intentionally omit TRANSFER_SRC usage. Keep their existing

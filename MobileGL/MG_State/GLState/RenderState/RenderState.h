@@ -240,8 +240,24 @@ namespace MobileGL {
         Float PointSize = 1.0f;
         // GL_PATCH_VERTICES: how many vertices one tessellation patch consumes.
         Uint PatchVertices = 3;
+        // GL_PATCH_DEFAULT_OUTER_LEVEL / GL_PATCH_DEFAULT_INNER_LEVEL (glPatchParameterfv). The
+        // tessellation levels used when a program has an evaluation stage and NO control stage -
+        // GL's fixed-function pass-through (4.6 core 11.2.2). Both backends have to synthesize
+        // that stage, and they bake these numbers into it, so a change here makes an already-built
+        // one stale exactly as PATCH_VERTICES does. Default 1.0, per table 23.44.
+        FloatVec4 PatchDefaultOuterLevel = FloatVec4(1.0f, 1.0f, 1.0f, 1.0f);
+        FloatVec2 PatchDefaultInnerLevel = FloatVec2(1.0f, 1.0f);
         Float PolygonOffsetFactor = 0.0f;
         Float PolygonOffsetUnits = 0.0f;
+        // GL_POLYGON_OFFSET_CLAMP (GL 4.6 core 14.6.5 / GL_EXT_polygon_offset_clamp): the maximum
+        // magnitude of the offset glPolygonOffsetClamp's third argument allows. Zero - the default
+        // - means "no clamp", which is exactly the behaviour glPolygonOffset leaves behind.
+        Float PolygonOffsetClamp = 0.0f;
+
+        // glClipControl (GL 4.5 core 13.5). Defaults per table 23.7 are the pre-4.5 fixed
+        // behaviour: origin at the lower left, depth mapped from -1..1.
+        GLenum ClipOrigin = GL_LOWER_LEFT;
+        GLenum ClipDepthMode = GL_NEGATIVE_ONE_TO_ONE;
 
         // Blending
         Array<PerBufferBlendState, MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS> BlendStates;
@@ -271,6 +287,10 @@ namespace MobileGL {
         Float SampleCoverageValue = 1.0f;
         Bool SampleCoverageInvert = false;
         Uint32 SampleMaskValue = 0xffffffffu;
+        // glMinSampleShading (ARB_sample_shading / GL 4.0 core 14.3.1). The fraction of samples
+        // that get their own independent shading when GL_SAMPLE_SHADING is enabled; the initial
+        // value is 0, and the value is clamped to [0, 1] on the way in.
+        Float MinSampleShadingValue = 0.0f;
         Array<StencilFaceState, 2> StencilStates{};
 
         // Cull Face
@@ -319,6 +339,7 @@ namespace MobileGL {
         Bool SampleAlphaToOneEnabled = false;
         Bool SampleCoverageEnabled = false;
         Bool SampleMaskEnabled = false;
+        Bool SampleShadingEnabled = false;
         Bool StencilTestEnabled = false;
         Bool ProgramPointSizeEnabled = false;
         // glEnable(GL_SCISSOR_TEST) enables the test for EVERY viewport, glEnablei for one
@@ -374,9 +395,21 @@ namespace MobileGL {
                 Float GetPointSize() const;
                 void SetPatchVertices(Uint vertices);
                 Uint GetPatchVertices() const;
+                void SetPatchDefaultOuterLevel(const FloatVec4& levels);
+                const FloatVec4& GetPatchDefaultOuterLevel() const;
+                void SetPatchDefaultInnerLevel(const FloatVec2& levels);
+                const FloatVec2& GetPatchDefaultInnerLevel() const;
                 void SetPolygonOffset(Float factor, Float units);
+                // glPolygonOffsetClamp. Writes the same factor/units as glPolygonOffset plus the
+                // clamp, because that is what the entry point does - glPolygonOffset is the
+                // clamp = 0 case of it (GL 4.6 core 14.6.5).
+                void SetPolygonOffsetClamped(Float factor, Float units, Float clamp);
                 Float GetPolygonOffsetFactor() const;
                 Float GetPolygonOffsetUnits() const;
+                Float GetPolygonOffsetClamp() const;
+                void SetClipControl(GLenum origin, GLenum depth);
+                GLenum GetClipOrigin() const;
+                GLenum GetClipDepthMode() const;
                 // Hints. target must be one of the 4 GL 3.3 core hint targets (validated by the caller).
                 void SetHint(GLenum target, GLenum mode);
                 GLenum GetHint(GLenum target) const;
@@ -454,6 +487,9 @@ namespace MobileGL {
                 Bool GetSampleCoverageInvert() const;
                 void SetSampleMaskValue(Uint32 mask);
                 Uint32 GetSampleMaskValue() const;
+                // glMinSampleShading. `value` is stored as given; the entry point clamps.
+                void SetMinSampleShadingValue(Float value);
+                Float GetMinSampleShadingValue() const;
 
                 // Pixel Store
                 void SetPixelStoreParam(PixelStoreParam param, Int value);

@@ -46,6 +46,15 @@ namespace MobileGL::MG_Backend::DirectGLES {
         Flags<PixelFormatNormalizeOptionBit> GetRenderTargetNormalizeOptions(
             const MG_External::GLESCapabilities& capabilities, SizeT targetIndex);
 
+        // Whether this format's ES storage is widened to 8-bit-per-channel because the
+        // driver's 16-bit packed storage mirrors its field order at a non-zero array mip
+        // level (PixelFormatNormalizeOptionBit::WidenPacked16Norm). True only for
+        // GL_RGB565/GL_RGB5(_A1)/GL_RGBA4, and only where the POST probe measured the
+        // divergence (or MOBILEGL_WIDEN_PACKED16_STORAGE forces it). The transfer paths
+        // consult it too: the packed-norm re-upload leg must stand down when the ES storage
+        // is no longer 16-bit packed.
+        Bool UsesWidenedPacked16NormStorage(TextureInternalFormat internalFormat);
+
         void GenerateTextureFormatInfo(TextureInternalFormat internalFormat, GLenum* outInternalFormat,
                                        GLenum* outFormat, GLenum* outType,
                                        TextureTarget target = TextureTarget::Unknown);
@@ -273,6 +282,22 @@ namespace MobileGL::MG_Backend::DirectGLES {
         // error, so this is never emitted speculatively. A no-op when not needed or already
         // present.
         String RequestViewportArrayExtension(String glslCode, Bool needed);
+        // Adds `#extension <extensionName> : require` when a TESSELLATION or GEOMETRY stage's
+        // emitted ESSL names gl_PointSize. Desktop GL has that built-in in gl_PerVertex for every
+        // vertex-processing stage; ESSL does NOT have it in those two at any version - not even
+        // 320, where the stages themselves are core - until EXT/OES_tessellation_point_size resp.
+        // EXT/OES_geometry_point_size is requested. SPIRV-Cross prints the identifier bare and
+        // asks for nothing, exactly as it does for gl_ViewportIndex, so without this the stage
+        // fails to compile with "`gl_PointSize' undeclared" and the WHOLE program is replaced by
+        // program 0 - the draw renders nothing and any transform-feedback capture it was carrying
+        // is rejected outright. `extensionName` is the caller's answer, nullptr when the driver
+        // advertises neither spelling, because requesting an unadvertised extension is itself a
+        // compile error. A no-op when nullptr or already present.
+        String RequestPointSizeExtension(String glslCode, const char* extensionName);
+        // The extension name RequestPointSizeExtension should be given for `tier`, or nullptr for
+        // PointSizeTier::None. `tessellation` picks the tessellation spellings over the geometry
+        // ones; the two extensions are separate and neither implies the other.
+        const char* PointSizeExtensionName(MG_External::GLESCapabilities::PointSizeTier tier, Bool tessellation);
         // Writes a format layout qualifier into the image declarations named in
         // `esslFormatByUniformName` that still have none. The completion half of the image-format
         // bake, and ONLY that: the SPIR-V pass (BakeImageFormatsPass) is what normally puts the
@@ -368,11 +393,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
         //
         // All four outer levels and both inner levels are written unconditionally: writing a
         // level the evaluation stage's domain does not use is legal and ignored, and it saves
-        // this from having to know the domain. They are literal 1.0 because that is the GL
-        // default and glPatchParameterfv - their only setter - is a stub in this frontend
-        // (MG_Impl/GLImpl/Exporting/Definitions.cpp). Implementing that entry point means making
-        // the levels a parameter here AND part of what makes a built program stale, exactly as
-        // PATCH_VERTICES already is; the two must move together, so they are named together.
+        // this from having to know the domain. They are the GL_PATCH_DEFAULT_OUTER_LEVEL /
+        // GL_PATCH_DEFAULT_INNER_LEVEL state, baked in as literals - ES has no such state and no
+        // glPatchParameterfv to forward to, so compiling them in is the only way to honour them.
+        // That makes them part of what a built program is stale against, exactly as PATCH_VERTICES
+        // is: see the staleness clause in DirectGLES.cpp's SyncCurrentProgram, which compares both.
         //
         // The same stage, for the same reason, that DirectVulkan synthesizes in
         // ProgramFactory::BuildPassthroughTessControlSource - Vulkan likewise requires both
@@ -382,7 +407,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
         // VkShaderModule against a driver shader object.
         String BuildPassthroughTessControlEssl(Uint esslVersion, Uint patchVertices,
                                                const String& inPerVertexMembers,
-                                               const String& outPerVertexMembers);
+                                               const String& outPerVertexMembers,
+                                               const FloatVec4& defaultOuterLevel,
+                                               const FloatVec2& defaultInnerLevel);
         // Prefix of the writeonly half a read+write image uniform is split into (see
         // SplitReadWriteImageUniforms); the suffix is the image's own (already access-tagged) name.
         constexpr const char* IMAGE_WRITE_ALIAS_PREFIX = "mg_imageWrite_";

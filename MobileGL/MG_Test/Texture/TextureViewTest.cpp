@@ -25,6 +25,7 @@
 #include "Init.h"
 #include <MG_Backend/BackendObjects.h>
 #include <MG_Impl/GLImpl/Getter/GL_Getter.h>
+#include <MG_Impl/GLImpl/Framebuffer/GL_Framebuffer.h>
 #include <MG_Impl/GLImpl/Texture/GL_Texture.h>
 #include <MG_State/GLState/Core.h>
 #include <MG_State/GLState/TextureState/TextureObject.h>
@@ -188,6 +189,36 @@ namespace {
         // 8.18: "TEXTURE_IMMUTABLE_LEVELS is set to the value of TEXTURE_IMMUTABLE_LEVELS from
         // the ORIGINAL texture" - not to <numlevels>.
         EXPECT_EQ(GetViewParameter(view, GL_TEXTURE_2D, GL_TEXTURE_IMMUTABLE_LEVELS), 3);
+    }
+
+    // ...and the level a FRAMEBUFFER may attach is the view's own count, not the inherited
+    // TEXTURE_IMMUTABLE_LEVELS the test above pins. Bounding glFramebufferTexture by the latter
+    // accepted a level the view cannot reach, which attaches a 0x0 image: the framebuffer then
+    // reports COMPLETE and nothing can be drawn into it.
+    TEST_F(TextureViewTest, AFramebufferAttachIsBoundedByTheViewsOwnLevelCount) {
+        const GLuint storage = MakeImmutable2D(4, 32, 32);
+        const GLuint view = GenTexture();
+        MG_Impl::GLImpl::TextureView(view, GL_TEXTURE_2D, storage, GL_RGBA8, /*minlevel=*/2,
+                                     /*numlevels=*/2, 0, 1);
+        ExpectSingleGlError(GL_NO_ERROR);
+        // The inherited query really does report the original's four levels...
+        ASSERT_EQ(GetViewParameter(view, GL_TEXTURE_2D, GL_TEXTURE_IMMUTABLE_LEVELS), 4);
+        // ...while the view itself has two.
+        ASSERT_EQ(GetViewParameter(view, GL_TEXTURE_2D, GL_TEXTURE_VIEW_NUM_LEVELS), 2);
+
+        GLuint framebuffer = 0;
+        MG_Impl::GLImpl::CreateFramebuffers(1, &framebuffer);
+        MG_Impl::GLImpl::BindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer);
+        ExpectSingleGlError(GL_NO_ERROR);
+
+        MG_Impl::GLImpl::FramebufferTexture(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, view, 1);
+        ExpectSingleGlError(GL_NO_ERROR);
+
+        MG_Impl::GLImpl::FramebufferTexture(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, view, 2);
+        ExpectSingleGlError(GL_INVALID_VALUE);
+
+        MG_Impl::GLImpl::BindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+        DrainPendingGlErrors();
     }
 
     TEST_F(TextureViewTest, ViewClampsItsLevelCountToWhatRemains) {
@@ -473,5 +504,48 @@ namespace {
         MG_Impl::GLImpl::TextureView(view, GL_TEXTURE_2D, storage, GL_RGBA8, 0, 1, 0, 1);
         ExpectSingleGlError(GL_INVALID_OPERATION);
         EXPECT_FALSE(MG_State::pGLContext->ValidateTextureObject(view));
+    }
+
+    // ======================= which of the owner's layers a face names =======================
+
+    // A GL_TEXTURE_CUBE_MAP view over a LAYERED owner - a 2D array here, a cube-map ARRAY behaves
+    // identically - is the one shape where the face a target names cannot be carried by the choice
+    // of blob: the owner keeps every layer in ONE blob, so there is nothing for
+    // ToOwnerUploadTarget to choose between and the face has to land in the byte offset instead.
+    // It did not. The offset shifted by the view's layer origin alone, so all six face tokens read
+    // the view's FIRST layer-face - silently, with real texels from a real layer, on every path
+    // that answers out of the CPU shadow.
+    //
+    // The shadow is exactly what this exercises: the fixture's backend is not DirectVulkan, so the
+    // by-name readback takes the shadow arm rather than asking a backend. (DirectVulkan's own path
+    // resolves the face into a Vulkan baseArrayLayer and was always right, which is what made this
+    // a disagreement between the two backends rather than a uniform wrong answer.)
+    TEST_F(TextureViewTest, CubeMapViewOfAnArrayReadsTheFaceEachTokenNames) {
+        constexpr GLint kLayers = 8;
+        constexpr GLint kViewMinLayer = 2;
+
+        const GLuint storage = MakeImmutable2DArray(1, 1, kLayers);
+        // Every layer carries its own index, so a read that lands on the wrong one says which one
+        // answered instead of merely failing.
+        for (GLint layer = 0; layer < kLayers; ++layer) {
+            const Uint8 texel[] = {static_cast<Uint8>(10 + layer), 20, 30, 40};
+            MG_Impl::GLImpl::TexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, layer, 1, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE,
+                                           texel);
+        }
+        DrainPendingGlErrors();
+
+        const GLuint view = GenTexture();
+        MG_Impl::GLImpl::TextureView(view, GL_TEXTURE_CUBE_MAP, storage, GL_RGBA8, 0, 1, kViewMinLayer, 6);
+        ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR) << "the cube-map view over the array was refused";
+
+        for (GLint face = 0; face < 6; ++face) {
+            Uint8 output[4] = {};
+            MG_Impl::GLImpl::GetTextureSubImage(view, 0, 0, 0, face, 1, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE,
+                                                sizeof(output), output);
+            EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR) << "reading face " << face << " errored";
+            EXPECT_EQ(static_cast<GLint>(output[0]), 10 + kViewMinLayer + face)
+                << "face " << face << " of a view based at layer " << kViewMinLayer << " answered with layer "
+                << (static_cast<GLint>(output[0]) - 10);
+        }
     }
 } // namespace

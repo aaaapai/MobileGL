@@ -46,4 +46,3 @@ if ! git diff-index --quiet HEAD --; then
 else
     echo "没有 3rdparty 子模块更新"
 fi
-

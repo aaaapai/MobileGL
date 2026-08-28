@@ -648,6 +648,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
             // GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT. 64 covers every type with room to
             // spare and keeps consecutive staged blocks off each other's cache lines.
             constexpr SizeT kUnpackRingAlignment = 64;
+            // glCopyBufferSubData carries no offset-alignment requirement at all; 64
+            // keeps staged blocks cache-line separated, same as the unpack ring.
+            constexpr SizeT kUploadRingInitialBytes = 4u * 1024u * 1024u;
+            constexpr SizeT kUploadRingMaxBytes = 64u * 1024u * 1024u;
+            constexpr SizeT kUploadRingAlignment = 64;
 
             struct PersistentRingStore {
                 Uint id = 0;
@@ -705,6 +710,21 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                         kUnpackRingMaxBytes,
                                         kUnpackRingAlignment,
                                         "Texture unpack ring"};
+            // Staging ring for app buffer updates whose destination store may still be
+            // referenced by in-flight GPU work. Mali's glBufferSubData resolves that WAR
+            // hazard by BLOCKING in the call (osup_sync_object_wait) until every
+            // referencing job retires - under Minecraft 26.3's per-frame UBO and
+            // chunk-mesh SubData streams that serialized whole frames (~1 fps while
+            // chunks stream in). Staging the bytes here and issuing a
+            // glCopyBufferSubData instead keeps the hazard on the GPU timeline where it
+            // is just job ordering, and the CPU never waits.
+            PersistentRing g_uploadRing{{},
+                                        {},
+                                        {},
+                                        kUploadRingInitialBytes,
+                                        kUploadRingMaxBytes,
+                                        kUploadRingAlignment,
+                                        "Buffer upload ring"};
 
             // The ES context the ring's id/map belonged to is gone (or was never
             // seen): drop every handle without GL calls and re-arm creation. The
@@ -792,6 +812,96 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 BindBufferId(TempBufferTarget, resource.id);
                 g_GLESFuncs.glBufferSubData(TempBufferTarget, (GLintptr)start, (GLsizeiptr)(end - start),
                                             bufferObject.MappedData() + start);
+            }
+
+            // Ring machinery shared with the UBO/unpack rings; defined further down in
+            // this same unnamed namespace.
+            Bool RingAllocate(PersistentRing& ring, SizeT size, SizeT& outOffset);
+            Bool RingAvailable(PersistentRing& ring);
+
+            // True when a pending-range flush can go through the staging ring right
+            // now: kill switch off, the ES copy entry point resolved, and the ring's
+            // own availability gate (EXT_buffer_storage + fences + live context) up.
+            Bool UploadRingUsableNow() {
+                if (MG_Config::Features.DisableUploadRing) return false;
+                if (!g_GLESFuncs.glCopyBufferSubData) return false;
+                return RingAvailable(g_uploadRing);
+            }
+
+            // Push every queued range of `resource` from the shadow into the backend
+            // store, without ever letting a driver resolve the WAR hazard against
+            // in-flight frames at the WHOLE BUFFER's expense. Three tiers:
+            //
+            //   1. glMapBufferRange(WRITE | INVALIDATE_RANGE) + memcpy. The entire
+            //      mapped range is rewritten from the authoritative shadow, so
+            //      declaring its old bytes dead is exact - and it lets the driver
+            //      swap fresh pages in for JUST that range. This is the only tier
+            //      whose cost scales with the RANGE on this Mali driver: both the
+            //      immediate glBufferSubData (pre-queueing) and a staged
+            //      glCopyBufferSubData into a busy MUTABLE store ghost the whole
+            //      destination with a worker-thread memcpy - Minecraft 26.3 streams
+            //      ~1MB section meshes into 128MB arenas about nine times a frame
+            //      during a camera pan, and 9 x 128MB of ghosting per frame is
+            //      ~380ms, the measured 2-4 fps. (Backing the arenas with immutable
+            //      stores also kills the ghost, but eagerly commits every arena's
+            //      full extent - +hundreds of MB - which LMK'd the whole device.)
+            //   2. The staging ring + glCopyBufferSubData: the copy is ordered on
+            //      the GPU timeline, no CPU wait (MOBILEGL_DISABLE_INVALIDATE_FLUSH
+            //      forces this tier as the map path's negative control).
+            //   3. Direct glBufferSubData (potentially stalling) when neither the
+            //      map entry points nor the ring exist.
+            //
+            // The ranges are flushed AS QUEUED (VecRange1D::Add already merges
+            // near-adjacent ones): bytes, not flush calls, are the cost axis here,
+            // and collapsing a scattered flush into its union re-copied nearly whole
+            // chunk-mesh arenas every frame.
+            // The caller owns syncedChangeSerial; this only drains the queue.
+            void FlushPendingRangesNow(GLESBufferResource& resource, BufferObject& bufferObject) {
+#ifdef TRACY_ENABLE
+                ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
+                VecRange1D ranges;
+                {
+                    const std::lock_guard<std::mutex> lock(resource.pendingMutex);
+                    if (resource.pendingRanges.empty()) return;
+                    ranges = std::move(resource.pendingRanges);
+                    resource.pendingRanges.clear();
+                }
+                // Clamp against BOTH extents: the readback flush may run while the
+                // frontend size and the backend store disagree (a pending respecify
+                // resolves that later; bytes past either end have nowhere to land).
+                const SizeT limit = std::min(bufferObject.GetSize(), resource.storageSize);
+                const Bool mapUsable = !MG_Config::Features.DisableInvalidateFlush &&
+                                       g_GLESFuncs.glMapBufferRange && g_GLESFuncs.glUnmapBuffer;
+                const Bool ringUsable = UploadRingUsableNow();
+                for (const auto& range : ranges) {
+                    const SizeT end = std::min(range.end, limit);
+                    const SizeT start = std::min(range.start, end);
+                    const SizeT size = end - start;
+                    if (size == 0) continue;
+                    if (mapUsable) {
+                        BindBufferId(TempBufferTarget, resource.id);
+                        void* dst = g_GLESFuncs.glMapBufferRange(TempBufferTarget, (GLintptr)start,
+                                                                 (GLsizeiptr)size,
+                                                                 GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_RANGE_BIT);
+                        if (dst) {
+                            Memcpy(dst, bufferObject.MappedData() + start, size);
+                            g_GLESFuncs.glUnmapBuffer(TempBufferTarget);
+                            continue;
+                        }
+                    }
+                    SizeT ringOffset = 0;
+                    if (ringUsable && size <= kUploadRingMaxBytes &&
+                        RingAllocate(g_uploadRing, size, ringOffset)) {
+                        Memcpy(g_uploadRing.store.mappedPtr + ringOffset, bufferObject.MappedData() + start, size);
+                        BindBufferId(GL_COPY_READ_BUFFER, g_uploadRing.store.id);
+                        BindBufferId(GL_COPY_WRITE_BUFFER, resource.id);
+                        g_GLESFuncs.glCopyBufferSubData(GL_COPY_READ_BUFFER, GL_COPY_WRITE_BUFFER,
+                                                        (GLintptr)ringOffset, (GLintptr)start, (GLsizeiptr)size);
+                    } else {
+                        UploadRangeNow(resource, bufferObject, start, end);
+                    }
+                }
             }
 
             // EXT_buffer_storage bit values (same numeric values as the desktop ARB
@@ -941,11 +1051,27 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 if (!CanTouchGLNow() || resource->id == 0 ||
                     resource->contextGeneration != g_bufferContextGeneration ||
                     !StorageMatches(*resource, bufferObject)) {
+                    const std::lock_guard<std::mutex> lock(resource->pendingMutex);
                     resource->pendingRanges.Add({offset, offset + size});
                     return;
                 }
-                UploadRangeNow(*resource, bufferObject, offset, offset + size);
-                resource->syncedChangeSerial = bufferObject.GetChangeSerial();
+                // An immediate glBufferSubData resolves the WAR hazard against frames
+                // still referencing this store on the CPU on some drivers - Mali parks
+                // the thread in osup_sync_object_wait until every referencing job
+                // retires, which serialized Minecraft 26.3's per-frame UBO/chunk-mesh
+                // update streams into ~1 fps. Queue the range instead (the shadow
+                // already holds the bytes) and let draw-time sync push the merged
+                // ranges through the staging ring. The zero-copy persistent store
+                // keeps the legacy immediate upload: draw-time sync never flushes
+                // ranges for it, and its mapping publishes writes by itself.
+                if ((resource->persistentMapped && resource->persistentPtr) ||
+                    MG_Config::Features.DisableUploadRing) {
+                    UploadRangeNow(*resource, bufferObject, offset, offset + size);
+                    resource->syncedChangeSerial = bufferObject.GetChangeSerial();
+                    return;
+                }
+                const std::lock_guard<std::mutex> lock(resource->pendingMutex);
+                resource->pendingRanges.Add({offset, offset + size});
             }
 
             void Ops_FlushMappedRange(BufferObject& bufferObject, Range1D range,
@@ -956,6 +1082,19 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 if (!CanTouchGLNow() || resource->id == 0 ||
                     resource->contextGeneration != g_bufferContextGeneration ||
                     !StorageMatches(*resource, bufferObject)) {
+                    const std::lock_guard<std::mutex> lock(resource->pendingMutex);
+                    resource->pendingRanges.Add(range);
+                    return;
+                }
+
+                // Same WAR-hazard rule as Ops_SubData: an immediate upload (mapped or
+                // glBufferSubData) can park the thread on Mali until the frames still
+                // referencing this store retire. Queue the range for the staged-copy
+                // flush at draw-time sync; only the zero-copy persistent store and the
+                // negative-control kill switch keep the immediate paths below.
+                if (!(resource->persistentMapped && resource->persistentPtr) &&
+                    !MG_Config::Features.DisableUploadRing) {
+                    const std::lock_guard<std::mutex> lock(resource->pendingMutex);
                     resource->pendingRanges.Add(range);
                     return;
                 }
@@ -1006,6 +1145,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 if (!g_GLESFuncs.glMapBufferRange || !g_GLESFuncs.glUnmapBuffer) return;
                 const SizeT size = std::min<SizeT>(bufferObject.GetSize(), resource->storageSize);
                 if (size == 0) return;
+
+                // Queued app writes must land in the backend store before it is read
+                // back, or the writeback below would revert them in the shadow.
+                FlushPendingRangesNow(*resource, bufferObject);
 
                 BindBufferId(TempBufferTarget, resource->id);
                 void* mapped = g_GLESFuncs.glMapBufferRange(TempBufferTarget, 0, static_cast<GLsizeiptr>(size),
@@ -1295,11 +1438,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 resource->storageSize != bufferObject->GetSize()) {
                 RespecifyStorageNow(*resource, *bufferObject);
             } else if (!resource->pendingRanges.empty()) {
-                for (const auto& range : resource->pendingRanges) {
-                    const SizeT end = std::min(range.end, bufferObject->GetSize());
-                    UploadRangeNow(*resource, *bufferObject, std::min(range.start, end), end);
-                }
-                resource->pendingRanges.clear();
+                FlushPendingRangesNow(*resource, *bufferObject);
                 resource->syncedChangeSerial = bufferObject->GetChangeSerial();
             } else if (resource->syncedChangeSerial != bufferObject->GetChangeSerial()) {
                 // Ops could not track some writes (e.g. the ops table was
@@ -1383,10 +1522,24 @@ namespace MobileGL::MG_Backend::DirectGLES {
             constexpr SizeT kMaxIndexedBufferBindings = 64;
             IndexedBufferBinding g_indexedUBOBindings[kMaxIndexedBufferBindings];
             IndexedBufferBinding g_indexedSSBOBindings[kMaxIndexedBufferBindings];
+            // Transform feedback gets a shadow for a reason the other two do not have: the
+            // capture points are synced from the application's TOUCHED high-water mark, which
+            // deqp/glcts permanently raises to GL_MAX_TRANSFORM_FEEDBACK_SEPARATE_ATTRIBS by
+            // clearing every point after each test case. Without a shadow every capture that
+            // uses fewer points than that (i.e. every INTERLEAVED_ATTRIBS capture) re-issued a
+            // redundant glBindBufferBase(GL_TRANSFORM_FEEDBACK_BUFFER, i, 0) for the unused
+            // tail immediately before glBeginTransformFeedback - calls a plain GL application
+            // never makes there, and the only thing MobileGL does differently from one.
+            //
+            // Unlike the UBO/SSBO points these are NOT context state: they belong to the bound
+            // transform feedback OBJECT, so XfbImpl::BindTransformFeedback drops the whole
+            // shadow to unknown on every object switch (InvalidateTransformFeedbackBindingShadows).
+            IndexedBufferBinding g_indexedXFBBindings[kMaxIndexedBufferBindings];
             IndexedBufferBinding* IndexedBindingShadow(GLenum glTarget, Uint index) {
                 if (index >= kMaxIndexedBufferBindings) return nullptr; // out of range: never cache
                 if (glTarget == GL_UNIFORM_BUFFER) return &g_indexedUBOBindings[index];
                 if (glTarget == GL_SHADER_STORAGE_BUFFER) return &g_indexedSSBOBindings[index];
+                if (glTarget == GL_TRANSFORM_FEEDBACK_BUFFER) return &g_indexedXFBBindings[index];
                 return nullptr;
             }
 
@@ -1401,6 +1554,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     if (binding.id == id) binding = {};
                 }
                 for (auto& binding : g_indexedSSBOBindings) {
+                    if (binding.id == id) binding = {};
+                }
+                for (auto& binding : g_indexedXFBBindings) {
                     if (binding.id == id) binding = {};
                 }
                 if (g_boundPixelPackBufferKnown && g_boundPixelPackBufferId == id) {
@@ -1419,8 +1575,20 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 for (auto& binding : g_indexedSSBOBindings) {
                     if (binding.id == id) binding.known = false;
                 }
+                for (auto& binding : g_indexedXFBBindings) {
+                    if (binding.id == id) binding.known = false;
+                }
             }
         } // namespace
+
+        // The capture points belong to the bound transform feedback object, so a bind (or a
+        // delete, which reverts to the default object) replaces all of them at once with
+        // state this shadow has never seen. Distrust rather than scrub: the driver's bindings
+        // are whatever the newly bound object holds, which is NOT necessarily base(0), and
+        // scrubbing would let a later bind of 0 be false-skipped.
+        void InvalidateTransformFeedbackBindingShadows() {
+            for (auto& binding : g_indexedXFBBindings) binding.known = false;
+        }
 
         void BindBufferBaseCached(GLenum glTarget, Uint index, Uint id) {
             auto* s = IndexedBindingShadow(glTarget, index);
@@ -1439,6 +1607,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         void InvalidateIndexedBufferBindingCache() {
             for (auto& b : g_indexedUBOBindings) b = {};
             for (auto& b : g_indexedSSBOBindings) b = {};
+            for (auto& b : g_indexedXFBBindings) b = {};
         }
 
         void TrimBufferPool() {
@@ -1590,6 +1759,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     static_assert((kUboRingInitialBytes & (kUboRingInitialBytes - 1)) == 0,
                                   "ring offset mask below requires power-of-two ring sizes");
                     static_assert((kUnpackRingInitialBytes & (kUnpackRingInitialBytes - 1)) == 0,
+                                  "ring offset mask below requires power-of-two ring sizes");
+                    static_assert((kUploadRingInitialBytes & (kUploadRingInitialBytes - 1)) == 0,
                                   "ring offset mask below requires power-of-two ring sizes");
                     const SizeT offset = static_cast<SizeT>(store.head & (store.size - 1));
                     if (offset + alignedSize <= store.size && store.head + alignedSize - store.tail <= store.size) {
@@ -1759,6 +1930,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
         SizeT UnpackRingMaxBytes() { return kUnpackRingMaxBytes; }
 
         void UnpackRingOnPresent() { RingOnPresent(g_unpackRing); }
+
+        void UploadRingOnPresent() { RingOnPresent(g_uploadRing); }
     } // namespace BufferImpl
 
     namespace VertexArrayImpl {
@@ -3231,6 +3404,13 @@ namespace MobileGL::MG_Backend::DirectGLES {
             if (format != TextureInternalFormat::RGB5 && format != TextureInternalFormat::RGB5A1) {
                 return data;
             }
+            // With the storage widened to 8-bit-per-channel (the packed16 field-order quirk)
+            // there is no driver requantization left for the repack to pre-empt - the shadow's
+            // UNorm8 bytes ARE the stored bytes - and the packed 16-bit client type this leg
+            // retargets to is not a legal upload for a GL_RGB8/GL_RGBA8 store at all.
+            if (TextureImpl::UsesWidenedPacked16NormStorage(format)) {
+                return data;
+            }
             const Bool hasAlpha = format == TextureInternalFormat::RGB5A1;
             const GLenum packedType = hasAlpha ? GL_UNSIGNED_SHORT_5_5_5_1 : GL_UNSIGNED_SHORT_5_6_5;
             // Idempotent across a region's level loop: glType is shared, so later levels arrive with
@@ -4605,12 +4785,44 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             // GL_TEXTURE_BORDER_COLOR needs ES 3.2 or EXT/OES_texture_border_clamp; on a driver
             // without it every such call is INVALID_ENUM, so the parameter is simply not synced.
+            //
+            // The FORM has to be forwarded along with the value. A border colour set through
+            // glTexParameterIiv/Iuiv is an integer one, and an isampler2D/usampler2D fetch of the
+            // border returns whatever the driver's integer border register holds - so pushing it
+            // through glTexParameterfv handed the driver float 255.0 and the shader read back
+            // 1132396544, the bit pattern of that float. glTexParameterIiv/Iuiv are ES 3.2 core
+            // beside GL_TEXTURE_BORDER_COLOR itself, so they sit behind the same capability gate;
+            // the entry-point null check covers a driver that advertises the extension without them.
+            // The redundancy filter has to look at the AUTHORITATIVE representation, not just the
+            // float one: two integer borders that differ above 2^24 (16777216 and 16777217, say)
+            // collapse onto the same float, so a float-only comparison would skip the second sync and
+            // leave the driver holding the first value forever.
+            const auto borderColorForm = stateTextureObject->GetBorderColorForm();
             if (!isMultisampleTarget && g_GLESCapabilities.SupportsTextureBorderClamp &&
-                m_cacheBorderColor != stateTextureObject->GetBorderColor()) {
-                const auto& borderColor = stateTextureObject->GetBorderColor();
-                GLfloat borderColorArray[4] = {borderColor.x(), borderColor.y(), borderColor.z(), borderColor.w()};
-                g_GLESFuncs.glTexParameterfv(target, GL_TEXTURE_BORDER_COLOR, borderColorArray);
-                m_cacheBorderColor = borderColor;
+                (m_cacheBorderColor != stateTextureObject->GetBorderColor() ||
+                 m_cacheBorderColorI != stateTextureObject->GetBorderColorI() ||
+                 m_cacheBorderColorUI != stateTextureObject->GetBorderColorUI() ||
+                 m_cacheBorderColorForm != borderColorForm)) {
+                if (borderColorForm == BorderColorForm::Int && g_GLESFuncs.glTexParameterIiv) {
+                    const auto& borderColorI = stateTextureObject->GetBorderColorI();
+                    const GLint borderColorArray[4] = {borderColorI.x(), borderColorI.y(), borderColorI.z(),
+                                                       borderColorI.w()};
+                    g_GLESFuncs.glTexParameterIiv(target, GL_TEXTURE_BORDER_COLOR, borderColorArray);
+                } else if (borderColorForm == BorderColorForm::Uint && g_GLESFuncs.glTexParameterIuiv) {
+                    const auto& borderColorUI = stateTextureObject->GetBorderColorUI();
+                    const GLuint borderColorArray[4] = {borderColorUI.x(), borderColorUI.y(), borderColorUI.z(),
+                                                        borderColorUI.w()};
+                    g_GLESFuncs.glTexParameterIuiv(target, GL_TEXTURE_BORDER_COLOR, borderColorArray);
+                } else {
+                    const auto& borderColor = stateTextureObject->GetBorderColor();
+                    const GLfloat borderColorArray[4] = {borderColor.x(), borderColor.y(), borderColor.z(),
+                                                         borderColor.w()};
+                    g_GLESFuncs.glTexParameterfv(target, GL_TEXTURE_BORDER_COLOR, borderColorArray);
+                }
+                m_cacheBorderColor = stateTextureObject->GetBorderColor();
+                m_cacheBorderColorI = stateTextureObject->GetBorderColorI();
+                m_cacheBorderColorUI = stateTextureObject->GetBorderColorUI();
+                m_cacheBorderColorForm = borderColorForm;
                 DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
                     MGLOG_D("%s(%s:%d) ES error %s", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str());
                 });
@@ -5721,6 +5933,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
         Uint g_fragColorBroadcastCount = 1;
         Uint32 g_unormFallbackClampOutputMask = 0;
         Uint g_lastUsedBackendProgramId = 0;
+        // Every error-queue drain in the program build path is bounded by this: a lost
+        // context never answers GL_NO_ERROR, and the build runs on the thread that would
+        // then spin forever.
+        constexpr Int kMaxDrainedProgramErrors = 32;
         StateBackendObjectRegistry<MG_State::GLState::ProgramObject, BackendProgramObjectImpl> g_backendProgramObjects;
 
         BackendProgramObjectImpl::BackendProgramObjectImpl() {
@@ -6235,7 +6451,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
             const std::set<String>& xfbCaptureBlockNames, const ImageFormatBakeInputs& imageFormatBake,
             const UnorderedMap<String, Int>& storageBlockBindingOverrides,
             const std::map<String, String>& inputBlockRenames,
-            const std::map<String, String>& outputBlockRenames,
+            const std::map<String, String>& outputBlockRenames, const Bool stripInputBlockLocations,
+            const Bool stripOutputBlockLocations,
             const Int atomicCounterEsslBindingTop, const Bool enableSpirvValidation, String& outSource,
             std::set<String>& outFlattenedXfbBlockNames, Vector<Int>& outAtomicCounterGlBindings,
             String& outError) const {
@@ -6626,6 +6843,54 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 effectiveSpirv = &atomicCounterSpirv;
             }
 
+            // The second half of the inter-stage interface-block repair, and the one that
+            // actually closes the 420pack group: this driver drops the payload of a block that
+            // carries an explicit layout(location=) whenever a tessellation or geometry stage
+            // is in the pipeline, so the qualifier comes off and ES matches the block by name
+            // and member sequence instead. The names those two sides agree on are the ones the
+            // rename above just fixed, which is why this runs AFTER it and not before.
+            //
+            // The caller arms the two directions; both are false unless the driver POST
+            // measured the defect AND this program has a stage that can hit it. Adopted only
+            // when this stage really had a located block, for the reason the array-input split
+            // documents: the optimizer hands back a re-serialised copy either way.
+            //
+            // LAST IN THE CHAIN, and that position is load-bearing. Vulkan SPIR-V REQUIRES a
+            // Location on every user-defined Input/Output variable
+            // ([VUID-StandaloneSpirv-Location-04915]), so the module this produces is
+            // deliberately no longer valid Vulkan SPIR-V - it is an ESSL-emission intermediate
+            // that goes straight into SPIRV-Cross and reaches no driver as SPIR-V. Running it
+            // here means no later pass validates what it produced; the pass itself skips
+            // validation for the same reason (see StripIoBlockLocationsForEssl). Anywhere
+            // earlier and every remaining pass would latch a validation failure on a module
+            // that is doing exactly what it was asked to.
+            Vector<unsigned int> strippedIoBlockLocationSpirv;
+            if (stripInputBlockLocations || stripOutputBlockLocations) {
+                Bool strippedAny = false;
+                if (MG_Util::ShaderTranspiler::ShaderCompiler::StripIoBlockLocationsForEssl(
+                        *effectiveSpirv, stripInputBlockLocations, stripOutputBlockLocations,
+                        strippedAny, strippedIoBlockLocationSpirv, enableSpirvValidation) &&
+                    !strippedIoBlockLocationSpirv.empty() && strippedAny) {
+                    effectiveSpirv = &strippedIoBlockLocationSpirv;
+                    // THE ARMING SIGNAL, and it is INFO on purpose: the per-stage line below is
+                    // MGLOG_D, which is compiled out of every build CI and the device runs, so
+                    // nothing outside a debug build could tell an armed repair from a silently
+                    // un-armed one. Latched, so it costs one line per process rather than one
+                    // per stage of every program. The integration lane that pins the emulation
+                    // on asserts on exactly this line - see UnlocatedIoBlockScenario.
+                    MGLOG_I_ONCE("DirectGLES is emitting inter-stage interface blocks WITHOUT their "
+                                 "layout(location) qualifier, because this driver loses a located "
+                                 "block's payload across a tessellation or geometry boundary.");
+                    MGLOG_D("Program %u stage %s: interface-block location qualifiers dropped "
+                            "(%s), because this driver loses a located block's payload across a "
+                            "tessellation or geometry boundary.",
+                            m_backendProgramId, MG_Util::ConvertGLEnumToString(glShaderType).c_str(),
+                            stripInputBlockLocations
+                                ? (stripOutputBlockLocations ? "consumed and produced" : "consumed")
+                                : "produced");
+                }
+            }
+
             MG_Util::ShaderTranspiler::SpvcSession spvcSession(*effectiveSpirv,
                 MG_Util::ShaderTranspiler::SessionUsageBit::Transpile);
 
@@ -6730,6 +6995,16 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                            ? MG_State::pGLContext->GetPatchVertices()
                                            : 3u;
             m_passthroughTessControlPatchVertices = static_cast<Int>(patchVertices);
+            // PATCH_DEFAULT_{OUTER,INNER}_LEVEL are the same kind of dynamic state and are baked
+            // into the same stage (ES has no such state and no entry point to forward them to), so
+            // they are recorded and compared alongside the patch size - the two move together, as
+            // BuildPassthroughTessControlEssl's contract says.
+            m_passthroughTessControlOuterLevel = MG_State::pGLContext != nullptr
+                                                     ? MG_State::pGLContext->GetPatchDefaultOuterLevel()
+                                                     : FloatVec4(1.0f, 1.0f, 1.0f, 1.0f);
+            m_passthroughTessControlInnerLevel = MG_State::pGLContext != nullptr
+                                                     ? MG_State::pGLContext->GetPatchDefaultInnerLevel()
+                                                     : FloatVec2(1.0f, 1.0f);
 
             if (tessEvalShaderIndex < 0 ||
                 static_cast<SizeT>(tessEvalShaderIndex) >= shaderSpirvs.size()) {
@@ -6770,8 +7045,21 @@ namespace MobileGL::MG_Backend::DirectGLES {
             const String outMembers =
                 ExtractPerVertexBlockMembers(tessEvalStageEssl, /*input=*/true).value_or(String());
 
-            const String source =
-                BuildPassthroughTessControlEssl(ResolveBackendEsslVersion(), patchVertices, inMembers, outMembers);
+            String source = BuildPassthroughTessControlEssl(ResolveBackendEsslVersion(), patchVertices,
+                                                            inMembers, outMembers,
+                                                            m_passthroughTessControlOuterLevel,
+                                                            m_passthroughTessControlInnerLevel);
+            // The mirrored member lists can carry gl_PointSize - the neighbour stage declared it,
+            // so matching it is the whole point - and a redeclaration is exactly as illegal as a
+            // reference in ESSL without the extension. Same directive, same never-speculative
+            // rule as the per-stage loop; a driver with neither spelling gets nothing added and
+            // fails below with its own message, which is the honest outcome for a shape it
+            // cannot express.
+            const char* passthroughPointSizeExtension =
+                source.find("gl_PointSize") != String::npos
+                    ? PointSizeExtensionName(g_GLESCapabilities.TessellationPointSizeSupport, /*tessellation=*/true)
+                    : nullptr;
+            source = RequestPointSizeExtension(Move(source), passthroughPointSizeExtension);
 
             const GLuint backendShaderId = g_GLESFuncs.glCreateShader(GL_TESS_CONTROL_SHADER);
             if (backendShaderId == 0) {
@@ -6861,8 +7149,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
             m_atomicCounterEsslBindingTop = AtomicCounterEsslBindingTop();
             // Re-established by AttachPassthroughTessControlStage below when this program needs
             // one; cleared first so a program that stops needing one (a relink that now attaches
-            // a real control stage) does not keep comparing against a stale patch size.
+            // a real control stage) does not keep comparing against a stale patch size. The
+            // default levels are re-established from the same call and gated on the same -1.
             m_passthroughTessControlPatchVertices = -1;
+            m_passthroughTessControlOuterLevel = FloatVec4(1.0f, 1.0f, 1.0f, 1.0f);
+            m_passthroughTessControlInnerLevel = FloatVec2(1.0f, 1.0f);
             // The same shape again for image FORMATS: what a format-less image declaration
             // compiles to depends on live glBindImageTexture state, so the pairs it was built
             // against are recorded here and compared per draw (ImageUnitFormatsStillMatch).
@@ -6995,6 +7286,18 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 stagePipelineIndices[index] = InterStagePipelineIndex(stage);
                 if (CanDeclareBlocksInBothDirections(stage)) anyStageCanDeclareBlocksInBothDirections = true;
             }
+            // A SECOND, INDEPENDENT interface-block repair riding the same gate, because it
+            // needs the same question answered: "does this program have a stage where an
+            // inter-stage block can go wrong?". CanDeclareBlocksInBothDirections is true for
+            // exactly the tessellation and geometry stages, which is also exactly the set of
+            // stages whose presence makes this driver drop a LOCATED block's payload (a
+            // vertex-to-fragment located block is fine on the same driver, measured). The two
+            // repairs are otherwise unrelated: the rename fixes a name collision inside ONE
+            // stage, this drops a qualifier from EVERY block of the program - so it does not
+            // wait for the collision probe to find anything.
+            const Bool ioBlockLocationStripArmed =
+                !g_GLESCapabilities.SupportsLocatedInterStageIoBlocks &&
+                anyStageCanDeclareBlocksInBothDirections;
             if (anyStageCanDeclareBlocksInBothDirections) {
                 for (SizeT index = 0; index < shaderSpirvs.size(); ++index) {
                     MG_Util::ShaderTranspiler::ShaderCompiler::ProbeIoBlockNamesForEssl(
@@ -7189,6 +7492,39 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 }
                 esslKeyInputs.inputBlockRenames = &inputBlockRenames;
                 esslKeyInputs.outputBlockRenames = &outputBlockRenames;
+
+                // ...and THIS STAGE's share of the interface-block LOCATION strip, planned the
+                // same way and for the same reason. The gate has three parts, all of which have
+                // to hold before a single block loses its qualifier:
+                //   * the driver POST measured the defect (never a renderer-string quirk list);
+                //   * this program has a stage that can hit it - a located block between a
+                //     vertex and a fragment stage works on the affected driver, so a program
+                //     with neither tessellation nor geometry keeps its ESSL byte for byte;
+                //   * for THIS stage and THIS direction, this program HAS a stage on that side
+                //     of it. That is the same test the rename plan above makes, and the same
+                //     approximation: it asks "is some stage of this program earlier/later than
+                //     me", not "is the exact partner of every one of my blocks here". The two
+                //     coincide for every program MobileGL builds, because a separable pipeline
+                //     is flattened into one composite carrying every stage that has a shader
+                //     (GLContext::GetProgramForDraw) and a program bound with glUseProgram has
+                //     no partner program at all - so a stage set with a gap in it does not
+                //     arise. Should one ever arise, this must become the nearest-stage
+                //     resolution the rename plan computes, or the two ends of the gap would
+                //     disagree about the qualifier.
+                // The direction tests deliberately mirror that plan rather than inventing a
+                // second rule for the same question.
+                Bool stripInputBlockLocations = false;
+                Bool stripOutputBlockLocations = false;
+                if (ioBlockLocationStripArmed && stagePipelineIndices[index] >= 0) {
+                    const Int myPipelineIndex = stagePipelineIndices[index];
+                    for (const Int otherPipelineIndex : stagePipelineIndices) {
+                        if (otherPipelineIndex < 0) continue;
+                        if (otherPipelineIndex < myPipelineIndex) stripInputBlockLocations = true;
+                        if (otherPipelineIndex > myPipelineIndex) stripOutputBlockLocations = true;
+                    }
+                }
+                esslKeyInputs.stripInputBlockLocations = stripInputBlockLocations;
+                esslKeyInputs.stripOutputBlockLocations = stripOutputBlockLocations;
                 esslKeyInputs.enableSpirvValidation = enableSpirvValidation;
 
                 auto& esslCache = MG_Util::ShaderTranspiler::GetEsslTranslationCache();
@@ -7215,6 +7551,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     if (!TranspileSpirvToEssl(spirvCode, glShaderType, xfbCaptureBlockNames,
                                               imageFormatBake, storageBlockBindingOverrides,
                                               inputBlockRenames, outputBlockRenames,
+                                              stripInputBlockLocations, stripOutputBlockLocations,
                                               m_atomicCounterEsslBindingTop,
                                               enableSpirvValidation, source,
                                               stageFlattenedXfbBlockNames,
@@ -7291,6 +7628,40 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     !(ViewportArrayEmulationEnabled() && programRoutesViewportIndex) &&
                     source.find("gl_ViewportIndex") != String::npos;
                 source = RequestViewportArrayExtension(std::move(source), needsViewportArrayExtension);
+
+                // The fourth header-level rewrite, and the same shape as the third: ESSL has no
+                // gl_PointSize in a tessellation or geometry stage at ANY version - 320 makes the
+                // stages core and still leaves the built-in behind EXT/OES_..._point_size - while
+                // SPIRV-Cross prints it bare. Without the directive the stage fails to compile
+                // with "`gl_PointSize' undeclared", which takes the whole program to program 0:
+                // the draw renders nothing AND glBeginTransformFeedback is rejected, so a capture
+                // of anything at all off that program silently comes back empty. The token probe
+                // keeps the line off every other program and PointSizeExtensionName returns
+                // nullptr - i.e. nothing is emitted - on a driver advertising neither spelling.
+                if (source.find("gl_PointSize") != String::npos) {
+                    const Bool tessellationStage = glShaderType == GL_TESS_CONTROL_SHADER ||
+                                                   glShaderType == GL_TESS_EVALUATION_SHADER;
+                    if (tessellationStage || glShaderType == GL_GEOMETRY_SHADER) {
+                        const auto tier = tessellationStage ? g_GLESCapabilities.TessellationPointSizeSupport
+                                                            : g_GLESCapabilities.GeometryPointSizeSupport;
+                        const char* pointSizeExtension = PointSizeExtensionName(tier, tessellationStage);
+                        if (pointSizeExtension == nullptr) {
+                            // Latched, and an ERROR rather than a warning: what follows is a
+                            // driver compile failure whose text names a built-in the application
+                            // never mis-spelled, and the reason is a missing driver capability
+                            // rather than anything in the shader. Saying so here is the whole
+                            // difference between a legible skip and an unexplained black draw.
+                            MGLOG_E_ONCE("This driver advertises neither the EXT nor the OES %s_point_size "
+                                         "extension, so its ESSL has no gl_PointSize in a %s stage; program %u "
+                                         "will fail to compile. Point size from a non-vertex stage is not "
+                                         "available on this device.",
+                                         tessellationStage ? "tessellation" : "geometry",
+                                         tessellationStage ? "tessellation" : "geometry",
+                                         stateProgramObject->GetExternalIndex());
+                        }
+                        source = RequestPointSizeExtension(std::move(source), pointSizeExtension);
+                    }
+                }
 
                 source = RebindImageUniformsToFrontendUnits(std::move(source), stateProgramObject);
                 // The completion half of the format bake, for the formats SPIRV-Cross throws on
@@ -7413,12 +7784,44 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     // carried 294 INFO lines and zero ERROR lines while two generated shaders
                     // were being rejected outright, and the lane could not say why it was
                     // rendering an empty translucent layer. A shader the driver refuses is
-                    // never noise, and one line per refused shader is bounded by program count.
+                    // never noise.
+                    //
+                    // A BOUNDED EXCERPT of the source goes with it. The driver log names a line
+                    // and a column in text that exists nowhere but here, so without any source at
+                    // all the only way to read "`gl_PointSize' undeclared" is to rebuild the whole
+                    // library at DEBUG - but the full dump cannot go at E either. This is not
+                    // "one line per refused shader": SyncToBackend's rebuild gate keys on
+                    // per-draw state (the enabled-draw-buffer count among it), so a program used
+                    // across passes with different draw-buffer counts re-transpiles, re-compiles
+                    // and re-fails on every alternation, i.e. per frame. At E - live at the
+                    // production INFO level - each of those records would push the whole
+                    // post-SPIRV-Cross ESSL through the global log mutex with a forced flush onto
+                    // /sdcard/MG/latest.log, the file users are asked to share. The excerpt keeps
+                    // the record O(1); the full text is still there at D, printed against this
+                    // same backend shader id by the "Setting shader source" line above, so
+                    // nothing needs to be dumped twice.
+                    constexpr SizeT kMaxLoggedSourceBytes = 2048;
+                    String truncatedSource;
+                    const char* sourceForLog = source.c_str();
+                    if (source.size() > kMaxLoggedSourceBytes) {
+                        // Back up to a line boundary when there is one inside the window, so the
+                        // excerpt ends on a whole statement rather than mid-token. Built only on
+                        // this branch: a stage that fits keeps its own buffer and is not copied.
+                        SizeT cut = kMaxLoggedSourceBytes;
+                        if (const SizeT lastNewline = source.rfind('\n', cut);
+                            lastNewline != String::npos && lastNewline > 0) {
+                            cut = lastNewline + 1;
+                        }
+                        truncatedSource = source.substr(0, cut);
+                        truncatedSource += "... [" + std::to_string(source.size() - cut) +
+                                           " more bytes; the whole stage is printed at the DEBUG level]\n";
+                        sourceForLog = truncatedSource.c_str();
+                    }
                     MGLOG_E("Shader compilation failed. State program ID: %u, stage: %s, backend shader ID: "
-                            "%u, driver log: %s",
+                            "%u, driver log: %s\nSource:\n%s",
                             stateProgramObject->GetExternalIndex(),
                             MG_Util::ConvertGLEnumToString(glShaderType).c_str(), backendShaderId,
-                            log.data());
+                            log.data(), sourceForLog);
                     m_backendProgramUsable = false;
                     // Nothing will ever attach this one, so nothing else can free it.
                     g_GLESFuncs.glDeleteShader(backendShaderId);
@@ -7476,6 +7879,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             // program before it links. SPIRV-Cross keeps user output names verbatim in
             // the transpiled ESSL (`out vec4 result_0;` stays `result_0`), so the
             // frontend's requested names carry over unchanged.
+            SizeT declaredXfbVaryingCount = 0;
             if (stateProgramObject->GetTransformFeedbackVaryingCount() > 0 &&
                 g_GLESFuncs.glTransformFeedbackVaryings != nullptr) {
                 const auto& xfbVaryings = stateProgramObject->GetTransformFeedbackVaryings();
@@ -7501,9 +7905,31 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 }
                 MGLOG_D("Declaring %zu transform feedback varyings on program %u", xfbNames.size(),
                         m_backendProgramId);
+                // Bounded: a lost context never answers GL_NO_ERROR, and this runs on the
+                // thread that would then spin forever.
+                for (Int i = 0; i < kMaxDrainedProgramErrors && g_GLESFuncs.glGetError() != GL_NO_ERROR; ++i) {
+                }
                 g_GLESFuncs.glTransformFeedbackVaryings(m_backendProgramId, static_cast<GLsizei>(xfbNames.size()),
                                                         xfbNames.data(),
                                                         stateProgramObject->GetTransformFeedbackBufferMode());
+                // Unchecked before. A rejected capture set leaves the program linking happily
+                // with NO capture set at all, and then every draw of every span records
+                // nothing while the application reads its buffer's pre-draw bytes and
+                // GL_NO_ERROR - the signature four conformance families were stuck on.
+                if (const GLenum xfbError = g_GLESFuncs.glGetError(); xfbError != GL_NO_ERROR) {
+                    String declared;
+                    for (const auto& xfbName : rewrittenXfbNames) {
+                        if (!declared.empty()) declared += ", ";
+                        declared += xfbName;
+                    }
+                    MGLOG_E("The ES driver REJECTED the transform feedback capture set for backend program %u with "
+                            "%s (mode %s): [%s]. Every capture made with GL program %u will record nothing.",
+                            m_backendProgramId, MG_Util::ConvertGLEnumToString(xfbError).c_str(),
+                            MG_Util::ConvertGLEnumToString(
+                                stateProgramObject->GetTransformFeedbackBufferMode()).c_str(),
+                            declared.c_str(), stateProgramObject->GetExternalIndex());
+                }
+                declaredXfbVaryingCount = xfbNames.size();
             }
 
             // Link program
@@ -7546,6 +7972,41 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 }
             } else {
                 MGLOG_D("Program linked successfully. ID: %u", m_backendProgramId);
+                // A link that SUCCEEDS can still have dropped the capture set: ESSL rejects a
+                // requested name the transpiled shader does not actually declare by simply not
+                // capturing it, and a program whose last vertex-processing stage was rewritten
+                // by a SPIR-V pass (viewport-index lowering, gl_PerVertex handling, the
+                // synthesized pass-through tessellation control stage) can end up spelling its
+                // outputs differently from the frontend's request. Asking the driver what it
+                // ACTUALLY linked is the only way to tell that apart from a driver that just
+                // captures nothing - which is the whole ambiguity the empty-capture failures
+                // across geometry_shader / tessellation_shader / gpu_shader5 / DSA sat on.
+                if (declaredXfbVaryingCount > 0) {
+                    GLint linkedXfbVaryings = 0;
+                    GLint linkedXfbBufferMode = 0;
+                    g_GLESFuncs.glGetProgramiv(m_backendProgramId, GL_TRANSFORM_FEEDBACK_VARYINGS,
+                                               &linkedXfbVaryings);
+                    g_GLESFuncs.glGetProgramiv(m_backendProgramId, GL_TRANSFORM_FEEDBACK_BUFFER_MODE,
+                                               &linkedXfbBufferMode);
+                    for (Int i = 0; i < kMaxDrainedProgramErrors && g_GLESFuncs.glGetError() != GL_NO_ERROR; ++i) {
+                    }
+                    const GLenum requestedMode = stateProgramObject->GetTransformFeedbackBufferMode();
+                    if (static_cast<SizeT>(std::max(linkedXfbVaryings, 0)) != declaredXfbVaryingCount ||
+                        static_cast<GLenum>(linkedXfbBufferMode) != requestedMode) {
+                        MGLOG_E("Backend program %u (GL program %u) linked with a capture set the driver does not "
+                                "agree with: asked for %zu varying(s) in mode %s, the driver reports %d varying(s) "
+                                "in mode %s. Captures made with it will be empty or wrongly laid out.",
+                                m_backendProgramId, stateProgramObject->GetExternalIndex(), declaredXfbVaryingCount,
+                                MG_Util::ConvertGLEnumToString(requestedMode).c_str(), linkedXfbVaryings,
+                                MG_Util::ConvertGLEnumToString(
+                                    static_cast<GLenum>(linkedXfbBufferMode)).c_str());
+                    } else {
+                        MGLOG_D("Backend program %u capture set confirmed by the driver: %d varying(s), mode %s",
+                                m_backendProgramId, linkedXfbVaryings,
+                                MG_Util::ConvertGLEnumToString(
+                                    static_cast<GLenum>(linkedXfbBufferMode)).c_str());
+                    }
+                }
             }
             // The driver program was relinked IN PLACE, so its GL name no longer identifies
             // the executable behind it - and that name is exactly what Use()'s
@@ -7901,15 +8362,41 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 }
                 m_cacheSamplerParameters.maxAnisotropy = samplerParams.maxAnisotropy;
             }
-            if (m_cacheSamplerParameters.borderColor != samplerParams.borderColor) {
-                // Same gate as the texture-side border colour above.
-                if (g_GLESCapabilities.SupportsTextureBorderClamp && g_GLESFuncs.glSamplerParameterfv) {
-                    const GLfloat borderColorArray[4] = {
-                        samplerParams.borderColor.x(), samplerParams.borderColor.y(),
-                        samplerParams.borderColor.z(), samplerParams.borderColor.w()};
-                    g_GLESFuncs.glSamplerParameterfv(m_backendSamplerId, GL_TEXTURE_BORDER_COLOR, borderColorArray);
+            if (m_cacheSamplerParameters.borderColor != samplerParams.borderColor ||
+                m_cacheSamplerParameters.borderColorI != samplerParams.borderColorI ||
+                m_cacheSamplerParameters.borderColorUI != samplerParams.borderColorUI ||
+                m_cacheSamplerParameters.borderColorForm != samplerParams.borderColorForm) {
+                // Same gate as the texture-side border colour above, and the same reason for
+                // branching on the form: an integer border colour must reach the driver through
+                // glSamplerParameterIiv/Iuiv or an integer sampler reads the float's bit pattern
+                // back instead of the value.
+                if (g_GLESCapabilities.SupportsTextureBorderClamp) {
+                    if (samplerParams.borderColorForm == BorderColorForm::Int &&
+                        g_GLESFuncs.glSamplerParameterIiv) {
+                        const GLint borderColorArray[4] = {
+                            samplerParams.borderColorI.x(), samplerParams.borderColorI.y(),
+                            samplerParams.borderColorI.z(), samplerParams.borderColorI.w()};
+                        g_GLESFuncs.glSamplerParameterIiv(m_backendSamplerId, GL_TEXTURE_BORDER_COLOR,
+                                                          borderColorArray);
+                    } else if (samplerParams.borderColorForm == BorderColorForm::Uint &&
+                               g_GLESFuncs.glSamplerParameterIuiv) {
+                        const GLuint borderColorArray[4] = {
+                            samplerParams.borderColorUI.x(), samplerParams.borderColorUI.y(),
+                            samplerParams.borderColorUI.z(), samplerParams.borderColorUI.w()};
+                        g_GLESFuncs.glSamplerParameterIuiv(m_backendSamplerId, GL_TEXTURE_BORDER_COLOR,
+                                                           borderColorArray);
+                    } else if (g_GLESFuncs.glSamplerParameterfv) {
+                        const GLfloat borderColorArray[4] = {
+                            samplerParams.borderColor.x(), samplerParams.borderColor.y(),
+                            samplerParams.borderColor.z(), samplerParams.borderColor.w()};
+                        g_GLESFuncs.glSamplerParameterfv(m_backendSamplerId, GL_TEXTURE_BORDER_COLOR,
+                                                         borderColorArray);
+                    }
                 }
                 m_cacheSamplerParameters.borderColor = samplerParams.borderColor;
+                m_cacheSamplerParameters.borderColorI = samplerParams.borderColorI;
+                m_cacheSamplerParameters.borderColorUI = samplerParams.borderColorUI;
+                m_cacheSamplerParameters.borderColorForm = samplerParams.borderColorForm;
             }
 #undef SYNC_SAMPLER_PARAM_IF_CHANGED
             m_isInitialized = true;

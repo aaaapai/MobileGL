@@ -58,13 +58,18 @@ add_executable(MobileGLIntegrationTest
     Scenarios/DrawParametersScenario.cpp
     Scenarios/AsyncCompileScenario.cpp
     Scenarios/XfbAfterClipDistanceScenario.cpp
+    Scenarios/UnwrittenPositionOutputScenario.cpp
+    Scenarios/SampleMaskScopeScenario.cpp
+    Scenarios/SampledSetStalenessScenario.cpp
     Scenarios/ThreeChannelAttachmentScenario.cpp
     Scenarios/SnormAttachmentScenario.cpp
     Scenarios/PipelineFailureScenario.cpp
     Scenarios/AdvertisedLimitsScenario.cpp
     Scenarios/PixelStoreSweepScenario.cpp
+    Scenarios/PrimitiveRestartScenario.cpp
     Scenarios/FragCoordOriginScenario.cpp
     Scenarios/ClearThenReadPixelsScenario.cpp
+    Scenarios/SampleVariablesScenario.cpp
     Scenarios/DepthStencilReadbackScenario.cpp
     Scenarios/DepthStencilReadbackMatrixScenario.cpp
     Scenarios/DepthStencilReadbackAttachmentShapeScenario.cpp
@@ -86,6 +91,7 @@ add_executable(MobileGLIntegrationTest
     Scenarios/SsboDeclarationFormScenario.cpp
     Scenarios/Glsl420DeclarationScenario.cpp
     Scenarios/IoBlockNameCollisionScenario.cpp
+    Scenarios/UnlocatedIoBlockScenario.cpp
     Scenarios/TessellationDrawModeScenario.cpp
     Scenarios/GeometryDrawModeScenario.cpp
     Scenarios/PostLinkAttachScenario.cpp
@@ -95,19 +101,28 @@ add_executable(MobileGLIntegrationTest
     Scenarios/VertexAttribBindingScenario.cpp
     Scenarios/XfbCaptureBufferReuseScenario.cpp
     Scenarios/XfbPrimitiveQueryScenario.cpp
+    Scenarios/XfbRepeatedCaptureScenario.cpp
+    Scenarios/TessellationXfbCaptureScenario.cpp
     Scenarios/VertexArrayEnableDisableScenario.cpp
     Scenarios/CopyImageLevelRangeScenario.cpp
     Scenarios/CopyImageLayeredScenario.cpp
+    Scenarios/CopyImagePacked16Scenario.cpp
     Scenarios/TextureViewScenario.cpp
     Scenarios/PackedWordReadbackScenario.cpp
     Scenarios/LayeredAttachmentBarrierScenario.cpp
+    Scenarios/LayeredAttachmentShapeScenario.cpp
     Scenarios/LayeredTextureReadbackScenario.cpp
     Scenarios/AtomicCounterScenario.cpp
     Scenarios/SsboArrayDynamicIndexScenario.cpp
     Scenarios/StorageBufferRegrowScenario.cpp
+    Scenarios/SpirvShaderBinaryScenario.cpp
     Scenarios/RelinkStageSetScenario.cpp
     Scenarios/GuiBatchScenario.cpp
     Scenarios/UnboundImageDescriptorScenario.cpp
+    Scenarios/IntegerBorderColorScenario.cpp
+    Scenarios/ClearTexImageUndefinedLevelZeroScenario.cpp
+    Scenarios/RenderbufferBlendFormatScenario.cpp
+    Scenarios/DualSourceBlendScenario.cpp
 )
 
 target_include_directories(MobileGLIntegrationTest PRIVATE
@@ -339,6 +354,17 @@ mgl_itest_join_environment(MGL_ITEST_VULKAN_OPTIMISTIC_ENVIRONMENT
     "MOBILEGL_ASYNC_OPTIMISTIC_SHADER_STATUS=1" ${MGL_ITEST_VULKAN_ENV})
 mgl_itest_join_environment(MGL_ITEST_GLES_NO_VIEWPORT_EMULATION_ENVIRONMENT
     "MOBILEGL_BACKEND_TYPE=DirectGLES" "MOBILEGL_FORCE_VIEWPORT_ARRAY_EMULATION=0" ${MGL_ITEST_COMMON_ENV})
+# MOBILEGL_LOG_FILE_PATH alongside the pin, because the arming assertion needs somewhere to
+# read the library's own report from. The strip's arming signal is a latched MGLOG_I and there
+# is no other way for a test process to learn that it fired - MG_Config is not reachable from
+# this module on Android, where it links the shipping library. The path is per-lane so nothing
+# else appends to it, and the case only trusts the bytes written after it started.
+mgl_itest_join_environment(MGL_ITEST_GLES_UNLOCATED_IO_BLOCKS_ENVIRONMENT
+    "MOBILEGL_BACKEND_TYPE=DirectGLES" "MOBILEGL_ESPRYT_UNLOCATED_IO_BLOCKS=1"
+    "MOBILEGL_LOG_FILE_PATH=${CMAKE_CURRENT_BINARY_DIR}/unlocated-io-blocks.log"
+    ${MGL_ITEST_COMMON_ENV})
+mgl_itest_join_environment(MGL_ITEST_GLES_WIDENED_PACKED16_ENVIRONMENT
+    "MOBILEGL_BACKEND_TYPE=DirectGLES" "MOBILEGL_WIDEN_PACKED16_STORAGE=1" ${MGL_ITEST_COMMON_ENV})
 
 # TIMEOUT on every entry: a GPU test that wedges must fail the run, not hang it.
 set(MGL_ITEST_TIMEOUT 120)
@@ -403,6 +429,23 @@ gtest_discover_tests(MobileGLIntegrationTest
         LABELS integration-gpu
         TIMEOUT ${MGL_ITEST_TIMEOUT}
         ENVIRONMENT "${MGL_ITEST_GLES_FORCED_DS_ENVIRONMENT}"
+)
+
+# UnlocatedIoBlockScenario with the interface-block location strip PINNED ON, for the same
+# reason the depth/stencil entry above pins its emulation: without it this scenario is
+# UNFALSIFIABLE on the machines this suite runs on. llvmpipe carries a located interface block
+# correctly, so the driver POST that arms the strip on Mali answers "healthy" here and the
+# emulation never runs - the ambient registration would be exercising the un-stripped path
+# twice and calling it coverage. With the variable set, the blocks really are emitted with no
+# location and the assertion is about the spelling the device gets.
+gtest_discover_tests(MobileGLIntegrationTest
+    TEST_PREFIX "DirectGLES.UnlocatedIoBlocks."
+    TEST_FILTER "UnlocatedIoBlockScenario.*"
+    DISCOVERY_TIMEOUT 30
+    PROPERTIES
+        LABELS integration-gpu
+        TIMEOUT ${MGL_ITEST_TIMEOUT}
+        ENVIRONMENT "${MGL_ITEST_GLES_UNLOCATED_IO_BLOCKS_ENVIRONMENT}"
 )
 
 # AsyncCompileScenario, with asynchronous compilation PINNED ON per backend.
@@ -500,4 +543,22 @@ gtest_discover_tests(MobileGLIntegrationTest
         LABELS integration-gpu
         TIMEOUT ${MGL_ITEST_TIMEOUT}
         ENVIRONMENT "${MGL_ITEST_GLES_NO_VIEWPORT_EMULATION_ENVIRONMENT}"
+)
+
+# The packed16 copy scenarios again, with the 8-bit storage widening PINNED ON. The ambient
+# registrations above cover the narrow storage - on every CI driver the widening's POST
+# probe finds no field-order mirror, so Auto keeps the native 16-bit path - which means the
+# storage every AFFECTED device will actually run would otherwise execute nowhere at all:
+# no CI driver has the Mali bug that arms it. This lane is what proves the widened storage
+# is client-invisible (same packed words in and out on every leg the 18 failing CTS bodies
+# used, the renderbuffer one included). DirectGLES only - the flag steers nothing on
+# DirectVulkan, which has always stored these formats widened.
+gtest_discover_tests(MobileGLIntegrationTest
+    TEST_PREFIX "DirectGLES.WidenedPacked16."
+    TEST_FILTER "CopyImagePacked16Scenario.*"
+    DISCOVERY_TIMEOUT 30
+    PROPERTIES
+        LABELS integration-gpu
+        TIMEOUT ${MGL_ITEST_TIMEOUT}
+        ENVIRONMENT "${MGL_ITEST_GLES_WIDENED_PACKED16_ENVIRONMENT}"
 )

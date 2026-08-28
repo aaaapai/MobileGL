@@ -351,9 +351,20 @@ namespace MobileGL::MG_Backend::DirectGLES {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
-            // Only sync up to the high-water mark of app-touched points; the fixed array is 36
+            // Only sync up to the high-water mark of app-touched points; the fixed array is 84
             // deep but apps bind a handful, so the never-touched tail is already at GL default 0.
             auto bindingPointCnt = MG_State::pGLContext->GetTouchedBufferBindingPointCount(target);
+            // ...and never past what the ES driver itself can hold. MobileGL advertises the GL 4.5
+            // minimum of 84 uniform binding points while the ES 3.2 minimum is 72, so a frontend
+            // index in that gap would reach glBindBufferBase as GL_INVALID_VALUE. Nothing is lost
+            // by stopping: this frontend-indexed pass exists for the compute path, and the
+            // per-program rebind in BindCurrentProgramWithResources - which is what actually feeds
+            // a shader - remaps every block a program declares onto a compacted ES point, so a
+            // block bound at GL point 83 still reaches its shader.
+            if (target == BufferTarget::Uniform && g_GLESCapabilities.MaxUniformBufferBindings > 0) {
+                bindingPointCnt = std::min(bindingPointCnt,
+                                           static_cast<SizeT>(g_GLESCapabilities.MaxUniformBufferBindings));
+            }
             for (SizeT i = 0; i < bindingPointCnt; ++i) {
                 auto& point = MG_State::pGLContext->GetBufferBindingPoint(target, i);
                 auto& obj = point.GetBoundObject();
@@ -377,6 +388,65 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     const auto start = std::min(range.start, obj->GetSize());
                     const auto end = std::min(range.end, obj->GetSize());
                     BindBufferRangeCached(glTarget, static_cast<GLuint>(i), backendBufferId,
+                                          static_cast<GLintptr>(start), static_cast<GLsizeiptr>(end - start));
+                }
+            }
+        }
+
+        // The capture points the CAPTURE PROGRAM uses, and nothing else.
+        //
+        // This used to go through SyncBufferBindingPoints, which walks the application's
+        // GLOBAL touched-binding-point high-water mark and binds 0 to every point with no
+        // frontend buffer. deqp/glcts permanently raises that mark to
+        // GL_MAX_TRANSFORM_FEEDBACK_SEPARATE_ATTRIBS by clearing all of them after each test
+        // case, so every capture using fewer points than that - i.e. every INTERLEAVED_ATTRIBS
+        // capture - had glBindBufferBase(GL_TRANSFORM_FEEDBACK_BUFFER, i, 0) issued for the
+        // unused tail immediately before glBeginTransformFeedback. The Mali G1-Ultra driver
+        // then recorded NOTHING: no GL error, GL_TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN 0, the
+        // application's buffer left holding its pre-draw bytes. Confirmed on device - the
+        // separate/interleaved split in KHR-GL46.transform_feedback follows exactly whether
+        // all four points were left bound.
+        //
+        // Those binds were never needed for correctness either. A capture only writes the
+        // points the program's buffer mode uses (GL 4.6 core 13.2.2), so a point past
+        // bufferCount cannot be written whatever is left bound there, and a point the program
+        // DOES use with no buffer bound is already an error the frontend raised at
+        // glBeginTransformFeedback. The rule this encodes: never issue a capture-point bind
+        // the application did not ask for.
+        //
+        // Scoping it to the program (rather than skipping redundant binds behind the shadow)
+        // is what makes it ORDER-INDEPENDENT: the shadow has to drop to unknown whenever a
+        // transform feedback OBJECT is bound, since the points belong to the object, and the
+        // clears came straight back for the next capture in the process.
+        void SyncTransformFeedbackBindingPoints(SizeT bufferCount) {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
+            const SizeT pointCount = std::min<SizeT>(
+                bufferCount, MG_State::GLState::GLContext::MAX_TRANSFORM_FEEDBACK_BUFFERS);
+            for (SizeT i = 0; i < pointCount; ++i) {
+                auto& point = MG_State::pGLContext->GetBufferBindingPoint(BufferTarget::TransformFeedback, i);
+                const auto& obj = point.GetBoundObject();
+                // A stride-0 slot (two consecutive gl_NextBuffer entries) captures nothing and
+                // needs no binding; anything else with no buffer never got past the frontend.
+                if (!obj) continue;
+
+                auto* backendResource = EnsureBufferResource(obj);
+                if (!backendResource || backendResource->id == 0) {
+                    MGLOG_E_ONCE("No backend buffer for GL_TRANSFORM_FEEDBACK_BUFFER capture point %zu; the capture "
+                                 "will not reach the application's buffer.",
+                                 i);
+                    continue;
+                }
+
+                const auto& range = point.GetRange();
+                const auto backendBufferId = backendResource->id;
+                if (range.start == 0 && range.end >= obj->GetSize()) {
+                    BindBufferBaseCached(GL_TRANSFORM_FEEDBACK_BUFFER, static_cast<GLuint>(i), backendBufferId);
+                } else {
+                    const auto start = std::min(range.start, obj->GetSize());
+                    const auto end = std::min(range.end, obj->GetSize());
+                    BindBufferRangeCached(GL_TRANSFORM_FEEDBACK_BUFFER, static_cast<GLuint>(i), backendBufferId,
                                           static_cast<GLintptr>(start), static_cast<GLsizeiptr>(end - start));
                 }
             }
@@ -643,6 +713,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 Uint backendId = 0;
                 SizeT start = 0;
                 SizeT end = 0;
+                // WHICH capture buffer of the program this is. The list is COMPACTED - a
+                // capture buffer with no bound buffer object contributes no entry - so the
+                // position in the vector is not the program's buffer index, and everything
+                // that asks the program about a target (its stride, which varyings land in
+                // it) has to ask about this index instead. A capture list beginning with
+                // gl_NextBuffer is the shape that makes them differ: buffer 0 has stride 0
+                // and nothing bound, so target 0 describes buffer 1.
+                SizeT bufferIndex = 0;
             };
 
             // Per frontend transform feedback object. The default object (name 0) maps to
@@ -687,6 +765,28 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 return *g_currentXfbState;
             }
 
+            // EVERY way this path can lose a capture used to be silent: three unlogged early
+            // returns before the driver Begin, an unchecked glBeginTransformFeedback, and two
+            // `continue`s in the readback. The application sees a buffer that kept its
+            // pre-draw bytes, GL_NO_ERROR, and GL_LINK_STATUS true - which is how one defect
+            // reached ~320 conformance bodies across four families before anyone could say
+            // which of the branches fired. Nothing below changes what MobileGL DOES on a
+            // healthy capture; it only makes a lost one name itself in /sdcard/MG/latest.log.
+            //
+            // MGLOG_E_ONCE (not _D) on purpose: these have to be readable in an INFO-level
+            // artifact, the same reason the backend link failure at Managers.cpp is MGLOG_E.
+            constexpr Int kMaxDrainedXfbErrors = 32;
+
+            // The ES error raised by the call just issued, GL_NO_ERROR if it succeeded. Drains
+            // the rest of the queue so the next probe cannot read this one as its own.
+            GLenum TakeXfbDriverError() {
+                const GLenum first = g_GLESFuncs.glGetError();
+                if (first == GL_NO_ERROR) return GL_NO_ERROR;
+                for (Int i = 0; i < kMaxDrainedXfbErrors && g_GLESFuncs.glGetError() != GL_NO_ERROR; ++i) {
+                }
+                return first;
+            }
+
             Bool AreTransformFeedbackObjectsSupported() {
                 return g_GLESFuncs.glGenTransformFeedbacks != nullptr &&
                        g_GLESFuncs.glBindTransformFeedback != nullptr &&
@@ -701,6 +801,16 @@ namespace MobileGL::MG_Backend::DirectGLES {
             // the backend already owns (coherent persistent map) need nothing: reads resolve
             // against that storage directly.
             void ReadbackCapturedRanges(Vector<XfbCaptureTarget>& targets) {
+                if (g_GLESFuncs.glMapBufferRange == nullptr || g_GLESFuncs.glUnmapBuffer == nullptr) {
+                    MGLOG_E_ONCE("EndTransformFeedback: the ES driver exposes no glMapBufferRange/glUnmapBuffer, so "
+                                 "captured data can never reach the application's buffers");
+                }
+                if (targets.empty()) {
+                    // The span closed with nothing to mirror back. Either the deferred Begin
+                    // never ran (a span with no draw - legal) or it ran and found no bound
+                    // capture buffer, which is not.
+                    MGLOG_D("EndTransformFeedback: capture span closed with no recorded targets");
+                }
                 if (g_GLESFuncs.glMapBufferRange != nullptr && g_GLESFuncs.glUnmapBuffer != nullptr) {
                     for (const auto& target : targets) {
                         if (!target.buffer || target.buffer->IsBackendPersistentMapped()) continue;
@@ -710,8 +820,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                                                     static_cast<GLintptr>(target.start),
                                                                     static_cast<GLsizeiptr>(size), GL_MAP_READ_BIT);
                         if (mapped == nullptr) {
-                            MGLOG_E_ONCE("EndTransformFeedback: failed to map backend buffer %u for capture readback",
-                                    target.backendId);
+                            // Silent before: the capture landed in the ES buffer and the
+                            // application's next glMapBuffer read the untouched shadow, which
+                            // is indistinguishable from "the draw wrote nothing".
+                            MGLOG_E_ONCE("EndTransformFeedback: failed to map backend buffer %u [%zu, %zu) for "
+                                         "capture readback (ES error %s); the captured data will NOT be visible to "
+                                         "the application",
+                                         target.backendId, target.start, target.end,
+                                         MG_Util::ConvertGLEnumToString(TakeXfbDriverError()).c_str());
                             continue;
                         }
                         target.buffer->WritebackFromBackend({mapped, size}, target.start);
@@ -744,15 +860,20 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                              GL_DYNAMIC_COPY);
                     g_scatterBufferSize = required;
                 }
-                // Point 0 carries every captured varying (the ES capture is INTERLEAVED); the
-                // other points must be cleared or the driver would still write the app's buffers.
+                // Point 0 carries every captured varying: the gl_NextBuffer / gl_SkipComponents
+                // entries are consumed at link time and never reach the driver, so the ES
+                // program is declared INTERLEAVED over a single buffer and point 0 is the only
+                // point it can write (GL 4.6 core 13.2.2).
+                //
+                // The other points are therefore left exactly as they are. Clearing them - which
+                // this used to do, across the application's whole touched high-water mark - is
+                // both unnecessary (the ES program cannot write an unused point) and the precise
+                // trigger for the Mali G1-Ultra capture loss: see
+                // SyncTransformFeedbackBindingPoints for the mechanism and the device evidence.
+                // KHR-GL46.transform_feedback.capture_special_interleaved_test is the case that
+                // reaches this path.
                 BufferImpl::BindBufferRangeCached(GL_TRANSFORM_FEEDBACK_BUFFER, 0, g_scatterBufferId, 0,
                                                   static_cast<GLsizeiptr>(required));
-                const SizeT pointCount =
-                    MG_State::pGLContext->GetTouchedBufferBindingPointCount(BufferTarget::TransformFeedback);
-                for (SizeT i = 1; i < pointCount; ++i) {
-                    BufferImpl::BindBufferBaseCached(GL_TRANSFORM_FEEDBACK_BUFFER, static_cast<Uint>(i), 0);
-                }
                 return true;
             }
 
@@ -766,10 +887,22 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 if (g_GLESFuncs.glMapBufferRange == nullptr || g_GLESFuncs.glUnmapBuffer == nullptr) return;
 
                 const SizeT packedStride = program->GetTransformFeedbackPackedStride();
-                const SizeT vertices = std::min<SizeT>(
-                    static_cast<SizeT>(MG_State::pGLContext->GetTransformFeedbackCapturedVertices()),
-                    xfb.scatterCapacityVertices);
-                if (packedStride == 0 || vertices == 0) return;
+                const SizeT modelledVertices =
+                    static_cast<SizeT>(MG_State::pGLContext->GetTransformFeedbackCapturedVertices());
+                const SizeT vertices = std::min<SizeT>(modelledVertices, xfb.scatterCapacityVertices);
+                if (packedStride == 0 || vertices == 0) {
+                    // The scatter path redirected the DRIVER's capture into the scratch buffer,
+                    // so bailing here leaves the application's buffers holding their pre-draw
+                    // bytes - a total data loss, not a no-op. The vertex count is the CPU model
+                    // (AccountTransformFeedbackPrimitives), which is 0 for any draw mode
+                    // CountPrimitivesForDraw does not know and for the instanced/indirect entry
+                    // points that never call it.
+                    MGLOG_E_ONCE("EndTransformFeedback: scattered capture discarded - packedStride=%zu, "
+                                 "CPU-modelled captured vertices=%zu, scratch capacity=%zu. The capture buffers keep "
+                                 "their pre-draw contents.",
+                                 packedStride, modelledVertices, xfb.scatterCapacityVertices);
+                    return;
+                }
 
                 BufferImpl::BindBufferId(BufferImpl::TempBufferTarget, g_scatterBufferId);
                 const void* packed = g_GLESFuncs.glMapBufferRange(BufferImpl::TempBufferTarget, 0,
@@ -787,14 +920,15 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 for (SizeT targetIndex = 0; targetIndex < xfb.targets.size(); ++targetIndex) {
                     const auto& target = xfb.targets[targetIndex];
                     if (!target.buffer) continue;
-                    const SizeT stride = program->GetTransformFeedbackStride(static_cast<Uint32>(targetIndex));
+                    // By BUFFER index, not by position in the compacted list - see XfbCaptureTarget.
+                    const SizeT stride = program->GetTransformFeedbackStride(static_cast<Uint32>(target.bufferIndex));
                     if (stride == 0) continue;
                     const SizeT rangeBytes = target.end - target.start;
                     Vector<Uint8> staged(rangeBytes);
                     Memcpy(staged.data(), target.buffer->MappedData() + target.start, rangeBytes);
 
                     for (const auto& varying : program->GetTransformFeedbackVaryings()) {
-                        if (varying.bufferIndex != targetIndex) continue;
+                        if (varying.bufferIndex != target.bufferIndex) continue;
                         for (SizeT v = 0; v < vertices; ++v) {
                             const SizeT dstOffset = v * stride + varying.offsetBytes;
                             if (dstOffset + varying.byteSize > rangeBytes) break;
@@ -849,9 +983,20 @@ namespace MobileGL::MG_Backend::DirectGLES {
             // not captured, and opening the span would also subject it to the capture
             // primitive-mode rule the paused draw is exempt from.
             if (!xfb.pending || xfb.paused) return;
-            xfb.pending = false;
             const auto& program = MG_State::pGLContext->GetTransformFeedbackProgram();
-            if (!program) return;
+            if (!program) {
+                // The pending flag is deliberately NOT consumed here. It used to be cleared
+                // before this check, so a single draw that could not see the capture program
+                // retired the span permanently: every later draw of the same span found
+                // pending==false, the driver Begin never happened, and End found started==false
+                // and skipped the readback - a whole capture lost with no GL error anywhere.
+                // The frontend only reaches a draw with an active span after glBeginTransformFeedback
+                // stored a program, so this is a "cannot happen" that must stay recoverable.
+                MGLOG_E_ONCE("StartPendingTransformFeedback: an active capture span has no capture program; the "
+                             "driver span stays closed and this draw is not captured");
+                return;
+            }
+            xfb.pending = false;
 
             // Snapshot what the driver is about to capture into. GL forbids rebinding the
             // capture buffers while the span is open, so this stays valid until End, and
@@ -868,10 +1013,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 const SizeT start = std::min(range.start, bufferObject->GetSize());
                 const SizeT end = std::min(range.end, bufferObject->GetSize());
                 if (end <= start) continue;
-                xfb.targets.push_back({bufferObject, backendResource->id, start, end});
+                xfb.targets.push_back({bufferObject, backendResource->id, start, end, i});
             }
 
-            BufferImpl::SyncBufferBindingPoints(BufferTarget::TransformFeedback, GL_TRANSFORM_FEEDBACK_BUFFER);
+            BufferImpl::SyncTransformFeedbackBindingPoints(bufferCount);
 
             // A layout with holes or several interleaved buffers is not expressible on ES:
             // capture gap-free into scratch storage and place the records at End instead.
@@ -880,31 +1025,99 @@ namespace MobileGL::MG_Backend::DirectGLES {
             xfb.scatterCapacityVertices = 0;
             if (program->NeedsScatteredTransformFeedbackCapture()) {
                 SizeT capacityVertices = ~SizeT(0);
-                for (SizeT i = 0; i < xfb.targets.size(); ++i) {
-                    const SizeT stride = program->GetTransformFeedbackStride(static_cast<Uint32>(i));
+                for (const auto& target : xfb.targets) {
+                    // By BUFFER index. Reading the stride at the target's POSITION made a
+                    // capture list beginning with gl_NextBuffer - buffer 0 has stride 0 and
+                    // nothing bound, so target 0 describes buffer 1 - read stride 0, skip every
+                    // target, and leave the capacity at zero.
+                    const SizeT stride = program->GetTransformFeedbackStride(static_cast<Uint32>(target.bufferIndex));
                     if (stride == 0) continue;
-                    capacityVertices =
-                        std::min<SizeT>(capacityVertices, (xfb.targets[i].end - xfb.targets[i].start) / stride);
+                    capacityVertices = std::min<SizeT>(capacityVertices, (target.end - target.start) / stride);
                 }
                 if (capacityVertices == ~SizeT(0)) capacityVertices = 0;
                 if (BindScatterCaptureBuffer(program->GetTransformFeedbackPackedStride(), capacityVertices)) {
                     xfb.scattered = true;
                     xfb.scatterProgram = program;
                     xfb.scatterCapacityVertices = capacityVertices;
+                } else {
+                    // NO SPAN RATHER THAN A SPAN THAT WRITES SOMEWHERE ELSE. The ES program for a
+                    // scattered capture is a single-buffer INTERLEAVED one (the gl_NextBuffer /
+                    // gl_SkipComponents entries are consumed at link time and never reach the
+                    // driver), so it writes capture point 0 and nothing else. Point 0 here is
+                    // either unbound or - the dangerous case - still holds whatever an earlier
+                    // capture in this process bound there, because the frontend's own
+                    // glBindBufferBase is state-only and nothing else in the backend touches the
+                    // indexed points. Opening the span would then have the driver capture over an
+                    // application buffer that has nothing to do with this draw, and the frontend
+                    // shadow would never learn of it.
+                    //
+                    // Leaving the span closed reproduces exactly what the old high-water clear
+                    // loop achieved by binding 0 here and letting the driver refuse the Begin -
+                    // the capture records nothing - without issuing a capture-point bind the
+                    // application did not ask for, which is the thing that loses captures whole
+                    // on Mali (see SyncTransformFeedbackBindingPoints).
+                    MGLOG_E_ONCE("StartPendingTransformFeedback: no scratch storage for a scattered capture "
+                                 "(packed stride %zu, capacity %zu vertices); leaving the driver span CLOSED so the "
+                                 "capture cannot land in a stale binding. Nothing will be captured.",
+                                 program->GetTransformFeedbackPackedStride(), capacityVertices);
+                    xfb.targets.clear();
+                    return;
                 }
             }
 
+            // A capture program with buffers bound must have produced at least one target;
+            // an empty list means End has nothing to mirror back and the application will
+            // read its buffer's pre-draw bytes however well the GPU captured.
+            if (xfb.targets.empty()) {
+                MGLOG_E_ONCE("StartPendingTransformFeedback: opening a capture span with NO capture targets "
+                             "(program declares %zu capture buffer(s), none of them resolved to a bound backend "
+                             "buffer with a non-empty range); nothing will be read back",
+                             bufferCount);
+            }
+
             g_GLESFuncs.glBeginTransformFeedback(xfb.primitiveMode);
+            // Unchecked before. Every ES error condition here (already active, a current
+            // program with no capture set, a capture point the program uses with no buffer)
+            // ends the same way: the driver records nothing, GL_TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN
+            // reads 0 and the application sees no error at all - MobileGL's own error state is
+            // separate from the driver's, so a driver rejection here is invisible to it.
+            if (const GLenum beginError = TakeXfbDriverError(); beginError != GL_NO_ERROR) {
+                // The mode is printed as a number as well as a name: GL_POINTS is 0, which the
+                // enum converter spells "GL_FALSE", and a reader chasing a lost capture should
+                // not have to know that.
+                MGLOG_E_ONCE("StartPendingTransformFeedback: the ES driver REJECTED "
+                             "glBeginTransformFeedback(%s / 0x%04x) with %s - nothing will be captured. Backend "
+                             "program %u, %zu capture buffer(s), %zu target(s), mode=%s.",
+                             MG_Util::ConvertGLEnumToString(xfb.primitiveMode).c_str(),
+                             static_cast<unsigned>(xfb.primitiveMode),
+                             MG_Util::ConvertGLEnumToString(beginError).c_str(),
+                             PrgramImpl::g_lastUsedBackendProgramId, bufferCount,
+                             xfb.targets.size(),
+                             MG_Util::ConvertGLEnumToString(program->GetTransformFeedbackBufferMode()).c_str());
+            }
             xfb.started = true;
         }
 
         void EndTransformFeedback() {
             auto& xfb = CurrentXfb();
+            const Bool wasPending = xfb.pending;
             xfb.pending = false;
             xfb.paused = false;
-            if (!xfb.started) return;
+            if (!xfb.started) {
+                // A span that never drew is legal and captures nothing by definition; one that
+                // is STILL pending here drew nothing the backend saw, which for a span the
+                // application expected data from is the whole bug in one line.
+                MGLOG_D("EndTransformFeedback: closing a span the driver never opened (pending=%d)",
+                        wasPending ? 1 : 0);
+                return;
+            }
             xfb.started = false;
             g_GLESFuncs.glEndTransformFeedback();
+            if (const GLenum endError = TakeXfbDriverError(); endError != GL_NO_ERROR) {
+                MGLOG_E_ONCE("EndTransformFeedback: the ES driver rejected glEndTransformFeedback with %s - the "
+                             "driver's capture state and MobileGL's have diverged",
+                             MG_Util::ConvertGLEnumToString(endError).c_str());
+            }
             if (xfb.scattered) {
                 ScatterCapturedRecords(xfb);
                 xfb.scattered = false;
@@ -932,6 +1145,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
         void BindTransformFeedback(GLuint name) {
             g_currentXfbState = nullptr; // name changes; operator[] below may also rehash
+            // The capture buffer bindings are the OBJECT's, not the context's: the bind below
+            // swaps all of them for whatever the target object holds, which the redundant-bind
+            // shadow has never seen.
+            BufferImpl::InvalidateTransformFeedbackBindingShadows();
             if (!AreTransformFeedbackObjectsSupported()) {
                 // Without driver objects there is only the default span; keep the frontend
                 // name so the bookkeeping below stays consistent.
@@ -968,6 +1185,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             g_currentXfbName = 0;
             g_scatterBufferId = 0;
             g_scatterBufferSize = 0;
+            BufferImpl::InvalidateTransformFeedbackBindingShadows();
         }
     } // namespace XfbImpl
 
@@ -1761,6 +1979,12 @@ namespace MobileGL::MG_Backend::DirectGLES {
         // clear-then-draw pair on an unchanged parameter block early-outs and the draw inherits
         // the clear's undoctored mask.
         static Uint32 g_syncedColorMaskAlphaWidenMask = 0;
+        // Scratch for the dual-source-blend decline path in the blend block below. File-scope
+        // rather than a local so the ordinary draw pays nothing for it: it is written only on a
+        // driver with no GL_EXT_blend_func_extended that is also handed a GL_SRC1_* factor, and
+        // SyncRenderState runs on the GL thread only.
+        static Array<PerBufferBlendState, MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS>
+            g_dualSourceDeclinedBlendStates;
         void InvalidateSyncedRenderState() {
             g_forceFullRenderStateResync = true;
             g_hasSyncedRenderState = false;
@@ -1920,31 +2144,85 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             const auto& ToGLBoolean = [](Bool b) -> GLboolean { return b ? GL_TRUE : GL_FALSE; };
 
+            // Which draw buffers the blend block below DECLINED (see it for why). Needed again at
+            // the shadow write-back at the end of this function: the span memcpy there clones the
+            // FRONTEND block, which for a declined draw buffer is not what the driver was handed.
+            Uint32 dualSourceDeclinedMask = 0;
+
             if (blendSpanDirty) { // Blend State
                 using FBO = MG_State::GLState::FramebufferObject;
-                const auto& targetStates = parameters.BlendStates;
                 auto& syncedStates = g_syncedRenderStateParameters.BlendStates;
 
                 // Dual-source blending (GL_SRC1_* factors from glBlendFunc paired with
                 // glBindFragDataLocationIndexed) needs GL_EXT_blend_func_extended; GLES core has none.
-                // Detected at load and surfaced in the POST. There is no fallback, so if a draw actually
-                // enables blending with a SRC1 factor on a driver that lacks it, hard-fail here at use
-                // time rather than let the driver reject glBlendFuncSeparate and silently mis-blend.
+                // Detected at load and surfaced in the POST. There is no fallback that BLENDS
+                // correctly, so a draw that asks for a SRC1 factor on a driver without the extension
+                // gets the blend DECLINED: that draw buffer is pushed with blending off and neutral
+                // One/Zero factors, and the loss is logged once. The two rejected alternatives are
+                // both worse - pushing GL_SRC1_* at glBlendFuncSeparate leaves the driver to raise
+                // GL_INVALID_ENUM and keep whatever factors were there before (a silent mis-blend
+                // against stale state), and throwing, which is what this did until now, takes the
+                // whole process down over one unsupported blend factor. Declining is defined,
+                // survivable and visible in the log.
+                //
+                // NOT gated on Enabled, deliberately, and the same way the Vulkan twin is not gated
+                // on effectiveBlendEnabled: what has to be kept away from the driver is the FACTOR
+                // ENUM, and the factor push below never consults Enabled - one glBlendFuncSeparate
+                // serves every draw buffer when they agree, and the per-index arm diffs factors
+                // alone. So `glDisable(GL_BLEND); glBlendFunc(GL_SRC1_ALPHA, ...)` followed by any
+                // draw OR clear would otherwise hand a GL_SRC1_ALPHA to a driver that answers
+                // GL_INVALID_ENUM, leaving a spurious error in ITS queue for the next internal
+                // no-error probe to read as its own, and leaving this shadow recording factors the
+                // ES context rejected. Blending being off makes the picture unaffected; it does not
+                // make the enum acceptable.
+                const auto* effectiveBlendStates = &parameters.BlendStates;
                 if (!g_GLESCapabilities.SupportsDualSourceBlend) {
+                    Uint32 declinedWithBlendingOnMask = 0;
                     for (Uint i = 0; i < FBO::MAX_DRAW_BUFFERS; ++i) {
-                        const auto& s = targetStates[i];
-                        if (s.Enabled &&
-                            (IsDualSourceBlendFactor(s.SrcFactorRGB) || IsDualSourceBlendFactor(s.DstFactorRGB) ||
-                             IsDualSourceBlendFactor(s.SrcFactorAlpha) || IsDualSourceBlendFactor(s.DstFactorAlpha))) {
-                            THROW_EXCEPTION(
-                                "Dual-source blending (GL_SRC1_* blend factor) was used on draw buffer " +
-                                std::to_string(i) +
-                                ", but the GLES driver does not expose GL_EXT_blend_func_extended (see the "
-                                "dual-source blend row in the driver POST). No fallback exists; the draw "
-                                "cannot proceed.");
+                        const auto& s = parameters.BlendStates[i];
+                        if (IsDualSourceBlendFactor(s.SrcFactorRGB) || IsDualSourceBlendFactor(s.DstFactorRGB) ||
+                            IsDualSourceBlendFactor(s.SrcFactorAlpha) || IsDualSourceBlendFactor(s.DstFactorAlpha)) {
+                            dualSourceDeclinedMask |= 1u << i;
+                            if (s.Enabled) declinedWithBlendingOnMask |= 1u << i;
                         }
                     }
+                    if (dualSourceDeclinedMask != 0) {
+                        // Two masks in the message because they mean different things to whoever
+                        // reads the log: the second one is where a PICTURE was lost. A draw buffer
+                        // in the first mask but not the second had blending off anyway, so nothing
+                        // was blended and nothing was dropped - only the unusable enum was kept out
+                        // of the driver.
+                        MGLOG_E_ONCE(
+                            "SyncRenderState: a GL_SRC1_* (dual-source) blend factor was set on draw buffer "
+                            "mask 0x%x, but the GLES driver does not expose GL_EXT_blend_func_extended (see "
+                            "the dual-source blend row in the driver POST). Those draw buffers are pushed "
+                            "with neutral One/Zero factors instead. Blending was actually ENABLED on mask "
+                            "0x%x, and only there is anything lost: the fragment's first output is written "
+                            "unblended and the second source is dropped.",
+                            dualSourceDeclinedMask, declinedWithBlendingOnMask);
+                        g_dualSourceDeclinedBlendStates = parameters.BlendStates;
+                        for (Uint i = 0; i < FBO::MAX_DRAW_BUFFERS; ++i) {
+                            if ((dualSourceDeclinedMask & (1u << i)) == 0) continue;
+                            auto& s = g_dualSourceDeclinedBlendStates[i];
+                            // Both halves, for the same reason the Vulkan arm neutralises both: the
+                            // enable so nothing blends against a source the driver cannot produce,
+                            // the factors so no GL_SRC1_* enum is ever handed over. Clearing Enabled
+                            // on a buffer that was already off is a no-op, which is what makes one
+                            // ungated rule serve both cases.
+                            s.Enabled = false;
+                            s.SrcFactorRGB = BlendFactor::One;
+                            s.DstFactorRGB = BlendFactor::Zero;
+                            s.SrcFactorAlpha = BlendFactor::One;
+                            s.DstFactorAlpha = BlendFactor::Zero;
+                        }
+                        effectiveBlendStates = &g_dualSourceDeclinedBlendStates;
+                    }
                 }
+                // The rest of the block reads the EFFECTIVE state. The per-field writes it makes
+                // into `syncedStates` are provisional - the span memcpy at the end of this function
+                // overwrites the whole blend span with the frontend's own bytes - so the declined
+                // draw buffers are put back there, see the write-back below.
+                const auto& targetStates = *effectiveBlendStates;
 
                 Bool allEnabled = true;
                 Bool allDisabled = true;
@@ -2309,6 +2587,29 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 }
             }
 
+            if (tailSpanDirty) { // Sample shading (ARB_sample_shading; ES 3.2 core)
+                // Both halves are gated on the same entry point rather than on a version check:
+                // GL_SAMPLE_SHADING and glMinSampleShading arrived together (ES 3.2 core /
+                // OES_sample_shading), so a null pointer means glEnable(GL_SAMPLE_SHADING) would
+                // only push an INVALID_ENUM into the driver's queue. This is NOT part of the
+                // SYNC_CAPABILITY block above for exactly that reason - that macro has nowhere to
+                // put a guard.
+                if (g_GLESFuncs.glMinSampleShading) {
+                    if (forceFullPush ||
+                        parameters.SampleShadingEnabled != g_syncedRenderStateParameters.SampleShadingEnabled) {
+                        if (parameters.SampleShadingEnabled) {
+                            g_GLESFuncs.glEnable(GL_SAMPLE_SHADING);
+                        } else {
+                            g_GLESFuncs.glDisable(GL_SAMPLE_SHADING);
+                        }
+                    }
+                    if (forceFullPush || parameters.MinSampleShadingValue !=
+                                             g_syncedRenderStateParameters.MinSampleShadingValue) {
+                        g_GLESFuncs.glMinSampleShading(parameters.MinSampleShadingValue);
+                    }
+                }
+            }
+
             g_syncedRenderStateVersion = currentRenderStateVersion;
             // Byte copy, not member copy: it also clones the frontend struct's padding bytes,
             // which is what lets the span memcmps above answer "unchanged" exactly instead of
@@ -2321,6 +2622,18 @@ namespace MobileGL::MG_Backend::DirectGLES {
             if (blendSpanDirty) {
                 std::memcpy(syncedBytesMut + kBlendSpanBegin, currentBytes + kBlendSpanBegin,
                             kBlendSpanEnd - kBlendSpanBegin);
+                // ...except for a draw buffer whose dual-source blend was DECLINED, where the
+                // frontend block is precisely what did NOT reach the driver. The shadow has to hold
+                // what was pushed or the next diff compares against state the ES context never got:
+                // going from a SRC1 factor to an ordinary one leaves Enabled equal on both sides,
+                // the enable block finds nothing to do, and blending stays off from the decline.
+                // The span stays permanently "dirty" against the frontend as a result, which costs
+                // one memcmp plus this block per render-state VERSION change - the top-of-function
+                // version early-out still skips repeat draws entirely.
+                for (Uint i = 0; i < MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS; ++i) {
+                    if ((dualSourceDeclinedMask & (1u << i)) == 0) continue;
+                    g_syncedRenderStateParameters.BlendStates[i] = g_dualSourceDeclinedBlendStates[i];
+                }
             }
             if (tailSpanDirty) {
                 std::memcpy(syncedBytesMut + kBlendSpanEnd, currentBytes + kBlendSpanEnd,
@@ -2461,9 +2774,34 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 // `layout(vertices = N) out` - so a glPatchParameteri between two draws makes the
                 // built program wrong. -1 is "this program needed no such stage", which compares
                 // equal to itself and costs every other program one integer test.
+                //
+                // GL_PATCH_DEFAULT_{OUTER,INNER}_LEVEL are baked into the same stage for the same
+                // reason (ES has neither the state nor an entry point), so glPatchParameterfv
+                // makes it stale too. Both level comparisons sit INSIDE the >= 0 guard: a program
+                // with a control stage of its own - which is nearly all of them - still pays only
+                // the one integer test.
+                //
+                // Compared by BIT PATTERN, matching what DirectVulkan hashes into its module key.
+                // A float compare here would never settle for a NaN level - NaN != NaN - and every
+                // draw of that program would re-transpile, re-compile and re-link a byte-identical
+                // shader. glPatchParameterfv accepts NaN by design.
+                //
+                // The gl_PerVertex MEMBER SET needs no clause of its own here, and that asymmetry
+                // with DirectVulkan is deliberate rather than an omission. It can only change with
+                // the evaluation stage, i.e. across a relink - which the link-version test at the
+                // top of this condition already catches - and this backend never invents the shape
+                // in the first place: AttachPassthroughTessControlStage extracts the member text
+                // out of the neighbouring stages' emitted ESSL on every rebuild
+                // (ExtractPerVertexBlockMembers, "mirrored, never invented"). DirectVulkan needs
+                // the mask in its key precisely because it does NOT mirror - it redeclares from a
+                // member set it has to be told.
                 (twin->GetPassthroughTessControlPatchVertices() >= 0 &&
-                 twin->GetPassthroughTessControlPatchVertices() !=
-                     static_cast<Int>(MG_State::pGLContext->GetPatchVertices()))) {
+                 (twin->GetPassthroughTessControlPatchVertices() !=
+                      static_cast<Int>(MG_State::pGLContext->GetPatchVertices()) ||
+                  !BitwiseEqual(twin->GetPassthroughTessControlOuterLevel(),
+                                MG_State::pGLContext->GetPatchDefaultOuterLevel()) ||
+                  !BitwiseEqual(twin->GetPassthroughTessControlInnerLevel(),
+                                MG_State::pGLContext->GetPatchDefaultInnerLevel())))) {
                 twin->SyncToBackend(currentProgram);
             }
             g_currentDrawFrontendProgram = currentProgram.get();
@@ -3524,6 +3862,18 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                                const SharedPtr<MG_State::GLState::BufferObject>& drawIndirectBuffer,
                                                GLsizei drawcount, GLsizei stride, const char* label) {
         (void)label;
+        // An indirect command's firstIndex/count live in GPU memory, so the substitution has
+        // to rewrite the whole element array buffer rather than this draw's range - which is
+        // exactly what it does when no CPU-known count is handed to it. Held for the whole
+        // command loop so every command in the batch reads the rewritten copy.
+        //
+        // firstIndex counts ELEMENTS, so it survives a widened copy untouched; what does not
+        // survive is the type and the element size, which are re-taken from the substitution
+        // below for both the native and the CPU-unrolled path.
+        const ScopedRestartIndexSubstitution restart(type, /*count=*/0, /*indices=*/nullptr);
+        if (!restart.DrawIsValid()) return;
+        type = restart.IndexType();
+        indexSize = MG_Util::GetGLTypeSize(type);
         const Bool useNative = drawIndirectBuffer != nullptr && SupportsNativeIndirectDraws();
         if (useNative) {
             // gl_BaseInstance must observe GPU-written command fields; expose the indirect
@@ -3829,29 +4179,308 @@ namespace MobileGL::MG_Backend::DirectGLES {
         }
     }
 
-    // GLES core supports only GL_PRIMITIVE_RESTART_FIXED_INDEX (fixed all-ones value). If the app
-    // enabled the arbitrary GL_PRIMITIVE_RESTART with a non-fixed index, hard-fail at this draw with
-    // the reason (a fallback would silently drop restarts and corrupt geometry).
-    void CheckPrimitiveRestartSupported(GLenum indexType) {
+    // ---------------------------------------------------------------------------
+    // Arbitrary-index primitive restart
+    //
+    // Desktop GL restarts on whatever index glPrimitiveRestartIndex named; GLES core only
+    // ever restarts on the all-ones value of the index type. When the two agree - which
+    // includes every GL_PRIMITIVE_RESTART_FIXED_INDEX user - the render state push at
+    // SyncRenderState is the whole implementation and nothing here does any work. When they
+    // disagree the index DATA is rewritten into a scratch element array buffer.
+    //
+    // This used to throw instead. A throw here unwinds a C++ exception through the C GL ABI
+    // and takes the process down - the same hazard GL_Texture.cpp and RenderState.cpp
+    // already call out - so an application that merely asked for a legal desktop feature
+    // died rather than got an error.
+    // ---------------------------------------------------------------------------
+
+    namespace {
+        struct RestartScratchBuffer {
+            Uint id = 0;
+            SizeT capacity = 0;
+        };
+
+        RestartScratchBuffer g_restartIndices;
+        Vector<Uint8> g_restartStaging;
+
+        // Past this the rewrite would stage and re-upload hundreds of megabytes on EVERY
+        // draw (the copy is not memoised, exactly as on the Vulkan side). Decline instead of
+        // trying: a draw that renders nothing is recoverable, a stall of that size is not.
+        constexpr SizeT kMaxRestartRewriteBytes = SizeT{1} << 26; // 64 MiB
+
+        // The index type one step wider than this one, or 0 when there is none. Widening is how
+        // an all-ones value that is a REAL vertex index keeps its meaning while the all-ones
+        // value of the destination type serves as the restart sentinel: a source that cannot
+        // spell 0xFFFF cannot collide with a 16-bit sentinel, and likewise 8 -> 16.
+        GLenum WiderIndexType(GLenum indexType) {
+            switch (indexType) {
+            case GL_UNSIGNED_BYTE: return GL_UNSIGNED_SHORT;
+            case GL_UNSIGNED_SHORT: return GL_UNSIGNED_INT;
+            default: return 0;
+            }
+        }
+
+        Uint32 ReadIndex(const Uint8* source, SizeT i, SizeT indexSize) {
+            switch (indexSize) {
+            case 1: return source[i];
+            case 2: {
+                Uint16 narrow = 0;
+                std::memcpy(&narrow, source + i * 2, sizeof(narrow));
+                return narrow;
+            }
+            default: {
+                Uint32 wide = 0;
+                std::memcpy(&wide, source + i * 4, sizeof(wide));
+                return wide;
+            }
+            }
+        }
+
+        void WriteIndex(Uint8* destination, SizeT i, SizeT indexSize, Uint32 value) {
+            switch (indexSize) {
+            case 1: destination[i] = static_cast<Uint8>(value); break;
+            case 2: {
+                const Uint16 narrow = static_cast<Uint16>(value);
+                std::memcpy(destination + i * 2, &narrow, sizeof(narrow));
+                break;
+            }
+            default: std::memcpy(destination + i * 4, &value, sizeof(value)); break;
+            }
+        }
+
+        // True when any index in the range already holds the type's all-ones value, i.e. when
+        // that value is doing double duty as a real vertex index and so cannot also be the
+        // restart sentinel. Only asked on the rare substitution path.
+        Bool ContainsFixedRestartIndex(const Uint8* source, SizeT indexCount, SizeT indexSize,
+                                       Uint32 fixedMax) {
+            for (SizeT i = 0; i < indexCount; ++i) {
+                if (ReadIndex(source, i, indexSize) == fixedMax) return true;
+            }
+            return false;
+        }
+
+        // Copies index data, replacing every occurrence of the application's restart index with
+        // the all-ones value of the DESTINATION type - the only one GLES restarts on. The
+        // destination may be wider than the source, which is what makes the copy lossless: a
+        // source index equal to the source's all-ones value zero-extends to something the wider
+        // sentinel can never equal, so it stays the vertex it was.
+        //
+        // Same width in and out is the degenerate case, used when the source contains no
+        // all-ones index at all (nothing to protect) or when there is no wider type to move to.
+        // In that last case only - a GL_UNSIGNED_INT stream that really does use index
+        // 0xFFFFFFFF while asking to restart on a different one - a legal index has to be
+        // nudged to 0xFFFFFFFE, because 32 bits cannot hold both meanings. The caller logs it;
+        // it is the one input this feature cannot represent.
+        void RewriteRestartIndices(const Uint8* source, SizeT indexCount, SizeT sourceIndexSize,
+                                   SizeT destinationIndexSize, Uint32 applicationRestartIndex,
+                                   Uint32 destinationFixedMax, Vector<Uint8>& output) {
+            output.resize(indexCount * destinationIndexSize);
+            for (SizeT i = 0; i < indexCount; ++i) {
+                Uint32 value = ReadIndex(source, i, sourceIndexSize);
+                if (value == applicationRestartIndex) {
+                    value = destinationFixedMax;
+                } else if (value == destinationFixedMax) {
+                    // Only reachable when no widening was possible; see above.
+                    value = destinationFixedMax - 1;
+                }
+                WriteIndex(output.data(), i, destinationIndexSize, value);
+            }
+        }
+
+        // Whole-buffer respecify through the manager-wide staging target, so binding it
+        // disturbs no VAO state. glBufferData orphans the previous store, so the upload
+        // never waits on a draw still reading the old contents out of the same name.
+        Bool UploadRestartScratch(SizeT bytes, const void* data) {
+            if (g_restartIndices.id == 0) {
+                GLuint id = 0;
+                g_GLESFuncs.glGenBuffers(1, &id);
+                if (id == 0) return false;
+                g_restartIndices.id = id;
+                g_restartIndices.capacity = 0;
+            }
+            BufferImpl::BindBufferId(BufferImpl::TempBufferTarget, g_restartIndices.id);
+            SizeT capacity = g_restartIndices.capacity == 0 ? bytes : g_restartIndices.capacity;
+            while (capacity < bytes) capacity *= 2;
+            g_GLESFuncs.glBufferData(BufferImpl::TempBufferTarget, static_cast<GLsizeiptr>(capacity), nullptr,
+                                     GL_STREAM_DRAW);
+            g_restartIndices.capacity = capacity;
+            if (data != nullptr && bytes != 0) {
+                g_GLESFuncs.glBufferSubData(BufferImpl::TempBufferTarget, 0, static_cast<GLsizeiptr>(bytes), data);
+            }
+            return true;
+        }
+
+        const SharedPtr<MG_State::GLState::BufferObject>& BoundElementArrayBuffer() {
+            static const SharedPtr<MG_State::GLState::BufferObject> none;
+            const auto& vao = MG_State::pGLContext->GetBoundVertexArray();
+            if (!vao) return none;
+            return vao->GetIndexBufferBindingSlot().GetBoundObject();
+        }
+
+        // The GL name PrepareForDraw left on GL_ELEMENT_ARRAY_BUFFER, i.e. what the
+        // substitution has to put back.
+        Uint BoundElementArrayBufferId() {
+            const auto& ibo = BoundElementArrayBuffer();
+            if (!ibo) return 0;
+            const auto* resource = BufferImpl::EnsureBufferResource(ibo);
+            return resource ? resource->id : 0;
+        }
+    } // namespace
+
+    RestartSubstitutionKind ResolveRestartSubstitution(GLenum indexType) {
         if (!MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::PrimitiveRestart) ||
             MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::PrimitiveRestartFixedIndex)) {
+            return RestartSubstitutionKind::None;
+        }
+        const Uint32 fixedMax = MG_Util::FixedRestartIndexForGLType(indexType);
+        if (fixedMax == 0) return RestartSubstitutionKind::None;
+        const Uint32 restartIndex = MG_State::pGLContext->GetPrimitiveRestartIndex();
+        if (restartIndex == fixedMax) return RestartSubstitutionKind::None;
+        // Strictly greater, never truncated. GL 4.6 core 10.3.6 compares the fetched index
+        // zero-extended against the full 32-bit state, so an index this type cannot hold matches
+        // nothing. Truncating instead - glPrimitiveRestartIndex(0x100) over GL_UNSIGNED_BYTE data
+        // becoming "restart on 0" - turns the most common index in any mesh into a restart.
+        if (restartIndex > fixedMax) return RestartSubstitutionKind::SuppressRestart;
+        return RestartSubstitutionKind::RewriteIndices;
+    }
+
+    void OnRestartSubstitutionContextDestroyed() {
+        g_restartIndices = {};
+        g_restartStaging.clear();
+        g_restartStaging.shrink_to_fit();
+    }
+
+    ScopedSuppressedPrimitiveRestart::ScopedSuppressedPrimitiveRestart(RestartSubstitutionKind kind) {
+        if (kind != RestartSubstitutionKind::SuppressRestart) return;
+        // SyncRenderState turned the driver's fixed-index restart on because GL_PRIMITIVE_RESTART
+        // is enabled; for this draw's index type it would restart on a value the application
+        // never named. Toggled directly rather than through the render-state shadow, and put back
+        // in the destructor, so the shadow stays true and the next draw pays nothing.
+        g_GLESFuncs.glDisable(GL_PRIMITIVE_RESTART_FIXED_INDEX);
+        m_suppressed = true;
+    }
+
+    ScopedSuppressedPrimitiveRestart::~ScopedSuppressedPrimitiveRestart() {
+        if (!m_suppressed) return;
+        g_GLESFuncs.glEnable(GL_PRIMITIVE_RESTART_FIXED_INDEX);
+    }
+
+    ScopedRestartIndexSubstitution::ScopedRestartIndexSubstitution(GLenum indexType, GLsizei count,
+                                                                   const void* indices)
+        : m_kind(ResolveRestartSubstitution(indexType)), m_capOverride(m_kind), m_indices(indices),
+          m_indexType(indexType) {
+        if (m_kind != RestartSubstitutionKind::RewriteIndices) {
             return;
         }
-        Uint32 fixedMax = 0;
-        switch (indexType) {
-        case GL_UNSIGNED_BYTE: fixedMax = 0xFFu; break;
-        case GL_UNSIGNED_SHORT: fixedMax = 0xFFFFu; break;
-        case GL_UNSIGNED_INT: fixedMax = 0xFFFFFFFFu; break;
-        default: return;
+        const SizeT sourceIndexSize = MG_Util::GetGLTypeSize(indexType);
+        const Uint32 fixedMax = MG_Util::FixedRestartIndexForGLType(indexType);
+        const Uint32 applicationRestartIndex = MG_State::pGLContext->GetPrimitiveRestartIndex();
+        const auto& indexBuffer = BoundElementArrayBuffer();
+
+        const Uint8* source = nullptr;
+        SizeT indexCount = 0;
+        SizeT sourceByteOffset = 0;
+
+        if (indexBuffer) {
+            // The WHOLE buffer is rewritten, not just this draw's range, so that every index
+            // keeps its position: an indirect draw's firstIndex lives in GPU memory and cannot be
+            // adjusted from here. It is an ELEMENT index, so it survives widening unchanged.
+            const SizeT sizeBytes = indexBuffer->GetSize();
+            if (sizeBytes < sourceIndexSize) {
+                return; // Nothing to restart on; let the driver see the draw unchanged.
+            }
+            if (sizeBytes > kMaxRestartRewriteBytes) {
+                MGLOG_E_ONCE("Draw skipped: GL_PRIMITIVE_RESTART with restart index %u needs the %zu-byte element "
+                             "array buffer rewritten every draw, which is past the %zu-byte ceiling. Use "
+                             "GL_PRIMITIVE_RESTART_FIXED_INDEX, or set glPrimitiveRestartIndex to the all-ones "
+                             "value of the index type.",
+                             applicationRestartIndex, sizeBytes, kMaxRestartRewriteBytes);
+                m_valid = false;
+                return;
+            }
+            // The shadow is the source of truth for CPU reads, but a persistent map or a
+            // shader write may have moved past it since the last sync.
+            indexBuffer->SyncPersistentMappedRange();
+            indexBuffer->SyncGpuWrites();
+            source = indexBuffer->MappedData();
+            if (source == nullptr) {
+                MGLOG_E_ONCE("Draw skipped: GL_PRIMITIVE_RESTART with restart index %u needs a CPU-readable copy of "
+                             "the bound element array buffer and none is available.",
+                             applicationRestartIndex);
+                m_valid = false;
+                return;
+            }
+            indexCount = sizeBytes / sourceIndexSize;
+            sourceByteOffset = reinterpret_cast<SizeT>(indices);
+        } else {
+            // No element array buffer: `indices` is a client pointer, so only the draw's own
+            // range is readable and an indirect draw has nothing to read at all.
+            if (count <= 0 || indices == nullptr || sourceIndexSize == 0) {
+                MGLOG_E_ONCE("Draw skipped: GL_PRIMITIVE_RESTART with restart index %u needs either a bound element "
+                             "array buffer or a client index array with a CPU-known count.",
+                             applicationRestartIndex);
+                m_valid = false;
+                return;
+            }
+            if (static_cast<SizeT>(count) * sourceIndexSize > kMaxRestartRewriteBytes) {
+                MGLOG_E_ONCE("Draw skipped: GL_PRIMITIVE_RESTART index rewrite of %zu bytes is past the %zu-byte "
+                             "ceiling.",
+                             static_cast<SizeT>(count) * sourceIndexSize, kMaxRestartRewriteBytes);
+                m_valid = false;
+                return;
+            }
+            source = static_cast<const Uint8*>(indices);
+            indexCount = static_cast<SizeT>(count);
         }
-        const Uint32 restartIndex = MG_State::pGLContext->GetPrimitiveRestartIndex();
-        if (restartIndex != fixedMax) {
-            THROW_EXCEPTION("GL_PRIMITIVE_RESTART with an arbitrary restart index (" + std::to_string(restartIndex) +
-                            ") is not supported by the GLES backend, which only restarts on the fixed index value (" +
-                            std::to_string(fixedMax) +
-                            ") for this index type; use GL_PRIMITIVE_RESTART_FIXED_INDEX or set glPrimitiveRestartIndex "
-                            "to that value.");
+
+        // Widen only when the source really does use the all-ones value as a vertex index -
+        // otherwise the sentinel is free and the copy stays the caller's width, which keeps the
+        // common substitution allocation-for-allocation identical to the narrow form.
+        GLenum destinationType = indexType;
+        SizeT destinationIndexSize = sourceIndexSize;
+        if (ContainsFixedRestartIndex(source, indexCount, sourceIndexSize, fixedMax)) {
+            const GLenum wider = WiderIndexType(indexType);
+            // An element-array offset that is not a whole number of indices cannot be rescaled
+            // into the widened copy, so such a draw keeps the narrow (lossy) form.
+            const Bool offsetIsWholeIndices = sourceIndexSize != 0 && (sourceByteOffset % sourceIndexSize) == 0;
+            if (wider != 0 && offsetIsWholeIndices &&
+                indexCount * MG_Util::GetGLTypeSize(wider) <= kMaxRestartRewriteBytes) {
+                destinationType = wider;
+                destinationIndexSize = MG_Util::GetGLTypeSize(wider);
+            } else {
+                MGLOG_E_ONCE("GL_PRIMITIVE_RESTART with restart index %u over index data that also uses the "
+                             "all-ones index %u: this index type cannot spell both, so every all-ones index is "
+                             "drawn as %u instead. Use GL_PRIMITIVE_RESTART_FIXED_INDEX, or keep the all-ones "
+                             "value out of the index data.",
+                             applicationRestartIndex, fixedMax, fixedMax - 1);
+            }
         }
+
+        const Uint32 destinationFixedMax = MG_Util::FixedRestartIndexForGLType(destinationType);
+        RewriteRestartIndices(source, indexCount, sourceIndexSize, destinationIndexSize, applicationRestartIndex,
+                              destinationFixedMax, g_restartStaging);
+
+        if (!UploadRestartScratch(g_restartStaging.size(), g_restartStaging.data())) {
+            MGLOG_E_ONCE("Draw skipped: could not allocate the scratch element array buffer for GL_PRIMITIVE_RESTART "
+                         "index substitution.");
+            m_valid = false;
+            return;
+        }
+        m_previousBinding = BoundElementArrayBufferId();
+        BufferImpl::BindBufferId(GL_ELEMENT_ARRAY_BUFFER, g_restartIndices.id);
+        m_substituted = true;
+        m_indexType = destinationType;
+        // The rewritten copy starts at byte 0 of the scratch buffer and holds one
+        // destination-width element per source element, so an EBO-sourced draw keeps its ELEMENT
+        // offset (rescaled to the new width) and a client-memory draw reads from the front.
+        m_indices = indexBuffer
+                        ? reinterpret_cast<const void*>((sourceByteOffset / sourceIndexSize) * destinationIndexSize)
+                        : nullptr;
+    }
+
+    ScopedRestartIndexSubstitution::~ScopedRestartIndexSubstitution() {
+        if (!m_substituted) return;
+        BufferImpl::BindBufferId(GL_ELEMENT_ARRAY_BUFFER, m_previousBinding);
     }
 
     void DrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices) {
@@ -3860,9 +4489,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
 #endif
         DrawSyncFlags syncBit = DrawSyncBit::IndexBuffer;
         PrepareForDraw(syncBit);
-        CheckPrimitiveRestartSupported(type);
+        const ScopedRestartIndexSubstitution restart(type, count, indices);
+        if (!restart.DrawIsValid()) return;
         ForEachViewportRoutingPass([&] {
-            g_GLESFuncs.glDrawElements(mode, count, type, indices);
+            g_GLESFuncs.glDrawElements(mode, count, restart.IndexType(), restart.Indices());
         });
     }
 
@@ -3890,10 +4520,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
 #endif
         DrawSyncFlags syncBit = DrawSyncBit::IndexBuffer;
         PrepareForDraw(syncBit);
-        CheckPrimitiveRestartSupported(type);
+        const ScopedRestartIndexSubstitution restart(type, count, indices);
+        if (!restart.DrawIsValid()) return;
         SetCurrentBaseVertex(basevertex);
         ForEachViewportRoutingPass([&] {
-            g_GLESFuncs.glDrawElementsBaseVertex(mode, count, type, indices, basevertex);
+            g_GLESFuncs.glDrawElementsBaseVertex(mode, count, restart.IndexType(), restart.Indices(), basevertex);
         });
         SetCurrentBaseVertex(0);
     }
@@ -4158,9 +4789,12 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                      const void* indices, GLint basevertex) {
         DrawSyncFlags syncBit = DrawSyncBit::IndexBuffer;
         PrepareForDraw(syncBit);
+        const ScopedRestartIndexSubstitution restart(type, count, indices);
+        if (!restart.DrawIsValid()) return;
         SetCurrentBaseVertex(basevertex);
         ForEachViewportRoutingPass([&] {
-            g_GLESFuncs.glDrawRangeElementsBaseVertex(mode, start, end, count, type, indices, basevertex);
+            g_GLESFuncs.glDrawRangeElementsBaseVertex(mode, start, end, count, restart.IndexType(), restart.Indices(),
+                                                      basevertex);
         });
         SetCurrentBaseVertex(0);
     }
@@ -4168,8 +4802,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
     void DrawRangeElements(GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type, const void* indices) {
         DrawSyncFlags syncBit = DrawSyncBit::IndexBuffer;
         PrepareForDraw(syncBit);
+        const ScopedRestartIndexSubstitution restart(type, count, indices);
+        if (!restart.DrawIsValid()) return;
         ForEachViewportRoutingPass([&] {
-            g_GLESFuncs.glDrawRangeElements(mode, start, end, count, type, indices);
+            g_GLESFuncs.glDrawRangeElements(mode, start, end, count, restart.IndexType(), restart.Indices());
         });
     }
 
@@ -4191,14 +4827,18 @@ namespace MobileGL::MG_Backend::DirectGLES {
         DrawSyncFlags syncBit = DrawSyncBit::IndexBuffer | DrawSyncBit::Instancing;
         const VertexArrayImpl::ScopedFetchBaseInstance fetchScope(EmulatedFetchBaseInstance(baseinstance));
         PrepareForDraw(syncBit);
+        const ScopedRestartIndexSubstitution restart(type, count, indices);
+        if (!restart.DrawIsValid()) return;
         SetCurrentBaseInstance(baseinstance);
         SetCurrentBaseVertex(basevertex);
         ForEachViewportRoutingPass([&] {
             if (UseNativeBaseInstance()) {
-                g_GLESFuncs.glDrawElementsInstancedBaseVertexBaseInstanceEXT(mode, count, type, indices, instancecount,
+                g_GLESFuncs.glDrawElementsInstancedBaseVertexBaseInstanceEXT(mode, count, restart.IndexType(),
+                                                                            restart.Indices(), instancecount,
                                                                             basevertex, baseinstance);
             } else {
-                g_GLESFuncs.glDrawElementsInstancedBaseVertex(mode, count, type, indices, instancecount, basevertex);
+                g_GLESFuncs.glDrawElementsInstancedBaseVertex(mode, count, restart.IndexType(), restart.Indices(),
+                                                              instancecount, basevertex);
             }
         });
         SetCurrentBaseVertex(0);
@@ -4209,9 +4849,12 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                          GLsizei instancecount, GLint basevertex) {
         DrawSyncFlags syncBit = DrawSyncBit::IndexBuffer | DrawSyncBit::Instancing;
         PrepareForDraw(syncBit);
+        const ScopedRestartIndexSubstitution restart(type, count, indices);
+        if (!restart.DrawIsValid()) return;
         SetCurrentBaseVertex(basevertex);
         ForEachViewportRoutingPass([&] {
-            g_GLESFuncs.glDrawElementsInstancedBaseVertex(mode, count, type, indices, instancecount, basevertex);
+            g_GLESFuncs.glDrawElementsInstancedBaseVertex(mode, count, type, restart.Indices(), instancecount,
+                                                          basevertex);
         });
         SetCurrentBaseVertex(0);
     }
@@ -4221,13 +4864,15 @@ namespace MobileGL::MG_Backend::DirectGLES {
         DrawSyncFlags syncBit = DrawSyncBit::IndexBuffer | DrawSyncBit::Instancing;
         const VertexArrayImpl::ScopedFetchBaseInstance fetchScope(EmulatedFetchBaseInstance(baseinstance));
         PrepareForDraw(syncBit);
+        const ScopedRestartIndexSubstitution restart(type, count, indices);
+        if (!restart.DrawIsValid()) return;
         SetCurrentBaseInstance(baseinstance);
         ForEachViewportRoutingPass([&] {
             if (UseNativeBaseInstance()) {
-                g_GLESFuncs.glDrawElementsInstancedBaseInstanceEXT(mode, count, type, indices, instancecount,
-                                                                  baseinstance);
+                g_GLESFuncs.glDrawElementsInstancedBaseInstanceEXT(mode, count, restart.IndexType(), restart.Indices(),
+                                                                  instancecount, baseinstance);
             } else {
-                g_GLESFuncs.glDrawElementsInstanced(mode, count, type, indices, instancecount);
+                g_GLESFuncs.glDrawElementsInstanced(mode, count, restart.IndexType(), restart.Indices(), instancecount);
             }
         });
         SetCurrentBaseInstance(0);
@@ -4236,8 +4881,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
     void DrawElementsInstanced(GLenum mode, GLsizei count, GLenum type, const void* indices, GLsizei instancecount) {
         DrawSyncFlags syncBit = DrawSyncBit::IndexBuffer | DrawSyncBit::Instancing;
         PrepareForDraw(syncBit);
+        const ScopedRestartIndexSubstitution restart(type, count, indices);
+        if (!restart.DrawIsValid()) return;
         ForEachViewportRoutingPass([&] {
-            g_GLESFuncs.glDrawElementsInstanced(mode, count, type, indices, instancecount);
+            g_GLESFuncs.glDrawElementsInstanced(mode, count, restart.IndexType(), restart.Indices(), instancecount);
         });
     }
 
@@ -9989,6 +10636,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         // frame's ring high-water marks for slot reclamation.
         BufferImpl::UboRingOnPresent();
         BufferImpl::UnpackRingOnPresent();
+        BufferImpl::UploadRingOnPresent();
         BufferImpl::TrimBufferPool();
     }
 
@@ -9996,6 +10644,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         BufferImpl::OnBackendContextDestroyed();
         XfbImpl::OnBackendContextDestroyed();
         MultiDrawImpl::OnBackendContextDestroyed();
+        OnRestartSubstitutionContextDestroyed();
         ScratchFBOImpl::OnBackendContextDestroyed();
         ReleasePackedWordScratchTexture();
         FramebufferImpl::InvalidateFramebufferBindingCache();

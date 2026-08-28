@@ -10,8 +10,10 @@
 
 #include "../VkIncludes.h"
 #include <Includes.h>
+#include <MG_State/GLState/FramebufferState/FramebufferObject.h>
 #include <MG_State/GLState/TextureState/TextureObject.h>
 #include <vk_mem_alloc.h>
+#include <algorithm>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -21,6 +23,31 @@ class ITextureObject;
 
 namespace MobileGL::MG_Backend::DirectVulkan {
 enum class SamplerNumericDomain : Uint8;
+
+// What VkFormat a GL internal format is BACKED with, and how a shadow upload has to be reshaped to
+// fit it. This is not the same question as "is there an exact VkFormat for this GL format", which is
+// what ConvertTextureInternalFormatToVkEnum answers: several GL formats have no Vulkan twin at all
+// (RGBA2, RGBA12) and several three-channel ones are deliberately widened to their four-channel twin
+// because Vulkan devices rarely support the 3-channel layouts.
+//
+// SHARED, and it must stay the only answer to that question. A renderbuffer and a texture of the
+// same GL format have to resolve to the SAME VkFormat or every blit, resolve and glCopyImageSubData
+// between them crosses a size-incompatible pair, which vkCmdCopyImage leaves undefined
+// (VUID-vkCmdCopyImage-srcImage-01548). The renderbuffer path used to carry a hand-maintained second
+// copy of this table that was missing four rows - RGBA2, RGBA4, RGB5A1 and RGBA12 - so those four
+// renderbuffer formats either got no image at all or a 16-bit-packed one facing a 32-bit texture.
+struct TextureFormatInfo {
+    VkFormat format = VK_FORMAT_UNDEFINED;
+    // The GL format has three channels and is carried in a four-channel image; a shadow upload has
+    // to be expanded, inserting `alphaBytes` after every `componentByteCount * 3` source bytes.
+    Bool expandRgbToRgba = false;
+    Uint32 componentByteCount = 0;
+    Array<Uint8, 4> alphaBytes = {0, 0, 0, 0};
+};
+
+// Callers that only need the backing VkFormat (a renderbuffer has no shadow upload to reshape) take
+// `.format` and ignore the rest.
+TextureFormatInfo ResolveTextureFormatInfo(TextureInternalFormat format);
 
 // A GL 1D-ARRAY level keeps its LAYER COUNT in the state-side HEIGHT: that is what
 // glTexImage2D(GL_TEXTURE_1D_ARRAY, width, layers) means, and the frontend records the level
@@ -39,6 +66,37 @@ inline IntVec3 ToVulkanLevelExtent(TextureTarget stateTarget, const IntVec3& glT
         return {glTexelSize.x(), 1, glTexelSize.y()};
     }
     return glTexelSize;
+}
+
+// How many Vulkan array layers (or, for a 3D image, z slices) a GL framebuffer attachment spans.
+//
+// THE ONE COPY, deliberately. This used to exist twice - privately in VkRenderPassManager.cpp and
+// again in VkClearManager.cpp - and the two are not independent: the render pass builds the
+// attachment view and VkFramebufferCreateInfo::layers from one, while the CLEAR key built from the
+// other is written verbatim into VkImageSubresourceRange::layerCount when a queued glClear is
+// materialised outside a render pass (MaterializePendingClearForTexture). They are two consumers
+// of the same GL clear, so any disagreement means the same glClear produces two different pictures
+// depending only on which path happens to consume it first - and the materialise path then POPS
+// the entry, so the other one never runs. Fixing one copy and leaving the other is exactly how
+// that split gets introduced; keep them the same function.
+//
+// Two shapes make this more than `size.z()`:
+//   * GL_TEXTURE_1D_ARRAY keeps its layer count in the state-side HEIGHT (see ToVulkanLevelExtent
+//     just above), so z reads 1 and every layer above the first was silently dropped.
+//   * GL_TEXTURE_CUBE_MAP is attached layered as its REPRESENTATIVE upload target, the +X face
+//     (ResolveRepresentableFramebufferTextureUploadTarget), and one face's level size has z = 1 -
+//     but a layered cube attachment names all six faces (GL 4.6 core 9.2.8), which are the image's
+//     six array layers. A cube ARRAY needs no such arm: its representative target carries 6n in z.
+inline Uint32 ResolveAttachmentLayerCount(const MG_State::GLState::FramebufferAttachmentObject& attachment) {
+    if (!attachment.IsLayered()) {
+        return 1u;
+    }
+    const auto& texture = attachment.GetTexture();
+    const TextureTarget target = texture != nullptr ? texture->GetTarget() : TextureTarget::Unknown;
+    if (target == TextureTarget::TextureCubeMap) {
+        return 6u;
+    }
+    return static_cast<Uint32>(std::max(ToVulkanLevelExtent(target, attachment.GetSize()).z(), 1));
 }
 
 // A GL framebuffer attachment's level/layer, and a GL image unit's, are relative to the texture

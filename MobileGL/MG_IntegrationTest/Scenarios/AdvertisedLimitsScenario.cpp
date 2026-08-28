@@ -56,7 +56,13 @@ namespace MGITest {
 
         const std::vector<LimitBound>& BufferLimitTable() {
             static const std::vector<LimitBound> table = {
-                {GL_MAX_UNIFORM_BUFFER_BINDINGS, "GL_MAX_UNIFORM_BUFFER_BINDINGS", 36, 256},
+                // 84 is the GL 4.5 core table 23.64 minimum, and also the width of the state
+                // layer's indexed-binding array - the two were made to coincide when the array
+                // was widened from 36, which had made the clamp in GL_Getter degenerate.
+                {GL_MAX_UNIFORM_BUFFER_BINDINGS, "GL_MAX_UNIFORM_BUFFER_BINDINGS", 84, 256},
+                // 14 uniform blocks on each of the FIVE graphics stages. The sum used to count
+                // three, and the two tessellation stages were simply missing from it.
+                {GL_MAX_COMBINED_UNIFORM_BLOCKS, "GL_MAX_COMBINED_UNIFORM_BLOCKS", 70, 256},
                 {GL_MAX_COMPUTE_UNIFORM_BLOCKS, "GL_MAX_COMPUTE_UNIFORM_BLOCKS", 12, 256},
                 {GL_MAX_COMPUTE_SHADER_STORAGE_BLOCKS, "GL_MAX_COMPUTE_SHADER_STORAGE_BLOCKS", 8, 256},
                 {GL_MAX_COMBINED_SHADER_STORAGE_BLOCKS, "GL_MAX_COMBINED_SHADER_STORAGE_BLOCKS", 8, 256},
@@ -133,6 +139,49 @@ namespace MGITest {
                     << relation.blocksName << " = " << blocks << " exceeds " << relation.bindingsName << " = "
                     << bindings << "; a shader may declare more blocks than there are binding points to bind them to";
             }
+
+            // THE MIDDLE TERM, which the relation quoted above always had and this case never
+            // checked. It is the one that actually broke: widening the binding-point array to 84
+            // raised what every PER-STAGE count clamps to, while the combined value was a
+            // five-stage sum of 70 - so a device reporting descriptor-indexing-scale uniform
+            // buffers (Adreno: maxPerStageDescriptorUniformBuffers = 16777216) advertised 84
+            // compute uniform blocks inside a combined limit of 70. Per-stage <= combined is
+            // exactly the assertion that says so, and it costs one glGetIntegerv per row.
+            struct StageAgainstCombined {
+                GLenum stage;
+                const char* stageName;
+                GLenum combined;
+                const char* combinedName;
+            };
+            const StageAgainstCombined stageRelations[] = {
+                {GL_MAX_COMPUTE_UNIFORM_BLOCKS, "GL_MAX_COMPUTE_UNIFORM_BLOCKS", GL_MAX_COMBINED_UNIFORM_BLOCKS,
+                 "GL_MAX_COMBINED_UNIFORM_BLOCKS"},
+                {GL_MAX_VERTEX_UNIFORM_BLOCKS, "GL_MAX_VERTEX_UNIFORM_BLOCKS", GL_MAX_COMBINED_UNIFORM_BLOCKS,
+                 "GL_MAX_COMBINED_UNIFORM_BLOCKS"},
+                {GL_MAX_TESS_CONTROL_UNIFORM_BLOCKS, "GL_MAX_TESS_CONTROL_UNIFORM_BLOCKS",
+                 GL_MAX_COMBINED_UNIFORM_BLOCKS, "GL_MAX_COMBINED_UNIFORM_BLOCKS"},
+                {GL_MAX_TESS_EVALUATION_UNIFORM_BLOCKS, "GL_MAX_TESS_EVALUATION_UNIFORM_BLOCKS",
+                 GL_MAX_COMBINED_UNIFORM_BLOCKS, "GL_MAX_COMBINED_UNIFORM_BLOCKS"},
+                {GL_MAX_GEOMETRY_UNIFORM_BLOCKS, "GL_MAX_GEOMETRY_UNIFORM_BLOCKS", GL_MAX_COMBINED_UNIFORM_BLOCKS,
+                 "GL_MAX_COMBINED_UNIFORM_BLOCKS"},
+                {GL_MAX_FRAGMENT_UNIFORM_BLOCKS, "GL_MAX_FRAGMENT_UNIFORM_BLOCKS", GL_MAX_COMBINED_UNIFORM_BLOCKS,
+                 "GL_MAX_COMBINED_UNIFORM_BLOCKS"},
+                {GL_MAX_COMPUTE_SHADER_STORAGE_BLOCKS, "GL_MAX_COMPUTE_SHADER_STORAGE_BLOCKS",
+                 GL_MAX_COMBINED_SHADER_STORAGE_BLOCKS, "GL_MAX_COMBINED_SHADER_STORAGE_BLOCKS"},
+                {GL_MAX_FRAGMENT_SHADER_STORAGE_BLOCKS, "GL_MAX_FRAGMENT_SHADER_STORAGE_BLOCKS",
+                 GL_MAX_COMBINED_SHADER_STORAGE_BLOCKS, "GL_MAX_COMBINED_SHADER_STORAGE_BLOCKS"},
+            };
+            for (const StageAgainstCombined& relation : stageRelations) {
+                GLint stage = -1;
+                GLint combined = -1;
+                glGetIntegerv(relation.stage, &stage);
+                glGetIntegerv(relation.combined, &combined);
+                ASSERT_EQ(FirstGLError(), GLenum(GL_NO_ERROR)) << relation.stageName;
+                EXPECT_LE(stage, combined)
+                    << relation.stageName << " = " << stage << " exceeds " << relation.combinedName << " = "
+                    << combined << "; GL 4.6 table 23.64 orders MAX_*_BUFFER_BINDINGS >= MAX_COMBINED_*_BLOCKS >= "
+                       "every per-stage count, and a single-stage program may use its whole per-stage allowance";
+            }
         }
 
         // KHR-GL44.multi_bind.functional_bind_buffers_range sizes each of an indexed target's
@@ -197,6 +246,80 @@ namespace MGITest {
                       static_cast<long long>(2147483647))
                 << "blocks(" << blocks << ") * blockSize(" << blockSize << ") overflows the GLint the "
                    "derived component limits are computed in";
+        }
+
+        // The GL 4.5 core minimums that had no case in the getter at all, or that were still
+        // carrying an ES/GL3.3-tier number. Every one of these answered GL_INVALID_ENUM or a
+        // too-small value against a context advertising 4.6, and each is the FIRST call its
+        // conformance case makes - so the case died before it could measure anything.
+        //
+        // The cull pair is deliberately absent: zero is a legal answer there (a backend with no
+        // cull-distance route MUST report it), so it is checked for answerability only, below.
+        TEST_F(AdvertisedLimitsScenario, EveryGL45CoreMinimumIsMet) {
+            const std::vector<LimitBound> table = {
+                {GL_MAX_VARYING_VECTORS, "GL_MAX_VARYING_VECTORS", 15, 256},
+                {GL_MAX_VERTEX_UNIFORM_VECTORS, "GL_MAX_VERTEX_UNIFORM_VECTORS", 256, 1 << 20},
+                {GL_MAX_VARYING_COMPONENTS, "GL_MAX_VARYING_COMPONENTS", 60, 1 << 20},
+                // GL_MAX_VERTEX_STREAMS is deliberately absent. GL 4.5 requires 4 and MobileGL
+                // answers 1, which is a KNOWN non-conformance rather than an oversight: raising
+                // the number un-gates two transform-feedback CTS cases per package across
+                // KHR-GL40..GL46 that then fail, because no part of the shader pipeline supports
+                // layout(stream = N). See the GL_MAX_VERTEX_STREAMS case in GL_Getter.cpp. Adding
+                // a row here would pin a number the implementation cannot back.
+                {GL_MAX_GEOMETRY_SHADER_INVOCATIONS, "GL_MAX_GEOMETRY_SHADER_INVOCATIONS", 32, 256},
+                {GL_MAX_SUBROUTINES, "GL_MAX_SUBROUTINES", 256, 1 << 20},
+                {GL_MAX_SUBROUTINE_UNIFORM_LOCATIONS, "GL_MAX_SUBROUTINE_UNIFORM_LOCATIONS", 1024, 1 << 20},
+                {GL_MAX_TESS_CONTROL_INPUT_COMPONENTS, "GL_MAX_TESS_CONTROL_INPUT_COMPONENTS", 128, 1 << 16},
+                {GL_MAX_TESS_CONTROL_OUTPUT_COMPONENTS, "GL_MAX_TESS_CONTROL_OUTPUT_COMPONENTS", 128, 1 << 16},
+                {GL_MAX_TESS_CONTROL_TOTAL_OUTPUT_COMPONENTS, "GL_MAX_TESS_CONTROL_TOTAL_OUTPUT_COMPONENTS", 4096,
+                 1 << 20},
+                {GL_MAX_TESS_CONTROL_TEXTURE_IMAGE_UNITS, "GL_MAX_TESS_CONTROL_TEXTURE_IMAGE_UNITS", 16, 256},
+                {GL_MAX_TESS_CONTROL_UNIFORM_COMPONENTS, "GL_MAX_TESS_CONTROL_UNIFORM_COMPONENTS", 1024, 1 << 20},
+                {GL_MAX_TESS_CONTROL_UNIFORM_BLOCKS, "GL_MAX_TESS_CONTROL_UNIFORM_BLOCKS", 14, 256},
+                {GL_MAX_TESS_EVALUATION_INPUT_COMPONENTS, "GL_MAX_TESS_EVALUATION_INPUT_COMPONENTS", 128, 1 << 16},
+                {GL_MAX_TESS_EVALUATION_OUTPUT_COMPONENTS, "GL_MAX_TESS_EVALUATION_OUTPUT_COMPONENTS", 128, 1 << 16},
+                {GL_MAX_TESS_EVALUATION_TEXTURE_IMAGE_UNITS, "GL_MAX_TESS_EVALUATION_TEXTURE_IMAGE_UNITS", 16, 256},
+                {GL_MAX_TESS_EVALUATION_UNIFORM_COMPONENTS, "GL_MAX_TESS_EVALUATION_UNIFORM_COMPONENTS", 1024,
+                 1 << 20},
+                {GL_MAX_TESS_EVALUATION_UNIFORM_BLOCKS, "GL_MAX_TESS_EVALUATION_UNIFORM_BLOCKS", 14, 256},
+                {GL_MAX_TESS_PATCH_COMPONENTS, "GL_MAX_TESS_PATCH_COMPONENTS", 120, 1 << 16},
+                {GL_MAX_COMBINED_TESS_CONTROL_UNIFORM_COMPONENTS, "GL_MAX_COMBINED_TESS_CONTROL_UNIFORM_COMPONENTS",
+                 58368, 1 << 30},
+                {GL_MAX_COMBINED_TESS_EVALUATION_UNIFORM_COMPONENTS,
+                 "GL_MAX_COMBINED_TESS_EVALUATION_UNIFORM_COMPONENTS", 58368, 1 << 30},
+            };
+            for (const LimitBound& bound : table) {
+                GLint value = -424242;
+                glGetIntegerv(bound.pname, &value);
+                const unsigned int error = FirstGLError();
+                EXPECT_EQ(error, GLenum(GL_NO_ERROR)) << bound.name << " is not answerable: " << GLErrorName(error);
+                if (error != GL_NO_ERROR) continue;
+                EXPECT_GE(value, bound.minimum) << bound.name << " = " << value << " is below the GL 4.5 minimum "
+                                                << bound.minimum;
+                EXPECT_LE(value, bound.ceiling) << bound.name << " = " << value << " exceeds the ceiling "
+                                                << bound.ceiling;
+            }
+
+            // ARB_cull_distance's pair. Zero is honest on a backend with no cull-distance route,
+            // so only answerability and the combined-limit ordering are checked here.
+            GLint cull = -1;
+            GLint clip = -1;
+            GLint combined = -1;
+            glGetIntegerv(GL_MAX_CULL_DISTANCES, &cull);
+            glGetIntegerv(GL_MAX_CLIP_DISTANCES, &clip);
+            glGetIntegerv(GL_MAX_COMBINED_CLIP_AND_CULL_DISTANCES, &combined);
+            ASSERT_EQ(FirstGLError(), GLenum(GL_NO_ERROR)) << "the ARB_cull_distance queries must not error";
+            EXPECT_GE(cull, 0);
+            EXPECT_GE(combined, cull) << "GL 4.6 core 11.1.3.10: the combined limit is at least the cull one";
+            EXPECT_GE(combined, clip) << "GL 4.6 core 11.1.3.10: the combined limit is at least the clip one";
+
+            // GL_MAX_ELEMENT_INDEX is 64-bit state: the required 2^32-1 does not fit a GLint, so
+            // the wide query must answer it and the narrow one must saturate rather than wrap.
+            GLint64 elementIndex = -1;
+            glGetInteger64v(GL_MAX_ELEMENT_INDEX, &elementIndex);
+            ASSERT_EQ(FirstGLError(), GLenum(GL_NO_ERROR));
+            EXPECT_GE(elementIndex, static_cast<GLint64>(4294967295LL))
+                << "GL 4.5 core table 23.55 sets the GL_MAX_ELEMENT_INDEX minimum at 2^32-1";
         }
 
         // ARB_viewport_array's own limits. They are advertised from three different places -

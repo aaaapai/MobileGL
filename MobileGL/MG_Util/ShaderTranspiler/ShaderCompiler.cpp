@@ -12,6 +12,11 @@
 
 #include "ShaderCompiler.h"
 
+#include <algorithm>
+#include <format>
+
+#include <cmath>
+
 #include "SpirvPasses/EliminateFloatEqualsZeroPass.h"
 #include "SpirvPasses/FlattenInterfaceStructPass.h"
 #include "SpirvPasses/RenameSamplerFunctionParameterPass.h"
@@ -40,6 +45,7 @@
 #include "SpirvPasses/ClampMultisampleFetchPass.h"
 #include "SpirvPasses/PrivateToEntryLocalPass.h"
 #include "SpirvPasses/StripUniformLocationsPass.h"
+#include "SpirvPasses/StripIoBlockLocationsPass.h"
 #include "SpirvPasses/StripUboMemberRelaxedPrecisionPass.h"
 #include "SpirvPasses/StripNoPerspectivePass.h"
 #include "SpirvPasses/EmulateNoPerspectivePass.h"
@@ -64,6 +70,30 @@
 namespace MobileGL {
     namespace MG_Util {
         namespace ShaderTranspiler {
+            // Above every plausible GL_MAX_TESS_GEN_LEVEL (the GL core minimum is 64), so it lands on the
+            // same clamped result the device's own maximum would. +inf has to reach the tessellator as
+            // "as finely as possible", not as "discard".
+            static constexpr const char* kClampedHighTessLevelLiteral = "65536.0";
+
+            String TessellationLevelLiteral(Float value) {
+                // GL leaves a NaN level unspecified; 0.0 is the safe reading, and unlike "nan" it compiles.
+                if (std::isnan(value)) return "0.0";
+                // -inf is <= 0 and discards the patch, exactly like 0.0. +inf clamps to the maximum.
+                if (std::isinf(value)) return value > 0.0f ? kClampedHighTessLevelLiteral : "0.0";
+
+                // Shortest round-trip, not a fixed six decimals: "{:.6f}" renders every level below ~5e-7
+                // as "0.000000", which turns a positive level GL would clamp to 1 into a discarded patch.
+                String text = std::format("{}", value);
+                // ...but shortest round-trip spells an integral value as a bare digit sequence, which GLSL
+                // reads as an INT literal, so the decimal point has to be put back when nothing else marks
+                // the literal as floating point.
+                if (text.find('.') == String::npos && text.find('e') == String::npos &&
+                    text.find('E') == String::npos) {
+                    text += ".0";
+                }
+                return text;
+            }
+
             // `env` is the compile-time backend snapshot; null means "resolve from the live
             // backend", which is what the standalone/test entry points do. The pipeline always
             // passes one, so a worker never reaches pActiveBackendObject through here.
@@ -73,16 +103,11 @@ namespace MobileGL {
                 Resources.maxClipPlanes = 6;
                 Resources.maxTextureUnits = 32;
                 Resources.maxTextureCoords = 32;
-                Resources.maxVertexAttribs = 64;
-                Resources.maxVertexUniformComponents = 4096;
-                Resources.maxVaryingFloats = 64;
-                Resources.maxVertexTextureImageUnits = 32;
-                Resources.maxCombinedTextureImageUnits = 80;
-                Resources.maxTextureImageUnits = 32;
+                Resources.maxVertexUniformComponents = MAX_VERTEX_UNIFORM_COMPONENTS;
+                Resources.maxVaryingFloats = MAX_VARYING_COMPONENTS;
                 Resources.maxFragmentUniformComponents = 4096;
-                Resources.maxDrawBuffers = 32;
-                Resources.maxVertexUniformVectors = 128;
-                Resources.maxVaryingVectors = 8;
+                Resources.maxVertexUniformVectors = MAX_VERTEX_UNIFORM_VECTORS;
+                Resources.maxVaryingVectors = MAX_VARYING_VECTORS;
                 Resources.maxFragmentUniformVectors = 256;
                 Resources.maxVertexOutputVectors = 16;
                 Resources.maxFragmentInputVectors = 15;
@@ -93,14 +118,12 @@ namespace MobileGL {
                 Resources.maxComputeImageUniforms = 8;
                 Resources.maxComputeAtomicCounters = MAX_ATOMIC_COUNTERS_PER_STAGE;
                 Resources.maxComputeAtomicCounterBuffers = MAX_ATOMIC_COUNTER_BUFFERS_PER_STAGE;
-                Resources.maxVaryingComponents = 60;
+                Resources.maxVaryingComponents = MAX_VARYING_COMPONENTS;
                 Resources.maxVertexOutputComponents = 64;
                 Resources.maxGeometryInputComponents = 64;
                 Resources.maxGeometryOutputComponents = 128;
                 Resources.maxFragmentInputComponents = 128;
                 Resources.maxImageUnits = 8;
-                Resources.maxCombinedImageUnitsAndFragmentOutputs = 8;
-                Resources.maxCombinedShaderOutputResources = 8;
                 Resources.maxImageSamples = 0;
                 Resources.maxVertexImageUniforms = 0;
                 Resources.maxTessControlImageUniforms = 0;
@@ -113,16 +136,18 @@ namespace MobileGL {
                 Resources.maxGeometryTotalOutputComponents = 1024;
                 Resources.maxGeometryUniformComponents = 1024;
                 Resources.maxGeometryVaryingComponents = 64;
-                Resources.maxTessControlInputComponents = 128;
-                Resources.maxTessControlOutputComponents = 128;
-                Resources.maxTessControlTextureImageUnits = 16;
-                Resources.maxTessControlUniformComponents = 1024;
-                Resources.maxTessControlTotalOutputComponents = 4096;
-                Resources.maxTessEvaluationInputComponents = 128;
-                Resources.maxTessEvaluationOutputComponents = 128;
-                Resources.maxTessEvaluationTextureImageUnits = 16;
-                Resources.maxTessEvaluationUniformComponents = 1024;
-                Resources.maxTessPatchComponents = 120;
+                // The tessellation block is shared with glGetIntegerv through Types.h; see the
+                // "Never move one of these without the other" note there.
+                Resources.maxTessControlInputComponents = MAX_TESS_CONTROL_INPUT_COMPONENTS;
+                Resources.maxTessControlOutputComponents = MAX_TESS_CONTROL_OUTPUT_COMPONENTS;
+                Resources.maxTessControlTextureImageUnits = MAX_TESS_CONTROL_TEXTURE_IMAGE_UNITS;
+                Resources.maxTessControlUniformComponents = MAX_TESS_CONTROL_UNIFORM_COMPONENTS;
+                Resources.maxTessControlTotalOutputComponents = MAX_TESS_CONTROL_TOTAL_OUTPUT_COMPONENTS;
+                Resources.maxTessEvaluationInputComponents = MAX_TESS_EVALUATION_INPUT_COMPONENTS;
+                Resources.maxTessEvaluationOutputComponents = MAX_TESS_EVALUATION_OUTPUT_COMPONENTS;
+                Resources.maxTessEvaluationTextureImageUnits = MAX_TESS_EVALUATION_TEXTURE_IMAGE_UNITS;
+                Resources.maxTessEvaluationUniformComponents = MAX_TESS_EVALUATION_UNIFORM_COMPONENTS;
+                Resources.maxTessPatchComponents = MAX_TESS_PATCH_COMPONENTS;
                 Resources.maxPatchVertices = 32;
                 Resources.maxTessGenLevel = 64;
                 Resources.maxViewports = 16;
@@ -148,9 +173,6 @@ namespace MobileGL {
                 Resources.maxAtomicCounterBufferSize = MAX_ATOMIC_COUNTER_BUFFER_SIZE;
                 Resources.maxTransformFeedbackBuffers = 4;
                 Resources.maxTransformFeedbackInterleavedComponents = 64;
-                Resources.maxCullDistances = 8;
-                Resources.maxCombinedClipAndCullDistances = 8;
-                Resources.maxSamples = 4;
                 Resources.maxMeshOutputVerticesNV = 256;
                 Resources.maxMeshOutputPrimitivesNV = 512;
                 Resources.maxMeshWorkGroupSizeX_NV = 32;
@@ -180,12 +202,37 @@ namespace MobileGL {
                 Resources.maxImageUnits = dynamicParameters.MaxImageUnits;
                 Resources.maxCombinedImageUnitsAndFragmentOutputs =
                     dynamicParameters.MaxImageUnits + dynamicParameters.MaxDrawBuffers;
+                // GL_MAX_COMBINED_SHADER_OUTPUT_RESOURCES and
+                // GL_MAX_COMBINED_IMAGE_UNITS_AND_FRAGMENT_OUTPUTS are the SAME token (0x8F39), so
+                // the two glslang fields have to carry the same value: glGetIntegerv answers this
+                // expression while gl_MaxCombinedShaderOutputResources expanded from a stale
+                // literal 8, and the CTS compares the two directly.
+                Resources.maxCombinedShaderOutputResources =
+                    Resources.maxCombinedImageUnitsAndFragmentOutputs;
                 Resources.maxVertexImageUniforms = dynamicParameters.MaxVertexImageUniforms;
                 Resources.maxGeometryImageUniforms = dynamicParameters.MaxGeometryImageUniforms;
                 Resources.maxFragmentImageUniforms = dynamicParameters.MaxFragmentImageUniforms;
                 Resources.maxComputeImageUniforms = dynamicParameters.MaxComputeImageUniforms;
                 Resources.maxCombinedImageUniforms = dynamicParameters.MaxCombinedImageUniforms;
                 Resources.maxComputeTextureImageUnits = dynamicParameters.MaxComputeTextureImageUnits;
+                // The texture-image-unit family and the draw-buffer count. These were stock
+                // glslang defaults (32 / 32 / 80 / 32) that had nothing to do with what
+                // glGetIntegerv answers off the same backend, and the divergence is a live
+                // correctness bug rather than a reporting one: gl_MaxDrawBuffers = 32 makes
+                // glslang ACCEPT a fragment output at location 8..31 that the runtime cannot
+                // bind, and gl_MaxCombinedTextureImageUnits = 80 under-reports a device that
+                // really has 96.
+                Resources.maxTextureImageUnits = dynamicParameters.MaxTextureImageUnits;
+                Resources.maxVertexTextureImageUnits = dynamicParameters.MaxVertexTextureImageUnits;
+                Resources.maxCombinedTextureImageUnits = dynamicParameters.MaxCombinedTextureImageUnits;
+                Resources.maxDrawBuffers = dynamicParameters.MaxDrawBuffers;
+                // The same number glGetIntegerv(GL_MAX_VERTEX_ATTRIBS) reports and the same one
+                // reflection records vertex inputs against - see ResolveMaxVertexAttribs.
+                Resources.maxVertexAttribs = ResolveMaxVertexAttribs(
+                    env ? env->HasBackend() : (activeBackend != nullptr), dynamicParameters.MaxVertexAttribs);
+                // gl_MaxSamples, floored exactly as GL_Getter::GetAdvertisedMaxSamples floors
+                // GL_MAX_SAMPLES. It also sizes gl_SampleMask[] / gl_SampleMaskIn[].
+                Resources.maxSamples = std::max(dynamicParameters.MaxSamples, MIN_ADVERTISED_MAX_SAMPLES);
                 // Load-bearing, not cosmetic. glslang rejects gl_ClipDistance[i] for
                 // i >= maxClipDistances (ParseHelper.cpp) and expands gl_MaxClipDistances from the
                 // same number, so tracking the backend limit is what turns "the program links,
@@ -194,6 +241,14 @@ namespace MobileGL {
                 // also what makes glGetIntegerv(GL_MAX_CLIP_DISTANCES) and gl_MaxClipDistances
                 // agree, which KHR-GLxx.clip_distance.coverage compares directly.
                 Resources.maxClipDistances = dynamicParameters.MaxClipDistances;
+                // The cull pair, for the same reason and with a sharper edge: cull distance
+                // discards the WHOLE primitive, so a shader that gets to declare gl_CullDistance
+                // on a backend that cannot host one does not render subtly wrong pixels, it
+                // renders nothing at all. These were literal 8s that no backend was ever asked
+                // about; a backend without cull distances now reports 0 and glslang rejects the
+                // declaration with a diagnostic the application can read.
+                Resources.maxCullDistances = dynamicParameters.MaxCullDistances;
+                Resources.maxCombinedClipAndCullDistances = dynamicParameters.MaxCombinedClipAndCullDistances;
 
                 // The compute work-group limits are the env's, not the backend parameters': they
                 // are the only ones that come from a REAL indexed driver query, which
@@ -242,7 +297,15 @@ namespace MobileGL {
                 tshader->setStrings(src, 1);
                 tshader->setNanMinMaxClamp(true);
                 tshader->setInvertY(true);
-                tshader->setPreamble("#undef VULKAN\n");
+                // The custom preamble is glslang string -1, which CPPdefine exempts from the
+                // "names beginning with GL_ can't be (un)defined" rule - so it is the only place
+                // an ES source's extension macros can be put back after PreprocessShaderSource
+                // rewrote its #version to desktop and cost it glslang's ES preamble. Empty for
+                // every source that was not rewritten from ES, which is almost all of them.
+                //
+                // setPreamble stores the POINTER, so the buffer has to outlive parse() below.
+                const String preamble = String("#undef VULKAN\n") + CollectEsPreambleMacroDefines(source);
+                tshader->setPreamble(preamble.c_str());
                 if (flags & ShaderCompileBits::CompileForOpenGL) {
                     tshader->setEnvInput(glslang::EShSourceGlsl, lang, glslang::EShClientOpenGL, 450);
                     tshader->setEnvClient(glslang::EShClientOpenGL, glslang::EShTargetOpenGL_450);
@@ -487,12 +550,28 @@ namespace MobileGL {
                                                        attrib.explicitFragmentOutIndices,
                                                        attrib.explicitOpaqueUniformBindings,
                                                        attrib.storageBlocksWithoutBinding,
-                                                       attrib.uniformBlocksWithoutBinding);
+                                                       attrib.uniformBlocksWithoutBinding,
+                                                       &attrib.resourceBindingLimits,
+                                                       attrib.resourceBindingViolation);
                     break;
                 }
                 auto ioMapper = UniquePtr<glslang::TIoMapper>(glslang::GetGlslIoMapper());
 
-                if (!program->mapIO(resolver.get(), ioMapper.get())) {
+                const bool mapped = program->mapIO(resolver.get(), ioMapper.get());
+
+                // The binding-range verdict is read BEFORE mapIO's own outcome, and unconditionally:
+                // the resolver fills it during the collect phase, which runs whether or not doMap()
+                // later succeeds, and a shader that names an out-of-range binding is rejected for
+                // THAT reason no matter what else the mapper made of it. Reporting the mapper's
+                // generic failure instead would hand the application an info log that says nothing
+                // about the declaration it has to fix.
+                if (attrib.resourceBindingViolation != nullptr && !attrib.resourceBindingViolation->empty()) {
+                    ResultInfo r;
+                    r.log = *attrib.resourceBindingViolation;
+                    r.errc = -5;
+                    return std::unexpected(r);
+                }
+                if (!mapped) {
                     ResultInfo r;
                     r.log = "Error: [glslang] Cannot mapIO:\n" + std::string(program->getInfoLog());
                     r.errc = -4;
@@ -674,6 +753,63 @@ namespace MobileGL {
                     // NormalizeRectCoordinatesPass, which reads the same operand.
                     if (type.NumInOperands() >= 2 &&
                         static_cast<spv::Dim>(type.GetSingleWordInOperand(1)) == spv::Dim::Buffer) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            Bool ShaderCompiler::ModuleDeclaresTransformFeedback(const Vector<Uint32>& spirv) {
+                if (spirv.empty()) {
+                    return false;
+                }
+                std::unique_ptr<spvtools::opt::IRContext> context = spvtools::BuildModule(
+                    SPV_ENV_VULKAN_1_1, MakeSpirvMessageConsumer("ModuleDeclaresTransformFeedback"),
+                    spirv.data(), spirv.size());
+                if (!context) {
+                    // Unparseable is not a capture verdict; say no, which makes the caller decline
+                    // the span rather than issue transform-feedback commands against it.
+                    return false;
+                }
+                // The exact question VUID-vkCmdBeginTransformFeedbackEXT-None-04128 asks of the
+                // bound pipeline's last pre-rasterization stage: was it declared with the Xfb
+                // execution mode. Reading the execution modes rather than the TransformFeedback
+                // capability because the capability can legally be declared by a module that has
+                // no Xfb entry point, and the VUID is about the mode.
+                for (const spvtools::opt::Instruction& mode : context->module()->execution_modes()) {
+                    if (mode.NumInOperands() >= 2 &&
+                        static_cast<spv::ExecutionMode>(mode.GetSingleWordInOperand(1)) ==
+                            spv::ExecutionMode::Xfb) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            Bool ShaderCompiler::ModuleDeclaresTessellationOrGeometryPointSize(const Vector<Uint32>& spirv) {
+                if (spirv.empty()) {
+                    return false;
+                }
+                std::unique_ptr<spvtools::opt::IRContext> context = spvtools::BuildModule(
+                    SPV_ENV_VULKAN_1_1,
+                    MakeSpirvMessageConsumer("ModuleDeclaresTessellationOrGeometryPointSize"), spirv.data(),
+                    spirv.size());
+                if (!context) {
+                    // Unparseable is not a verdict about point size. Say no, so the caller keeps
+                    // building the program: the module is already broken for other reasons and
+                    // the diagnostics that own that failure are better placed than this one.
+                    return false;
+                }
+                // The CAPABILITY, not the BuiltIn decoration, because the capability is exactly
+                // what the feature gates: a module may declare gl_PerVertex with a PointSize
+                // member and never access it, and glslang then emits no capability
+                // (GlslangToSpv defers it to actual use) - such a module is legal without the
+                // feature and must not be declined.
+                for (const spvtools::opt::Instruction& capability : context->capabilities()) {
+                    if (capability.NumInOperands() < 1) continue;
+                    const auto declared = static_cast<spv::Capability>(capability.GetSingleWordInOperand(0));
+                    if (declared == spv::Capability::TessellationPointSize ||
+                        declared == spv::Capability::GeometryPointSize) {
                         return true;
                     }
                 }
@@ -1090,6 +1226,31 @@ namespace MobileGL {
 
                 return RunOptimizerChecked("UniquifyIoBlockNamesForEssl", optimizer, inputBinary,
                                            outputBinary, true, enableSpirvValidation);
+            }
+
+            bool ShaderCompiler::StripIoBlockLocationsForEssl(const Vector<Uint32>& inputBinary,
+                                                              const bool stripInputBlocks,
+                                                              const bool stripOutputBlocks,
+                                                              bool& strippedAny,
+                                                              Vector<uint32_t>& outputBinary,
+                                                              const bool enableSpirvValidation) {
+                using namespace spvtools;
+                strippedAny = false;
+                if (!stripInputBlocks && !stripOutputBlocks) return false;
+                Optimizer optimizer(SPV_ENV_VULKAN_1_1);
+                optimizer.RegisterPass(StripIoBlockLocationsPass::CreateStripIoBlockLocationsPass(
+                    stripInputBlocks, stripOutputBlocks, &strippedAny));
+
+                // NOT VALIDATED, and that is the point of the pass rather than an oversight.
+                // Vulkan SPIR-V requires a Location on every user-defined Input/Output variable
+                // ([VUID-StandaloneSpirv-Location-04915]), so a module whose interface blocks
+                // have deliberately lost theirs fails spirv-val by construction. It never
+                // reaches a driver as SPIR-V: the caller runs this last in the DirectGLES chain
+                // and hands the result straight to SPIRV-Cross, which needs no location to
+                // print a block. Validating here would latch a failure on every affected
+                // program and teach the counter to cry wolf.
+                return RunOptimizerChecked("StripIoBlockLocationsForEssl", optimizer, inputBinary,
+                                           outputBinary, false, enableSpirvValidation);
             }
 
             bool ShaderCompiler::PackDoubleVertexInputsForVulkan(const Vector<Uint32>& inputBinary,
@@ -1602,6 +1763,197 @@ namespace MobileGL {
                 ValidateOrLatch("UseUnformattedFloatStorageImagesForVulkan", outputBinary,
                                 enableSpirvValidation);
                 return true;
+            }
+
+            namespace {
+                // The execution model an application-supplied module's entry point must carry for
+                // the shader object it was handed to. glShaderBinary attaches a module to a shader
+                // of a fixed type, and ARB_gl_spirv requires the specialized entry point to match.
+                SpvExecutionModel ExecutionModelForShaderType(GLenum shaderType) {
+                    switch (shaderType) {
+                    case GL_VERTEX_SHADER:
+                        return SpvExecutionModelVertex;
+                    case GL_TESS_CONTROL_SHADER:
+                        return SpvExecutionModelTessellationControl;
+                    case GL_TESS_EVALUATION_SHADER:
+                        return SpvExecutionModelTessellationEvaluation;
+                    case GL_GEOMETRY_SHADER:
+                        return SpvExecutionModelGeometry;
+                    case GL_COMPUTE_SHADER:
+                        return SpvExecutionModelGLCompute;
+                    case GL_FRAGMENT_SHADER:
+                    default:
+                        return SpvExecutionModelFragment;
+                    }
+                }
+                // The decorated capture layout, as the equivalent glTransformFeedbackVaryings
+                // request. GL 4.6 core 11.1.2.1 / ARB_transform_feedback3 give the name list two
+                // pseudo-varyings that are exactly what a decoration layout needs: gl_NextBuffer
+                // moves to the next capture buffer, and gl_SkipComponentsN (N in 1..4) advances the
+                // cursor without capturing. Together they can express any offset/stride layout
+                // whose offsets are component-aligned, which SPIR-V's are (Offset is in bytes and
+                // xfb offsets are four-byte aligned by rule).
+                Vector<String> BuildXfbVaryingRequest(const Vector<SpirvXfbCapture>& captures) {
+                    Vector<String> names;
+                    if (captures.empty()) return names;
+
+                    auto emitSkip = [&names](Uint32 components) {
+                        while (components > 0) {
+                            const Uint32 step = std::min<Uint32>(components, 4);
+                            names.push_back("gl_SkipComponents" + std::to_string(step));
+                            components -= step;
+                        }
+                    };
+
+                    Uint32 currentBuffer = captures.front().buffer;
+                    Uint32 cursorComponents = 0;
+                    Uint32 currentStride = 0;
+                    // Buffers below the first captured one still have to be stepped over, so the
+                    // Nth gl_NextBuffer really does land on buffer N.
+                    for (Uint32 buffer = 0; buffer < currentBuffer; ++buffer) {
+                        names.push_back("gl_NextBuffer");
+                    }
+                    for (const SpirvXfbCapture& capture : captures) {
+                        if (capture.buffer != currentBuffer) {
+                            // Pad the buffer being left out to its declared stride, so the record
+                            // size the module asked for survives.
+                            if (currentStride / 4 > cursorComponents) emitSkip(currentStride / 4 - cursorComponents);
+                            for (Uint32 buffer = currentBuffer; buffer < capture.buffer; ++buffer) {
+                                names.push_back("gl_NextBuffer");
+                            }
+                            currentBuffer = capture.buffer;
+                            cursorComponents = 0;
+                            currentStride = 0;
+                        }
+                        const Uint32 offsetComponents = capture.offset / 4;
+                        if (offsetComponents > cursorComponents) emitSkip(offsetComponents - cursorComponents);
+                        names.push_back(capture.name);
+                        cursorComponents = offsetComponents + capture.componentCount;
+                        currentStride = std::max(currentStride, capture.stride);
+                    }
+                    if (currentStride / 4 > cursorComponents) emitSkip(currentStride / 4 - cursorComponents);
+                    return names;
+                }
+            } // namespace
+
+            Result<void> ShaderCompiler::ValidateSpirvModule(const Vector<Uint32>& spirv) {
+                ResultInfo r;
+                r.errc = -6;
+                if (spirv.size() < 5) {
+                    r.log = "Error: [ARB_gl_spirv] the module is too short to be SPIR-V.";
+                    return std::unexpected(r);
+                }
+                // 0x07230203 is SPIR-V's magic number. A module in the other byte order is a
+                // legal SPIR-V file but NOT one glShaderBinary accepts: ARB_gl_spirv fixes the
+                // word order to the host's.
+                if (spirv[0] != 0x07230203u) {
+                    r.log = "Error: [ARB_gl_spirv] the module does not begin with the SPIR-V magic number.";
+                    return std::unexpected(r);
+                }
+
+                PrepareSpirvValidation();
+                spvtools::SpirvTools tools(SPV_ENV_OPENGL_4_5);
+                String diagnostics;
+                tools.SetMessageConsumer([&diagnostics](spv_message_level_t, const char*, const spv_position_t&,
+                                                        const char* message) {
+                    if (!diagnostics.empty()) diagnostics += "\n";
+                    diagnostics += message ? message : "";
+                });
+                if (!tools.Validate(spirv.data(), spirv.size())) {
+                    r.log = "Error: [ARB_gl_spirv] the module failed SPIR-V validation:\n" + diagnostics;
+                    return std::unexpected(r);
+                }
+                return {};
+            }
+
+            Result<ShaderCompiler::SpecializedModule> ShaderCompiler::SpecializeAndDecompileSpirvModule(
+                const Vector<Uint32>& spirv, GLenum shaderType, const String& entryPoint,
+                const Vector<Uint32>& constantIds, const Vector<Uint32>& constantValues,
+                SpecializationFailure& outFailure) {
+                outFailure = SpecializationFailure::None;
+
+                SpvcSession session(spirv, SessionUsageBit::Transpile);
+                if (!session.IsTranspileReady()) {
+                    // SPIRV-Cross could not parse the module. glShaderBinary's spirv-val pass is a
+                    // validity check, not a parseability one, so this is reachable with a module
+                    // that validates - hence a diagnosis rather than the null dereference the
+                    // unchecked constructor used to walk into.
+                    outFailure = SpecializationFailure::ModuleRejected;
+                    ResultInfo r;
+                    r.errc = -11;
+                    r.log = "Error: [ARB_gl_spirv] the module could not be parsed:\n" +
+                            String(session.GetLastErrorString());
+                    return std::unexpected(r);
+                }
+
+                Uint32 unknownConstantId = 0;
+                if (!session.SetSpecializationConstants(constantIds, constantValues, unknownConstantId)) {
+                    outFailure = SpecializationFailure::UnknownConstantId;
+                    ResultInfo r;
+                    r.errc = -7;
+                    r.log = "Error: [ARB_gl_spirv] constant index " + std::to_string(unknownConstantId) +
+                            " is not a specialization constant of this module.";
+                    return std::unexpected(r);
+                }
+
+                // No `if (!entryPoint.empty())` guard any more. ARB_gl_spirv makes pEntryPoint the
+                // name of the entry point to specialize, and no module carries one named ""; the
+                // guard turned an empty name into "whichever entry point happens to be default",
+                // which is neither what the application asked for nor an error it was told about.
+                if (session.SetEntryPoint(entryPoint.c_str(), ExecutionModelForShaderType(shaderType)) !=
+                    SPVC_SUCCESS) {
+                    outFailure = SpecializationFailure::UnknownEntryPoint;
+                    ResultInfo r;
+                    r.errc = -8;
+                    r.log = "Error: [ARB_gl_spirv] the module has no entry point named '" + entryPoint +
+                            "' for this shader stage:\n" + String(session.GetLastErrorString());
+                    return std::unexpected(r);
+                }
+
+                // Read the declared capture layout, then REMOVE the decorations that describe it.
+                // Both halves matter: without the read a SPIR-V program captures nothing, and
+                // without the strip the decorations round-trip through the emitted GLSL back into
+                // the regenerated SPIR-V, where DirectGLES's ESSL hop refuses them outright and
+                // loses the stage. See SpvcSession::StripTransformFeedbackDecorations.
+                SpecializedModule specialized;
+                specialized.xfbVaryings = BuildXfbVaryingRequest(session.ReflectTransformFeedbackCaptures());
+                session.StripTransformFeedbackDecorations();
+
+                spvc_compiler_options options;
+                if (session.CreateOptions(&options) != SPVC_SUCCESS) {
+                    outFailure = SpecializationFailure::ModuleRejected;
+                    ResultInfo r;
+                    r.errc = -9;
+                    r.log = "Error: [ARB_gl_spirv] could not create SPIRV-Cross options for the module.";
+                    return std::unexpected(r);
+                }
+                // DESKTOP 4.60, not the ESSL 3.20 DecompileShader emits: this source goes back in
+                // at the FRONT of the pipeline, to be parsed by glslang exactly like an
+                // application's own GLSL, and every one of MobileGL's source-level passes is
+                // written against the desktop dialect. The ESSL hop happens later and unchanged,
+                // out of the SPIR-V this re-parse produces.
+                spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 460);
+                spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ES, SPVC_FALSE);
+                // Vulkan semantics OFF is what makes this a GL source: descriptor sets collapse
+                // onto GL binding points, push constants become a uniform block, and - the point
+                // of the specialization pass above - every specialization constant is folded in
+                // as a literal instead of re-emitted as layout(constant_id = N).
+                spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_VULKAN_SEMANTICS, SPVC_FALSE);
+                spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_SEPARATE_SHADER_OBJECTS, SPVC_TRUE);
+                session.SetOptions(options);
+
+                const char* emitted = nullptr;
+                session.Compile(&emitted);
+                if (!emitted) {
+                    outFailure = SpecializationFailure::ModuleRejected;
+                    ResultInfo r;
+                    r.errc = -10;
+                    r.log = "Error: [ARB_gl_spirv] could not translate the module to GLSL:\n" +
+                            String(session.GetLastErrorString());
+                    return std::unexpected(r);
+                }
+                specialized.glsl = String(emitted);
+                return specialized;
             }
 
             Result<String> ShaderCompiler::DecompileShader(SpvcSession& session) {

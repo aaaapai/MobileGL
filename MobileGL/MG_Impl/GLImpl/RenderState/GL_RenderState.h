@@ -38,7 +38,10 @@ namespace MobileGL::MG_Impl::GLImpl {
     void StencilFunc(GLenum func, GLint ref, GLuint mask);
     void Scissor(GLint x, GLint y, GLsizei width, GLsizei height);
     void SampleCoverage(GLfloat value, GLboolean invert);
+    void MinSampleShading(GLfloat value);
     void PolygonOffset(GLfloat factor, GLfloat units);
+    void PolygonOffsetClamp(GLfloat factor, GLfloat units, GLfloat clamp);
+    void ClipControl(GLenum origin, GLenum depth);
     void PolygonMode(GLenum face, GLenum mode);
     void PointSize(GLfloat size);
     void PointParameterf(GLenum pname, GLfloat param);

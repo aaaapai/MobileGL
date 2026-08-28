@@ -217,12 +217,43 @@ namespace MobileGL {
                 return m_parameters.PatchVertices;
             }
 
-            void RenderState::SetPolygonOffset(Float factor, Float units) {
-                if (m_parameters.PolygonOffsetFactor == factor && m_parameters.PolygonOffsetUnits == units) return;
+            // BumpVersions(), not just ++m_version, for the same reason SetPatchVertices does it:
+            // these levels are compiled INTO the synthesized pass-through tessellation control
+            // stage on both backends, so changing one makes an already-built program stale.
+            //
+            // The redundant-write guard compares BIT PATTERNS, not floats: glPatchParameterfv
+            // accepts NaN, and a float compare would let a re-set of the identical NaN tuple fall
+            // through and bump the pipeline-state version - invalidating DirectVulkan's pipeline
+            // memo and DirectGLES's render-state span - on every single call.
+            void RenderState::SetPatchDefaultOuterLevel(const FloatVec4& levels) {
+                if (BitwiseEqual(m_parameters.PatchDefaultOuterLevel, levels)) return;
 
-                m_parameters.PolygonOffsetFactor = factor;
-                m_parameters.PolygonOffsetUnits = units;
-                ++m_version;
+                m_parameters.PatchDefaultOuterLevel = levels;
+                BumpVersions();
+            }
+
+            const FloatVec4& RenderState::GetPatchDefaultOuterLevel() const {
+                return m_parameters.PatchDefaultOuterLevel;
+            }
+
+            void RenderState::SetPatchDefaultInnerLevel(const FloatVec2& levels) {
+                if (BitwiseEqual(m_parameters.PatchDefaultInnerLevel, levels)) return;
+
+                m_parameters.PatchDefaultInnerLevel = levels;
+                BumpVersions();
+            }
+
+            const FloatVec2& RenderState::GetPatchDefaultInnerLevel() const {
+                return m_parameters.PatchDefaultInnerLevel;
+            }
+
+            void RenderState::SetPolygonOffset(Float factor, Float units) {
+                // GL 4.6 core 14.6.5 defines PolygonOffset(factor, units) as EQUIVALENT to
+                // PolygonOffsetClamp(factor, units, 0) - the equivalence is total, so the clamp is
+                // written too, not merely left alone. Leaving it meant a glPolygonOffsetClamp(1, 1,
+                // 0.5) followed by a plain glPolygonOffset(3, 4) still reported a clamp of 0.5, and
+                // the early-out below could even skip the version bump while doing it.
+                SetPolygonOffsetClamped(factor, units, 0.0f);
             }
 
             Float RenderState::GetPolygonOffsetFactor() const {
@@ -231,6 +262,37 @@ namespace MobileGL {
 
             Float RenderState::GetPolygonOffsetUnits() const {
                 return m_parameters.PolygonOffsetUnits;
+            }
+
+            void RenderState::SetPolygonOffsetClamped(Float factor, Float units, Float clamp) {
+                if (m_parameters.PolygonOffsetFactor == factor && m_parameters.PolygonOffsetUnits == units &&
+                    m_parameters.PolygonOffsetClamp == clamp)
+                    return;
+
+                m_parameters.PolygonOffsetFactor = factor;
+                m_parameters.PolygonOffsetUnits = units;
+                m_parameters.PolygonOffsetClamp = clamp;
+                ++m_version;
+            }
+
+            Float RenderState::GetPolygonOffsetClamp() const {
+                return m_parameters.PolygonOffsetClamp;
+            }
+
+            void RenderState::SetClipControl(GLenum origin, GLenum depth) {
+                if (m_parameters.ClipOrigin == origin && m_parameters.ClipDepthMode == depth) return;
+
+                m_parameters.ClipOrigin = origin;
+                m_parameters.ClipDepthMode = depth;
+                ++m_version;
+            }
+
+            GLenum RenderState::GetClipOrigin() const {
+                return m_parameters.ClipOrigin;
+            }
+
+            GLenum RenderState::GetClipDepthMode() const {
+                return m_parameters.ClipDepthMode;
             }
 
             // -------------------- Capabilities --------------------
@@ -270,6 +332,7 @@ namespace MobileGL {
                     SET_CAPABILITY(SampleAlphaToOne, enabled);
                     SET_CAPABILITY(SampleCoverage, enabled);
                     SET_CAPABILITY(SampleMask, enabled);
+                    SET_CAPABILITY(SampleShading, enabled);
                     SET_CAPABILITY(StencilTest, enabled);
                     SET_CAPABILITY(ProgramPointSize, enabled);
                 case CapabilityInput::Blend: {
@@ -344,6 +407,7 @@ namespace MobileGL {
                     RETURN_CAPABILITY(SampleAlphaToOne);
                     RETURN_CAPABILITY(SampleCoverage);
                     RETURN_CAPABILITY(SampleMask);
+                    RETURN_CAPABILITY(SampleShading);
                     RETURN_CAPABILITY(StencilTest);
                     RETURN_CAPABILITY(ProgramPointSize);
                 case CapabilityInput::Blend:
@@ -735,6 +799,20 @@ namespace MobileGL {
 
             Uint32 RenderState::GetSampleMaskValue() const {
                 return m_parameters.SampleMaskValue;
+            }
+
+            void RenderState::SetMinSampleShadingValue(Float value) {
+                if (m_parameters.MinSampleShadingValue == value) return;
+
+                m_parameters.MinSampleShadingValue = value;
+                // BumpVersions, not just ++m_version: DirectVulkan bakes the fraction into
+                // VkPipelineMultisampleStateCreateInfo::minSampleShading, so a cached pipeline
+                // built with the old value must not be reused.
+                BumpVersions();
+            }
+
+            Float RenderState::GetMinSampleShadingValue() const {
+                return m_parameters.MinSampleShadingValue;
             }
 
             // -------------------- Pixel Store --------------------

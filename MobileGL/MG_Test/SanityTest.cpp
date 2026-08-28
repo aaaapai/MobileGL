@@ -36,13 +36,21 @@
 #include <MG_Util/ShaderTranspiler/ShaderSourceProcessor.h>
 #include <MG_Util/Debug/Log.h>
 #include <MG_Util/Types.h>
+#include <limits>
 #include <set>
 
 namespace {
     class DynamicParameterBackend final : public MobileGL::MG_Backend::BackendObject {
     public:
-        explicit DynamicParameterBackend(MobileGL::MG_Backend::DynamicBackendParameters params):
-            m_params(params) {}
+        // `type` defaults to Unknown, which is what every existing case wanted: a limits-only
+        // double with no backend identity. A case that captures a CompileEnv from it and then
+        // compares the result against glGetIntegerv has to pass a REAL type, because
+        // CompileEnv::HasBackend() is what BuildTBuiltInResource bounds gl_MaxVertexAttribs by
+        // while the getter bounds it by "a backend object exists" - two spellings of the same
+        // thing in production, and only in production.
+        explicit DynamicParameterBackend(MobileGL::MG_Backend::DynamicBackendParameters params,
+                                         MobileGL::BackendType type = MobileGL::BackendType::Unknown):
+            m_params(params), m_type(type) {}
 
         void Initialize() override {}
         MobileGL::Bool InitCapabilities() override { return true; }
@@ -55,10 +63,11 @@ namespace {
         const MobileGL::MG_Backend::DynamicBackendParameters& GetDynamicParameters() const override {
             return m_params;
         }
-        MobileGL::BackendType GetBackendType() const override { return MobileGL::BackendType::Unknown; }
+        MobileGL::BackendType GetBackendType() const override { return m_type; }
 
     private:
         MobileGL::MG_Backend::DynamicBackendParameters m_params;
+        MobileGL::BackendType m_type = MobileGL::BackendType::Unknown;
         MobileGL::MG_Backend::GlobalBackendFunctionsTable m_functions{};
         MobileGL::RendererInfo m_info{
             .RendererName = "Test",
@@ -240,7 +249,7 @@ TEST(DirectGLESSanity, AdvertisesVoxyRequiredRenderingExtensions) {
     const auto& extensions = rendererInfo.Extensions;
 
     EXPECT_EQ(rendererInfo.TargetGLVersion.Major, 4);
-    EXPECT_EQ(rendererInfo.TargetGLVersion.Minor, 3);
+    EXPECT_EQ(rendererInfo.TargetGLVersion.Minor, 6);
     EXPECT_EQ(rendererInfo.TargetGLVersion.Patch, 0);
 
     EXPECT_NE(std::find(extensions.begin(), extensions.end(), MobileGL::E_GL_ARB_compute_shader),
@@ -587,7 +596,7 @@ TEST(DirectVulkanSanity, AdvertisesVoxyRequiredRenderingExtensions) {
     const auto& extensions = rendererInfo.Extensions;
 
     EXPECT_EQ(rendererInfo.TargetGLVersion.Major, 4);
-    EXPECT_EQ(rendererInfo.TargetGLVersion.Minor, 3);
+    EXPECT_EQ(rendererInfo.TargetGLVersion.Minor, 6);
     EXPECT_EQ(rendererInfo.TargetGLVersion.Patch, 0);
 
     EXPECT_NE(std::find(extensions.begin(), extensions.end(), MobileGL::E_GL_ARB_compute_shader),
@@ -720,6 +729,62 @@ TEST(DirectVulkanSanity, GatesClipDistancesOnTheShaderClipDistanceFeature) {
     caps.SupportsShaderClipDistance = true;
     backend.ApplyVulkanCapabilitiesForTesting(caps);
     EXPECT_EQ(backend.GetDynamicParameters().MaxClipDistances, 8);
+}
+
+// The cull half of the same contract. shaderCullDistance is a SEPARATE feature from
+// shaderClipDistance - VulkanRenderer enables each independently - so it gets its own gate, and
+// the combined limit is gated on either being present because GL 4.6 core 11.1.3.10 makes it at
+// least as large as both halves. These three used to be literal 8s inside BuildTBuiltInResource
+// with no device consulted at all, which let glslang accept a gl_CullDistance write that then
+// discarded every primitive it touched.
+TEST(DirectVulkanSanity, GatesCullDistancesOnTheShaderCullDistanceFeature) {
+    using namespace MobileGL;
+
+    MG_Backend::DirectVulkan::BackendObject_DirectVulkan backend;
+    MG_External::VulkanCapabilities caps;
+    caps.MaxClipDistances = 8;
+    caps.MaxCullDistances = 8;
+    caps.MaxCombinedClipAndCullDistances = 8;
+
+    caps.SupportsShaderClipDistance = false;
+    caps.SupportsShaderCullDistance = false;
+    backend.ApplyVulkanCapabilitiesForTesting(caps);
+    EXPECT_EQ(backend.GetDynamicParameters().MaxCullDistances, 0);
+    EXPECT_EQ(backend.GetDynamicParameters().MaxCombinedClipAndCullDistances, 0);
+
+    // Clip only: cull stays zero, and the combined limit still describes the clip capacity.
+    caps.SupportsShaderClipDistance = true;
+    backend.ApplyVulkanCapabilitiesForTesting(caps);
+    EXPECT_EQ(backend.GetDynamicParameters().MaxCullDistances, 0);
+    EXPECT_EQ(backend.GetDynamicParameters().MaxCombinedClipAndCullDistances, 8);
+
+    caps.SupportsShaderCullDistance = true;
+    backend.ApplyVulkanCapabilitiesForTesting(caps);
+    EXPECT_EQ(backend.GetDynamicParameters().MaxCullDistances, 8);
+    EXPECT_EQ(backend.GetDynamicParameters().MaxCombinedClipAndCullDistances, 8);
+}
+
+// DirectGLES reaches clip AND cull distances only through GL_EXT_clip_cull_distance, so the
+// loader leaves all three at zero without it and the backend forwards that verbatim. Zero is the
+// answer that stops a gl_CullDistance shader from reaching an ESSL compiler that would reject it.
+TEST(DirectGLESSanity, ForwardsTheProbedClipAndCullDistanceLimits) {
+    using namespace MobileGL;
+
+    MG_Backend::DirectGLES::BackendObject_DirectGLES backend;
+    MG_External::GLESCapabilities caps;
+    backend.ApplyGLESCapabilitiesForTesting(caps);
+    EXPECT_EQ(backend.GetDynamicParameters().MaxClipDistances, 0);
+    EXPECT_EQ(backend.GetDynamicParameters().MaxCullDistances, 0);
+    EXPECT_EQ(backend.GetDynamicParameters().MaxCombinedClipAndCullDistances, 0);
+
+    caps.SupportsClipDistance = true;
+    caps.MaxClipDistances = 8;
+    caps.MaxCullDistances = 8;
+    caps.MaxCombinedClipAndCullDistances = 8;
+    backend.ApplyGLESCapabilitiesForTesting(caps);
+    EXPECT_EQ(backend.GetDynamicParameters().MaxClipDistances, 8);
+    EXPECT_EQ(backend.GetDynamicParameters().MaxCullDistances, 8);
+    EXPECT_EQ(backend.GetDynamicParameters().MaxCombinedClipAndCullDistances, 8);
 }
 
 // GL_LAYER_PROVOKING_VERTEX / GL_VIEWPORT_INDEX_PROVOKING_VERTEX were a hard-coded
@@ -1229,6 +1294,256 @@ void main() {
         .sourceStr = pastLimit,
         .env = env.get(),
     }));
+
+    MG_Backend::pActiveBackendObject = Move(previousBackend);
+    MG_State::pGLContext = Move(previousContext);
+}
+
+// THE invariant every KHR-GL45.limits.* case checks, in one place. When the conformance table
+// gives a limit both a glGetIntegerv pname and a GLSL built-in constant, it reads the query and
+// then compiles a shader that writes the built-in into an SSBO and demands EXACT equality - so a
+// limit answered from two unreconciled tables fails the SECOND half of the case, with a message
+// about a number rather than about the two tables. Seven of them did: gl_MaxVertexAttribs said 64
+// against a query of 32, gl_MaxDrawBuffers 32 against 8, gl_MaxCombinedTextureImageUnits 80
+// against 96, gl_MaxVaryingComponents 60 against 64, gl_MaxCombinedShaderOutputResources 8
+// against 29.
+//
+// KEEP THIS TABLE GROWING. Every pname added to GL_Getter that also has a gl_Max* built-in
+// belongs here; that is what stops the next one from drifting.
+TEST(GetterSanity, EveryLimitWithABuiltinAgreesWithItsQuery) {
+    using namespace MobileGL;
+
+    auto previousContext = Move(MG_State::pGLContext);
+    auto previousBackend = Move(MG_Backend::pActiveBackendObject);
+    MG_State::pGLContext = MakeUnique<MG_State::GLState::GLContext>();
+    MG_Backend::pActiveBackendObject =
+        MakeUnique<DynamicParameterBackend>(MG_Backend::DynamicBackendParameters{}, BackendType::DirectGLES);
+
+    struct LimitPair {
+        GLenum pname;
+        const char* builtin;
+    };
+    const LimitPair pairs[] = {
+        {GL_MAX_VERTEX_ATTRIBS, "gl_MaxVertexAttribs"},
+        {GL_MAX_VERTEX_UNIFORM_COMPONENTS, "gl_MaxVertexUniformComponents"},
+        {GL_MAX_VERTEX_UNIFORM_VECTORS, "gl_MaxVertexUniformVectors"},
+        {GL_MAX_VERTEX_OUTPUT_COMPONENTS, "gl_MaxVertexOutputComponents"},
+        {GL_MAX_VARYING_COMPONENTS, "gl_MaxVaryingComponents"},
+        {GL_MAX_VARYING_VECTORS, "gl_MaxVaryingVectors"},
+        {GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS, "gl_MaxVertexTextureImageUnits"},
+        {GL_MAX_TEXTURE_IMAGE_UNITS, "gl_MaxTextureImageUnits"},
+        {GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, "gl_MaxCombinedTextureImageUnits"},
+        {GL_MAX_FRAGMENT_UNIFORM_COMPONENTS, "gl_MaxFragmentUniformComponents"},
+        {GL_MAX_FRAGMENT_UNIFORM_VECTORS, "gl_MaxFragmentUniformVectors"},
+        {GL_MAX_FRAGMENT_INPUT_COMPONENTS, "gl_MaxFragmentInputComponents"},
+        {GL_MAX_DRAW_BUFFERS, "gl_MaxDrawBuffers"},
+        {GL_MAX_IMAGE_UNITS, "gl_MaxImageUnits"},
+        // The SAME token (0x8F39) under two spellings, and the two glslang fields behind them
+        // must therefore carry the same value.
+        {GL_MAX_COMBINED_IMAGE_UNITS_AND_FRAGMENT_OUTPUTS, "gl_MaxCombinedImageUnitsAndFragmentOutputs"},
+        {GL_MAX_COMBINED_SHADER_OUTPUT_RESOURCES, "gl_MaxCombinedShaderOutputResources"},
+        {GL_MAX_CLIP_DISTANCES, "gl_MaxClipDistances"},
+        {GL_MAX_CULL_DISTANCES, "gl_MaxCullDistances"},
+        {GL_MAX_COMBINED_CLIP_AND_CULL_DISTANCES, "gl_MaxCombinedClipAndCullDistances"},
+        {GL_MAX_SAMPLES, "gl_MaxSamples"},
+        {GL_MIN_PROGRAM_TEXEL_OFFSET, "gl_MinProgramTexelOffset"},
+        {GL_MAX_PROGRAM_TEXEL_OFFSET, "gl_MaxProgramTexelOffset"},
+        {GL_MAX_GEOMETRY_INPUT_COMPONENTS, "gl_MaxGeometryInputComponents"},
+        {GL_MAX_GEOMETRY_OUTPUT_COMPONENTS, "gl_MaxGeometryOutputComponents"},
+        {GL_MAX_GEOMETRY_TEXTURE_IMAGE_UNITS, "gl_MaxGeometryTextureImageUnits"},
+        {GL_MAX_GEOMETRY_OUTPUT_VERTICES, "gl_MaxGeometryOutputVertices"},
+        {GL_MAX_GEOMETRY_TOTAL_OUTPUT_COMPONENTS, "gl_MaxGeometryTotalOutputComponents"},
+        {GL_MAX_GEOMETRY_UNIFORM_COMPONENTS, "gl_MaxGeometryUniformComponents"},
+        {GL_MAX_PATCH_VERTICES, "gl_MaxPatchVertices"},
+        {GL_MAX_TESS_GEN_LEVEL, "gl_MaxTessGenLevel"},
+        {GL_MAX_TESS_CONTROL_INPUT_COMPONENTS, "gl_MaxTessControlInputComponents"},
+        {GL_MAX_TESS_CONTROL_OUTPUT_COMPONENTS, "gl_MaxTessControlOutputComponents"},
+        {GL_MAX_TESS_CONTROL_TEXTURE_IMAGE_UNITS, "gl_MaxTessControlTextureImageUnits"},
+        {GL_MAX_TESS_CONTROL_UNIFORM_COMPONENTS, "gl_MaxTessControlUniformComponents"},
+        {GL_MAX_TESS_CONTROL_TOTAL_OUTPUT_COMPONENTS, "gl_MaxTessControlTotalOutputComponents"},
+        {GL_MAX_TESS_EVALUATION_INPUT_COMPONENTS, "gl_MaxTessEvaluationInputComponents"},
+        {GL_MAX_TESS_EVALUATION_OUTPUT_COMPONENTS, "gl_MaxTessEvaluationOutputComponents"},
+        {GL_MAX_TESS_EVALUATION_TEXTURE_IMAGE_UNITS, "gl_MaxTessEvaluationTextureImageUnits"},
+        {GL_MAX_TESS_EVALUATION_UNIFORM_COMPONENTS, "gl_MaxTessEvaluationUniformComponents"},
+        {GL_MAX_TESS_PATCH_COMPONENTS, "gl_MaxTessPatchComponents"},
+        {GL_MAX_TRANSFORM_FEEDBACK_BUFFERS, "gl_MaxTransformFeedbackBuffers"},
+        {GL_MAX_TRANSFORM_FEEDBACK_INTERLEAVED_COMPONENTS, "gl_MaxTransformFeedbackInterleavedComponents"},
+        // gl_MaxAtomicCounterBindings is glslang's name for the binding count; the GL spelling is
+        // GL_MAX_ATOMIC_COUNTER_BUFFER_BINDINGS.
+        {GL_MAX_ATOMIC_COUNTER_BUFFER_BINDINGS, "gl_MaxAtomicCounterBindings"},
+        {GL_MAX_ATOMIC_COUNTER_BUFFER_SIZE, "gl_MaxAtomicCounterBufferSize"},
+    };
+
+    // The compile runs against a captured env, exactly as the pipeline's does - that is what
+    // makes "the resource table" mean the same thing here as it does in production.
+    const auto env = MG_Util::ShaderTranspiler::CaptureCompileEnv();
+    for (const LimitPair& pair : pairs) {
+        GLint reported = -424242;
+        MG_Impl::GLImpl::GetIntegerv(pair.pname, &reported);
+        EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR)
+            << pair.builtin << "'s pname is not answerable at all";
+
+        // A negative array size is a compile error, so the stage only compiles when the built-in
+        // equals what the query just reported. Two-sided by construction: a resource table that
+        // is too permissive fails it exactly like one that is too tight. One shader per pair, so
+        // a failure names the limit instead of reporting "something disagreed".
+        const String source = String("#version 460 core\nout vec4 mgColor;\nconst int mgAgree = (") +
+                              pair.builtin + " == " + std::to_string(reported) +
+                              ") ? 1 : -1;\nint mgProbe[mgAgree];\nvoid main() { mgProbe[0] = 0; mgColor = "
+                              "vec4(float(mgProbe[0])); }\n";
+        auto compiled = MG_Util::ShaderTranspiler::ShaderCompiler::CompileShader({
+            .shaderType = GL_FRAGMENT_SHADER,
+            .sourceStr = source,
+            .env = env.get(),
+        });
+        EXPECT_TRUE(compiled) << pair.builtin << " does not equal glGetIntegerv's " << reported << ":\n"
+                              << (compiled ? String() : compiled.error().log);
+    }
+
+    MG_Backend::pActiveBackendObject = Move(previousBackend);
+    MG_State::pGLContext = Move(previousContext);
+}
+
+// GL_MAX_ELEMENT_INDEX is 64-bit state whose required value (2^32-1) does not fit a GLint, so it
+// needs its own case in BOTH widths: the 64-bit query has to answer 4294967295 and the 32-bit one
+// has to saturate, per the GL state-query conversion rules. It used to be a single `1024 * 1024;
+// // TODO` in the 32-bit table, and glGetInteger64v - which is how the conformance suite reads it
+// - widened that.
+TEST(GetterSanity, MaxElementIndexIsTheFull32BitIndexCeiling) {
+    using namespace MobileGL;
+
+    auto previousContext = Move(MG_State::pGLContext);
+    auto previousBackend = Move(MG_Backend::pActiveBackendObject);
+    MG_State::pGLContext = MakeUnique<MG_State::GLState::GLContext>();
+    MG_Backend::pActiveBackendObject = MakeUnique<DynamicParameterBackend>(MG_Backend::DynamicBackendParameters{});
+
+    GLint64 wide = -1;
+    MG_Impl::GLImpl::GetInteger64v(GL_MAX_ELEMENT_INDEX, &wide);
+    EXPECT_EQ(wide, static_cast<GLint64>(0xFFFFFFFFLL));
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    GLint narrow = -1;
+    MG_Impl::GLImpl::GetIntegerv(GL_MAX_ELEMENT_INDEX, &narrow);
+    EXPECT_EQ(narrow, INT32_MAX) << "the 32-bit query must saturate, not truncate or wrap";
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    MG_Backend::pActiveBackendObject = Move(previousBackend);
+    MG_State::pGLContext = Move(previousContext);
+}
+
+// GL 4.6 core table 23.53 gives GL_MAX_SAMPLES a minimum of four and the three per-category
+// ceilings a minimum of ONE. Flooring the latter at four is the advertised-caps lie that made
+// KHR-GL46.sample_variables.mask.rgba8i run at all: the frontend promised four integer samples,
+// the backend clamped the realised allocation to the one the driver can back, and the application
+// wrote per-sample data it could never read.
+TEST(GetterSanity, PerCategoryMultisampleCeilingsAreProbedRatherThanFlooredAtFour) {
+    using namespace MobileGL;
+
+    auto previousContext = Move(MG_State::pGLContext);
+    auto previousBackend = Move(MG_Backend::pActiveBackendObject);
+    MG_State::pGLContext = MakeUnique<MG_State::GLState::GLContext>();
+
+    MG_Backend::DynamicBackendParameters params;
+    params.MaxSamples = 4;
+    params.MaxColorTextureSamples = 4;
+    params.MaxDepthTextureSamples = 2;
+    params.MaxIntegerSamples = 1;
+    MG_Backend::pActiveBackendObject = MakeUnique<DynamicParameterBackend>(params);
+
+    GLint reported = -1;
+    MG_Impl::GLImpl::GetIntegerv(GL_MAX_INTEGER_SAMPLES, &reported);
+    EXPECT_EQ(reported, 1) << "an integer multisample texture is backed by one sample here, and "
+                              "saying otherwise is what the application allocates against";
+    MG_Impl::GLImpl::GetIntegerv(GL_MAX_DEPTH_TEXTURE_SAMPLES, &reported);
+    EXPECT_EQ(reported, 2);
+    MG_Impl::GLImpl::GetIntegerv(GL_MAX_COLOR_TEXTURE_SAMPLES, &reported);
+    EXPECT_EQ(reported, 4);
+    // ...while GL_MAX_SAMPLES keeps its floor of four, which is the one the spec really requires.
+    params.MaxSamples = 1;
+    MG_Backend::pActiveBackendObject = MakeUnique<DynamicParameterBackend>(params);
+    MG_Impl::GLImpl::GetIntegerv(GL_MAX_SAMPLES, &reported);
+    EXPECT_EQ(reported, 4);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    MG_Backend::pActiveBackendObject = Move(previousBackend);
+    MG_State::pGLContext = Move(previousContext);
+}
+
+// GL_ARB_cull_distance below #version 450, which is the band the conformance suite actually
+// compiles in: cull_distance.coverage emits its compute shader at "#version 420 core" with
+// `#extension GL_ARB_cull_distance : require` and reads gl_MaxCullDistances. Registering the
+// extension name alone was not enough - `require` started succeeding while the constants stayed
+// gated on 450, so the shader traded one error for another.
+//
+// The three cases below are the whole contract: the macro must be true exactly where the feature
+// is, the constants must exist under the extension, and using the feature WITHOUT the extension
+// must still fail (otherwise the gate is decorative).
+TEST(ShaderCompilerSanity, ArbCullDistanceIsUsableBelow450) {
+    using namespace MobileGL;
+
+    auto previousContext = Move(MG_State::pGLContext);
+    auto previousBackend = Move(MG_Backend::pActiveBackendObject);
+    MG_State::pGLContext = MakeUnique<MG_State::GLState::GLContext>();
+    MG_Backend::pActiveBackendObject = MakeUnique<DynamicParameterBackend>(MG_Backend::DynamicBackendParameters{});
+    const auto env = MG_Util::ShaderTranspiler::CaptureCompileEnv();
+
+    const auto compileFragment = [&env](const String& source) {
+        return MG_Util::ShaderTranspiler::ShaderCompiler::CompileShader({
+            .shaderType = GL_FRAGMENT_SHADER,
+            .sourceStr = source,
+            .env = env.get(),
+        });
+    };
+
+    // The coverage shader's shape, reduced to a fragment stage: require the extension, then read
+    // the constant it brings.
+    const String withExtension = R"(#version 420 core
+#extension GL_ARB_cull_distance : require
+out vec4 mgColor;
+void main() { mgColor = vec4(float(gl_MaxCullDistances + gl_MaxCombinedClipAndCullDistances)); }
+)";
+    auto extensionCompiled = compileFragment(withExtension);
+    EXPECT_TRUE(extensionCompiled) << (extensionCompiled ? String() : extensionCompiled.error().log);
+
+    // The macro has to agree with that, or the standard `#ifdef` probe lies in one direction or
+    // the other. It is defined from 400 up, where the built-ins exist...
+    const String macroProbe420 = R"(#version 420 core
+out vec4 mgColor;
+#ifndef GL_ARB_cull_distance
+#error GL_ARB_cull_distance should be defined at 420
+#endif
+void main() { mgColor = vec4(0.0); }
+)";
+    auto macro420 = compileFragment(macroProbe420);
+    EXPECT_TRUE(macro420) << (macro420 ? String() : macro420.error().log);
+
+    // ...and NOT below it, where they do not. A shader whose `#ifdef GL_ARB_cull_distance` branch
+    // reads gl_MaxCullDistances used to take that branch at 330 and fail to compile.
+    const String macroProbe330 = R"(#version 330 core
+out vec4 mgColor;
+#ifdef GL_ARB_cull_distance
+#error GL_ARB_cull_distance must not be advertised where the built-ins do not exist
+#endif
+void main() { mgColor = vec4(0.0); }
+)";
+    auto macro330 = compileFragment(macroProbe330);
+    EXPECT_TRUE(macro330) << (macro330 ? String() : macro330.error().log);
+
+    // The gate is real: below 450 the constants are reachable ONLY through the extension.
+    const String withoutExtension = R"(#version 420 core
+out vec4 mgColor;
+void main() { mgColor = vec4(float(gl_MaxCullDistances)); }
+)";
+    EXPECT_FALSE(compileFragment(withoutExtension))
+        << "gl_MaxCullDistances must require GL_ARB_cull_distance below #version 450";
+
+    // ...and at 450 it is core, so no directive is needed.
+    const String core450 = R"(#version 450 core
+out vec4 mgColor;
+void main() { mgColor = vec4(float(gl_MaxCullDistances)); }
+)";
+    auto coreCompiled = compileFragment(core450);
+    EXPECT_TRUE(coreCompiled) << (coreCompiled ? String() : coreCompiled.error().log);
 
     MG_Backend::pActiveBackendObject = Move(previousBackend);
     MG_State::pGLContext = Move(previousContext);
@@ -2744,4 +3059,62 @@ TEST(DirectVulkanSanity, GraphicsSamplerFeedbackOnlyAliasesWritableOverlappingMi
     EXPECT_FALSE(UniformManager::SamplerOverlapsWritableImageSubresource(1, 3, 2, GL_READ_ONLY));
     EXPECT_FALSE(UniformManager::SamplerOverlapsWritableImageSubresource(1, 3, 0, GL_WRITE_ONLY));
     EXPECT_FALSE(UniformManager::SamplerOverlapsWritableImageSubresource(1, 3, 4, GL_WRITE_ONLY));
+}
+
+// GL_MAX_COMBINED_*_UNIFORM_COMPONENTS is components + blocks * (blockSize / 4). The product was
+// formed in signed 32-bit, and a Vulkan host that reports a large VkPhysicalDeviceLimits::
+// maxUniformBufferRange (a Mali driver answers 0xFFFFFFFF, which the loader saturates to
+// INT32_MAX) made 14 * (2147483647 / 4) + 4096 wrap to -1073737742 - which is byte for byte what
+// the conformance suite read back as "Limit value is: -1073737742 when it should not be smaller
+// than 58368". GLES escaped it only because the ES driver answers 65536 for the block size.
+TEST(GetterSanity, CombinedUniformComponentsSaturateInsteadOfOverflowing) {
+    using namespace MobileGL;
+
+    MG_State::pGLContext = MakeUnique<MG_State::GLState::GLContext>();
+
+    // GL_MAX_COMBINED_COMPUTE_UNIFORM_COMPONENTS (0x8266), NOT the per-stage
+    // GL_MAX_COMPUTE_UNIFORM_COMPONENTS (0x8263) this list used to name. The per-stage token is
+    // answered by a frontend constant and never reaches GetMaxCombinedUniformComponents at all, so
+    // both assertions on it were vacuous - and it displaced the ONE reader whose block count comes
+    // from the backend (ClampUniformBlockCount(dynamicParameters.MaxComputeUniformBlocks)) rather
+    // than from a frontend constant, i.e. the only call site where the saturation actually depends
+    // on data a driver supplies.
+    static constexpr GLenum kCombinedPnames[] = {
+        GL_MAX_COMBINED_VERTEX_UNIFORM_COMPONENTS,   GL_MAX_COMBINED_FRAGMENT_UNIFORM_COMPONENTS,
+        GL_MAX_COMBINED_GEOMETRY_UNIFORM_COMPONENTS, GL_MAX_COMBINED_TESS_CONTROL_UNIFORM_COMPONENTS,
+        GL_MAX_COMBINED_TESS_EVALUATION_UNIFORM_COMPONENTS, GL_MAX_COMBINED_COMPUTE_UNIFORM_COMPONENTS,
+    };
+    // The GL 4.6 core table 23.64 floor, which all six combined pnames carry.
+    static constexpr GLint kCombinedFloor = 58368;
+
+    {
+        MG_Backend::DynamicBackendParameters params;
+        params.MaxUniformBlockSize = std::numeric_limits<GLint>::max();
+        MG_Backend::pActiveBackendObject = MakeUnique<DynamicParameterBackend>(params);
+
+        for (const GLenum pname: kCombinedPnames) {
+            GLint reported = 0;
+            MG_Impl::GLImpl::GetIntegerv(pname, &reported);
+            EXPECT_GT(reported, 0) << "pname 0x" << pname << " wrapped to a negative combined component count";
+            EXPECT_GE(reported, kCombinedFloor) << "pname 0x" << pname << " fell under the GL 4.6 floor";
+        }
+        MG_Backend::pActiveBackendObject.reset();
+    }
+
+    // An ordinary 64 KiB block size still produces the plain arithmetic, not a saturated value:
+    // saturation must be the ceiling, never the answer.
+    {
+        MG_Backend::DynamicBackendParameters params;
+        params.MaxUniformBlockSize = 65536;
+        MG_Backend::pActiveBackendObject = MakeUnique<DynamicParameterBackend>(params);
+
+        GLint reported = 0;
+        MG_Impl::GLImpl::GetIntegerv(GL_MAX_COMBINED_VERTEX_UNIFORM_COMPONENTS, &reported);
+        // 4096 default-block components + 14 blocks x (65536 / 4) components each.
+        EXPECT_EQ(reported, 4096 + 14 * (65536 / 4));
+        EXPECT_LT(reported, std::numeric_limits<GLint>::max());
+        MG_Backend::pActiveBackendObject.reset();
+    }
+
+    MG_State::pGLContext.reset();
 }

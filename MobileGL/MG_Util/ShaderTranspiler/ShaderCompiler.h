@@ -18,6 +18,18 @@
 namespace MobileGL {
     namespace MG_Util {
         namespace ShaderTranspiler {
+            // A GLSL float literal for a tessellation level, for the pass-through tessellation
+            // control stage both backends synthesize when a program has an evaluation stage and no
+            // control stage. Shared so the two generators cannot disagree about what a level means.
+            //
+            // GL 4.6 core 11.2.2 discards a patch only when a relevant OUTER level is <= 0; every
+            // other value is CLAMPED into [1, MAX_TESS_GEN_LEVEL]. So "draw nothing" is reserved
+            // for the values that really mean it, and everything else has to survive the trip
+            // through text: a shortest-round-trip spelling, because a fixed-decimal one flushes
+            // small positive levels to zero, and always with a '.' or an exponent, because a bare
+            // digit sequence is an INT literal and `gl_TessLevelOuter[0] = 1;` does not compile.
+            String TessellationLevelLiteral(Float value);
+
             class ShaderCompiler {
             public:
                 static Result<SharedPtr<glslang::TShader>> CompileShader(const ShaderAttrib& attrib);
@@ -142,6 +154,20 @@ namespace MobileGL {
                                                         std::set<String>& renamedBlockNames,
                                                         Vector<uint32_t>& outputBinary,
                                                         bool enableSpirvValidation = false);
+                // Drops the Location (and Component) decoration from inter-stage interface
+                // BLOCK variables, so SPIRV-Cross emits them unqualified and ES matches them
+                // by block name plus member sequence. `stripInputBlocks` covers the blocks
+                // this stage consumes and `stripOutputBlocks` the ones it produces - armed
+                // separately because an interface whose other end is in a DIFFERENT program
+                // must keep the location that matches it there. `strippedAny` reports whether
+                // this stage actually had one. The Mali ES driver loses the payload of a
+                // located block across any tessellation or geometry boundary; only for the
+                // DirectGLES transpile path, and only when the driver POST says so. See
+                // StripIoBlockLocationsPass.
+                static bool StripIoBlockLocationsForEssl(const Vector<Uint32>& inputBinary,
+                                                         bool stripInputBlocks, bool stripOutputBlocks,
+                                                         bool& strippedAny, Vector<uint32_t>& outputBinary,
+                                                         bool enableSpirvValidation = false);
                 // Drops RelaxedPrecision member decorations from uniform-block structs so
                 // SPIRV-Cross prints the same (highp) member precision in every stage; ES
                 // drivers reject cross-stage uniform blocks whose member precisions differ.
@@ -393,6 +419,78 @@ namespace MobileGL {
                                                    bool enableSpirvValidation = false);
                 static Result<String> DecompileShader(SpvcSession& session);
 
+                // ---- GL_ARB_gl_spirv ----
+                // Turn an APPLICATION-supplied SPIR-V module into the desktop GLSL the ordinary
+                // compile pipeline consumes.
+                //
+                // Why a round trip rather than handing the module straight to the backends. SPIR-V
+                // is not where MobileGL's pipeline STARTS: a program's whole GL-visible surface -
+                // every glGetActiveUniform, every uniform location, every block index, the
+                // transform-feedback layout, the default-block UBO routing - is reflected out of
+                // glslang's TProgram at link (ProgramLinkTask::SnapshotGlslangReflection), and
+                // glslang can only build one from a GLSL parse. Injecting the module at
+                // ProgramSpirvTask instead would skip the link entirely and leave every one of
+                // those queries answering nothing. Decompiling puts the application's module at
+                // the head of the SAME pipeline, so reflection, the relaxed default-block
+                // lowering, both backends and every memo tier work on it unchanged.
+                //
+                // What it costs, stated plainly: names. A module stripped of OpName (which
+                // ARB_gl_spirv permits, and the conformance suite deliberately does) comes back
+                // with SPIRV-Cross's generated identifiers rather than with none, so the
+                // *_MAX_LENGTH queries answer those instead of 1.
+                //
+                // `entryPoint` selects among several OpEntryPoint of this stage's execution
+                // model; an empty string means "whichever one is there". The specialization
+                // constants glSpecializeShader supplied are applied in the same pass - SPIRV-Cross
+                // folds each into the emitted source as a literal once Vulkan semantics are off,
+                // which is exactly what "specialize, then compile" means for a GLSL consumer.
+                //
+                // `constantIds` and `constantValues` are the parallel arrays the entry point
+                // takes. A constant id the module does not declare is GL_INVALID_VALUE per the
+                // extension; it is reported through the error log rather than silently ignored.
+                // Why the caller needs a REASON and not just a failure: ARB_gl_spirv splits the
+                // ways specialization can fail into two groups with different GL surfaces. A bad
+                // entry-point name and a constant id the module does not declare are enumerated
+                // errors - GL_INVALID_VALUE, and, being errors, they must leave the shader object
+                // exactly as it was. Everything else (a module SPIRV-Cross cannot translate) is a
+                // COMPILE failure, reported through COMPILE_STATUS and the info log like any other
+                // glCompileShader outcome. Returning one undifferentiated error is what made both
+                // groups look like the second.
+                enum class SpecializationFailure {
+                    None,
+                    UnknownConstantId,   // GL_INVALID_VALUE
+                    UnknownEntryPoint,   // GL_INVALID_VALUE
+                    ModuleRejected,      // COMPILE_STATUS false + info log
+                };
+
+                // What a specialized module turns into: the GLSL the ordinary pipeline compiles,
+                // plus the transform-feedback capture the module DECLARED, re-expressed as the
+                // glTransformFeedbackVaryings request that produces the same layout.
+                //
+                // The re-expression is the whole design. ARB_gl_spirv makes XfbBuffer/XfbStride/
+                // Offset decorations the only way a SPIR-V program declares capture, and MobileGL's
+                // capture machinery - the frontend packer, DirectGLES's forwarding to the ES
+                // driver, DirectVulkan's XfbCaptureDecoratePass - is driven entirely by a name
+                // list. Translating the decorations into the equivalent name list (with
+                // ARB_transform_feedback3's gl_NextBuffer / gl_SkipComponentsN spelling carrying
+                // the buffer breaks and the gaps) hands a SPIR-V program to the machinery that
+                // already exists, instead of teaching every consumer a second declaration form.
+                struct SpecializedModule {
+                    String glsl;
+                    Vector<String> xfbVaryings;
+                    GLenum xfbBufferMode = GL_INTERLEAVED_ATTRIBS;
+                };
+
+                static Result<SpecializedModule> SpecializeAndDecompileSpirvModule(
+                    const Vector<Uint32>& spirv, GLenum shaderType, const String& entryPoint,
+                    const Vector<Uint32>& constantIds, const Vector<Uint32>& constantValues,
+                    SpecializationFailure& outFailure);
+
+                // spirv-val over an application-supplied module, against the environment MobileGL
+                // parses and emits under. glShaderBinary is where a malformed module has to be
+                // caught: past it the words reach SPIRV-Cross, which is not a validator.
+                static Result<void> ValidateSpirvModule(const Vector<Uint32>& spirv);
+
                 // Parses one trivial shader in each configuration the production path can
                 // reach, on the calling thread, so the built-in symbol tables those
                 // configurations need are already cached before any worker asks for one.
@@ -448,6 +546,21 @@ namespace MobileGL {
                 // check exists so that failure can be reported as the missing capability it is,
                 // naming the shader, rather than as a driver info log nobody sees.
                 static Bool ModuleDeclaresBufferTextureSampler(const Vector<Uint32>& spirv);
+                // Does this module carry the Xfb execution mode - i.e. would a
+                // vkCmdBeginTransformFeedbackEXT against a pipeline whose last pre-rasterization
+                // stage is this module satisfy VUID-vkCmdBeginTransformFeedbackEXT-None-04128?
+                // Asked of the FINAL bytes, so it answers for whatever the backend transform
+                // chain actually produced rather than for what it was asked to produce.
+                static Bool ModuleDeclaresTransformFeedback(const Vector<Uint32>& spirv);
+                // Does this module declare TessellationPointSize or GeometryPointSize - i.e. does
+                // it need VkPhysicalDeviceFeatures::shaderTessellationAndGeometryPointSize before
+                // a pipeline built from it is legal usage (VUID-RuntimeSpirv-PointSize-06439)?
+                // glslang emits either capability from any access to the PointSize built-in in a
+                // tessellation or geometry stage, which desktop GL treats as an ordinary
+                // per-vertex output, so a program that is perfectly legal in GL can need a Vulkan
+                // feature the device does not have. Callers only ask when the feature is OFF, so
+                // the module parse costs nothing on a device that has it.
+                static Bool ModuleDeclaresTessellationOrGeometryPointSize(const Vector<Uint32>& spirv);
 
                 // True when the module still declares a 64-bit float type. After
                 // SanitizeAndOptimizeBinary that can only mean DemoteFloat64Pass declined the

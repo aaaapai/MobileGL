@@ -13,6 +13,8 @@
 #include "TMglGlslIoResolver.h"
 
 #include <cstring>
+#include <cstdlib>
+#include <string>
 
 #include <MG_Util/ShaderTranspiler/Types.h>
 
@@ -165,6 +167,101 @@ namespace MobileGL {
     // before the preprocessor's macros were expanded and therefore could not read
     // `binding = SOME_MACRO` - the spelling Flywheel's indirect engine uses for every one of
     // its storage blocks. Asking the AST instead makes the macro case ordinary.
+    // GLSL 4.30 4.4.5 and ES 3.1 4.4.4: `layout(binding = N)` on any opaque uniform, uniform
+    // block, storage block or atomic counter is a COMPILE-TIME error when N is not less than that
+    // resource kind's implementation limit - and, for an ARRAY of them, when base + count - 1 is
+    // not. MobileGL enforces it here rather than at compile because here is the last point where
+    // `qualifier.hasBinding()` still means "the SHADER said so" (see the comment on the caller),
+    // and because the per-device ceilings are deliberately not part of the compile pipeline's
+    // memo keys. The conformance suite accepts a link-time rejection: its predicate is
+    // compiledAndLinked(), which is the AND of the two.
+    //
+    // FIVE KINDS HERE, AND ONE OF THEM IS ALSO CHECKED EARLIER. Before this, exactly one kind -
+    // shader-storage blocks - was checked at all, by a bespoke lexical scan of the shader source,
+    // which is why the storage sub-family was the one that passed while sampler, image,
+    // uniform-block and atomic-counter bindings sailed past every ceiling.
+    //
+    // That scan is deliberately KEPT (ShaderCompileTask.cpp's MaxShaderStorageBufferBindings
+    // explains why: GLSL makes an over-range binding a COMPILE-time error, and the relaxed Vulkan
+    // parse leaves the scan as the only place MobileGL can raise one). So the storage arm has two
+    // enforcement points and the other four have this one. What keeps them from drifting is not
+    // that there is only one site but that both read the SAME numbers - ResolveResourceBindingLimits
+    // is the single derivation, and neither site computes a ceiling of its own.
+    void TMglGlslIoResolver::CheckDeclaredBindingRange(const glslang::TType& type, const glslang::TString& name) {
+        if (m_bindingLimits == nullptr || m_bindingViolation == nullptr) return;
+        if (!m_bindingViolation->empty()) return;   // first violation wins; the link is already lost
+
+        const glslang::TQualifier& qualifier = type.getQualifier();
+        const char* kind = nullptr;
+        const char* limitName = nullptr;
+        Int limit = 0;
+        long long binding = -1;
+
+        if (type.getBasicType() == glslang::EbtSampler && qualifier.hasBinding()) {
+            const bool isImage = type.getSampler().isImage();
+            kind = isImage ? "image" : "sampler";
+            limitName = isImage ? "GL_MAX_IMAGE_UNITS" : "GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS";
+            limit = isImage ? m_bindingLimits->MaxImageBindings : m_bindingLimits->MaxSamplerBindings;
+            binding = qualifier.layoutBinding;
+        } else if (type.getBasicType() == glslang::EbtBlock) {
+            // An atomic counter never reaches here as a counter: the relaxed parse has already
+            // folded it into a synthesized "gl_AtomicCounterBlock_<binding>" storage block whose
+            // TRAILING NUMBER is the GL binding the shader asked for (ParseContextBase::
+            // growAtomicCounterBlock names it from bufferBinding). That name is the only surviving
+            // record of the declaration, so it is what the counter ceiling is read off.
+            const Int counterBinding = MG_Util::ShaderTranspiler::AtomicCounterBlockGlBinding(
+                StringView(name.c_str(), name.size()));
+            if (counterBinding >= 0) {
+                kind = "atomic_uint";
+                limitName = "GL_MAX_ATOMIC_COUNTER_BUFFER_BINDINGS";
+                limit = m_bindingLimits->MaxAtomicCounterBufferBindings;
+                binding = counterBinding;
+            } else if (qualifier.hasBinding() && qualifier.storage == glslang::EvqUniform &&
+                       name.compare(MG_Util::ShaderTranspiler::GLOBAL_UBO_NAME) != 0) {
+                kind = "uniform block";
+                limitName = "GL_MAX_UNIFORM_BUFFER_BINDINGS";
+                limit = m_bindingLimits->MaxUniformBufferBindings;
+                binding = qualifier.layoutBinding;
+            } else if (qualifier.hasBinding() && qualifier.storage == glslang::EvqBuffer) {
+                kind = "buffer block";
+                limitName = "GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS";
+                limit = m_bindingLimits->MaxShaderStorageBufferBindings;
+                binding = qualifier.layoutBinding;
+            }
+        }
+
+        if (kind == nullptr || limit <= 0 || binding < 0) return;
+
+        // The ARRAYED-INSTANCE rule: an array of N takes bindings base .. base + N - 1, and every
+        // one of them has to fit. getCumulativeArraySize() folds a multi-dimensional array into
+        // the count of leaf elements, which is exactly how many consecutive bindings GL hands out.
+        //
+        // isSizedArray() is MANDATORY, not defensive. glslang's TArraySizes::getCumulativeSize()
+        // asserts `sizes.getDimSize(d) != UnsizedArraySize` ("this only makes sense in paths that
+        // have a known array size"), so calling it on a run-time-sized array - the ordinary shape
+        // of a storage block's trailing member, and legal on the block instance itself - aborts
+        // the process inside mapIO's collect callback in any build with assertions live. The
+        // repo defines no NDEBUG of its own, so a CMake Debug build is exactly such a build; the
+        // "reports 0" behaviour the previous comment relied on is only what NDEBUG happens to do.
+        // An unsized array occupies one binding here, which is also what GL means by it.
+        long long elementCount = 1;
+        if (type.isArray() && type.isSizedArray()) {
+            const int cumulative = static_cast<int>(type.getCumulativeArraySize());
+            if (cumulative > 1) elementCount = cumulative;
+        }
+        const long long lastBinding = binding + elementCount - 1;
+        if (lastBinding < static_cast<long long>(limit)) return;
+
+        String message = "Error: layout(binding = " + std::to_string(binding) + ") on " + kind + " '" +
+                         String(name.c_str()) + "'";
+        if (elementCount > 1) {
+            message += " (an array of " + std::to_string(elementCount) + ", occupying bindings " +
+                       std::to_string(binding) + ".." + std::to_string(lastBinding) + ")";
+        }
+        message += " is not less than " + String(limitName) + " (" + std::to_string(limit) + ").";
+        *m_bindingViolation = Move(message);
+    }
+
     void TMglGlslIoResolver::reserverResourceSlot(glslang::TVarEntryInfo& ent, TInfoSink& infoSink) {
         const glslang::TType& type = ent.symbol->getType();
         const glslang::TQualifier& qualifier = type.getQualifier();
@@ -206,6 +303,8 @@ namespace MobileGL {
             name.compare(MG_Util::ShaderTranspiler::GLOBAL_UBO_NAME) != 0) {
             m_uniformBlocksWithoutBinding->insert(name.c_str());
         }
+
+        CheckDeclaredBindingRange(type, name);
 
         TDefaultGlslIoResolver::reserverResourceSlot(ent, infoSink);
     }

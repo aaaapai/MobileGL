@@ -500,7 +500,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             .RendererName = "Magma",
             .BackendName = "Direct (Vulkan)",
             .ExtraVendor = Nullopt,
-            .RendererGLInfo = {.TargetGLVersion = {4, 3, 0},
+            .RendererGLInfo = {.TargetGLVersion = {4, 6, 0},
                                .TargetGLSLVersion = {4, 6, 0},
                                // Baseline advertisement (no runtime-gated capabilities); a live
                                // backend reconciles its copy in UpdateAdvertisedExtensions.
@@ -516,10 +516,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                                   Bool cubeMapArraySupported) {
         Vector<GLExtension> extensions = {
             // The version tokens have to reach the version the backend actually claims:
-            // TargetGLVersion is {4,3,0}, and a list that stopped at OpenGL40 told an
+            // TargetGLVersion is {4,6,0}, and a list that stopped at OpenGL40 told an
             // application feature-detecting off these tokens the opposite of what
             // GL_MAJOR_VERSION / GL_MINOR_VERSION told it.
             V_OpenGL30, V_OpenGL31, V_OpenGL32, V_OpenGL33, V_OpenGL40, V_OpenGL41, V_OpenGL42, V_OpenGL43,
+            V_OpenGL44, V_OpenGL45, V_OpenGL46,
             E_GL_ARB_draw_buffers_blend,
             E_GL_ARB_compute_shader, E_GL_ARB_shader_storage_buffer_object, E_GL_ARB_shader_image_load_store,
             E_GL_ARB_clear_buffer_object, E_GL_ARB_program_interface_query, E_GL_ARB_framebuffer_object, E_GL_ARB_draw_indirect,
@@ -1005,6 +1006,19 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         // it the limit describes a capacity no shader may use, so report none.
         m_dynamicParameters.MaxClipDistances =
             m_vulkanCaps.SupportsShaderClipDistance ? std::max(m_vulkanCaps.MaxClipDistances, 0) : 0;
+        // The cull pair, gated on its own feature. shaderCullDistance is separate from
+        // shaderClipDistance and VulkanRenderer enables it independently, so it gets its own
+        // gate rather than riding on the clip one.
+        m_dynamicParameters.MaxCullDistances =
+            m_vulkanCaps.SupportsShaderCullDistance ? std::max(m_vulkanCaps.MaxCullDistances, 0) : 0;
+        // GL 4.6 core 11.1.3.10: the combined limit is at least as large as either half. A device
+        // with only one of the two features must not report a combined capacity that implies the
+        // other, so the gate is "either feature" and the value never drops below what is enabled.
+        m_dynamicParameters.MaxCombinedClipAndCullDistances =
+            (m_vulkanCaps.SupportsShaderClipDistance || m_vulkanCaps.SupportsShaderCullDistance)
+                ? std::max({m_vulkanCaps.MaxCombinedClipAndCullDistances, m_dynamicParameters.MaxClipDistances,
+                            m_dynamicParameters.MaxCullDistances})
+                : 0;
         m_dynamicParameters.MaxViewports = m_vulkanCaps.MaxViewports;
         // Assigned explicitly rather than left to the struct's defaults, like every other
         // parameter here, so a second fill cannot inherit a stale value. GL_UNDEFINED_VERTEX is

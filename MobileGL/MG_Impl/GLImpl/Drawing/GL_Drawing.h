@@ -32,8 +32,10 @@ namespace MobileGL::MG_Impl::GLImpl {
     void DispatchCompute(GLuint numGroupsX, GLuint numGroupsY, GLuint numGroupsZ);
     void DispatchComputeIndirect(GLintptr indirect);
     void PatchParameteri(GLenum pname, GLint value);
+    void PatchParameterfv(GLenum pname, const GLfloat* values);
     void MemoryBarrier(GLbitfield barriers);
     void MemoryBarrierByRegion(GLbitfield barriers);
+    void TextureBarrier();
     void MultiDrawElementsIndirect(GLenum mode, GLenum type, const void* indirect, GLsizei drawcount, GLsizei stride);
     void MultiDrawArraysIndirect(GLenum mode, const void* indirect, GLsizei drawcount, GLsizei stride);
     void MultiDrawElementsIndirectCount(GLenum mode, GLenum type, const void* indirect, GLintptr drawcount,

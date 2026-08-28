@@ -19,6 +19,7 @@
 #include "MG_State/GLState/SamplerState/SamplerObject.h"
 #include "MG_State/GLState/TextureState/TextureObject.h"
 #include "MG_Impl/GLImpl/Framebuffer/GL_Framebuffer.h"
+#include "MG_Impl/GLImpl/Texture/GL_Texture.h"
 #include "MG_Util/Converters/GLToMG/TextureEnumConverter.h"
 // Only reached from an MGLOG_W, which the shipping INFO log level compiles out - so the
 // missing include never broke a default build and did break every WARN/DEBUG-level one.
@@ -30,6 +31,7 @@
 #include "MG_Util/Texture/PixelStoreProcessor.h"
 #include <Config.h>
 #include <algorithm>
+#include <bit>
 #include <cstdlib>
 #include <cstring>
 #include <vulkan/utility/vk_format_utils.h>
@@ -1417,6 +1419,48 @@ void main() {
             return {width, height, depth};
         }
 
+        // How many components of a GL-space texel size actually halve down the mip chain. An array
+        // texture's LAYER count is not a dimension of the image (GL 4.6 core 8.14.3): it stays put
+        // all the way down, and GetMipmapTexelSize parks it in the slot after the image's own
+        // dimensions. This is the same split IsMipmapCompleteForFilter applies, and the two have to
+        // agree - allocating a chain whose layer count shrinks builds levels the completeness rule
+        // then rejects. Vulkan-space extents need none of this: layers live in arrayLayers there,
+        // so resource->depth is already 1 for every array target.
+        static Int MipShrinkingComponentCount(TextureTarget target) {
+            switch (target) {
+            case TextureTarget::Texture1DArray:
+                return 1;
+            case TextureTarget::Texture2DArray:
+            case TextureTarget::TextureCubeMapArray:
+                return 2;
+            default:
+                return 3;
+            }
+        }
+
+        static IntVec3 ComputeMipTexelSizeWithFixedComponents(const IntVec3& baseTexelSize, Uint32 relativeMipLevel,
+                                                              Int shrinkingComponents) {
+            IntVec3 size = baseTexelSize;
+            for (Int component = 0; component < shrinkingComponents && component < 3; ++component) {
+                size[component] = std::max<Int>(size[component] >> static_cast<Int>(relativeMipLevel), 1);
+            }
+            return size;
+        }
+
+        static Uint32 ComputeFullMipLevelCountWithFixedComponents(const IntVec3& baseTexelSize,
+                                                                  Int shrinkingComponents) {
+            Int maxDimension = 1;
+            for (Int component = 0; component < shrinkingComponents && component < 3; ++component) {
+                maxDimension = std::max<Int>(maxDimension, baseTexelSize[component]);
+            }
+            Uint32 mipLevelCount = 1;
+            while (maxDimension > 1) {
+                maxDimension = std::max<Int>(maxDimension / 2, 1);
+                ++mipLevelCount;
+            }
+            return mipLevelCount;
+        }
+
         static Bool EnsureGenerateMipmapStorageAllocated(::MobileGL::MG_State::GLState::TextureObjectMipmap& texture,
                                                          Uint32 baseMipLevel) {
             const Uint32 existingMipLevelCount = static_cast<Uint32>(texture.GetMipmapLevelCount());
@@ -1428,6 +1472,8 @@ void main() {
             if (uploadTargets.empty()) {
                 return false;
             }
+
+            const Int shrinkingComponents = MipShrinkingComponentCount(texture.GetTarget());
 
             for (const auto uploadTarget : uploadTargets) {
                 const IntVec3 baseTexelSize = texture.GetMipmapTexelSize(uploadTarget, baseMipLevel);
@@ -1445,13 +1491,15 @@ void main() {
                 }
 
                 const SizeT bytesPerTexel = baseByteSize / baseTexelCount;
-                const Uint32 requiredMipLevelCount = baseMipLevel + ComputeFullMipLevelCount(baseTexelSize);
+                const Uint32 requiredMipLevelCount =
+                    baseMipLevel + ComputeFullMipLevelCountWithFixedComponents(baseTexelSize, shrinkingComponents);
                 if (existingMipLevelCount >= requiredMipLevelCount) {
                     continue;
                 }
 
                 for (Uint32 level = existingMipLevelCount; level < requiredMipLevelCount; ++level) {
-                    const IntVec3 levelTexelSize = ComputeMipTexelSize(baseTexelSize, level - baseMipLevel);
+                    const IntVec3 levelTexelSize = ComputeMipTexelSizeWithFixedComponents(
+                        baseTexelSize, level - baseMipLevel, shrinkingComponents);
                     const SizeT levelByteSize = bytesPerTexel * static_cast<SizeT>(levelTexelSize.x()) *
                                                 static_cast<SizeT>(levelTexelSize.y()) *
                                                 static_cast<SizeT>(levelTexelSize.z());
@@ -3111,6 +3159,7 @@ void main() {
         m_programFactory = MakeUnique<ProgramFactory>(m_device, m_config, maxProgramBindings,
                                                       m_shaderDrawParametersFeatureEnabled,
                                                       m_unformattedFloatStorageImagesEnabled,
+                                                      m_tessellationAndGeometryPointSizeFeatureEnabled,
                                                       MG_Config::Features.EnableSpirvValidation,
                                                       m_updateAfterBindLimits, subgroupPolicy);
         MOBILEGL_ASSERT(m_programFactory != nullptr, "ProgramFactory creation failed.");
@@ -3126,7 +3175,9 @@ void main() {
         m_samplerManager = MakeUnique<VkSamplerManager>();
         MOBILEGL_ASSERT(m_samplerManager != nullptr, "VkSamplerManager creation failed.");
         succeeded = m_samplerManager->Initialize({m_device, &m_config, m_samplerAnisotropyFeatureEnabled,
-                                                  m_physicalDevice.properties.limits.maxSamplerAnisotropy});
+                                                  m_physicalDevice.properties.limits.maxSamplerAnisotropy,
+                                                  m_customBorderColorFeatureEnabled,
+                                                  m_maxCustomBorderColorSamplers});
         MOBILEGL_ASSERT(succeeded, "VkSamplerManager initialization failed.");
         succeeded = InitializeBlitResources();
         MOBILEGL_ASSERT(succeeded, "Blit pipeline resource initialization failed.");
@@ -3915,10 +3966,15 @@ void main() {
         // Copies index data, replacing every occurrence of the application's arbitrary restart
         // index with the fixed all-ones value of the index type - the only one Vulkan restarts
         // on. An index that already equals the fixed value would then be indistinguishable from
-        // a restart, so it is nudged to the next-lowest value: it can only be a real index (the
-        // application's restart index is a different number), and the vertex it selects is
-        // outside any well-defined draw anyway, whereas leaving it alone would tear the
-        // primitive in two.
+        // a restart, so it is nudged to the next-lowest value, which silently draws the wrong
+        // vertex. That is a real (if narrow) loss and it is reported once rather than left
+        // invisible; DirectGLES avoids it for 8- and 16-bit indices by widening the copy instead,
+        // and the same treatment here is follow-up work.
+        //
+        // The caller guarantees applicationRestartIndex fits the index type, so no truncating
+        // cast is needed - and none may be used: truncating turns glPrimitiveRestartIndex(0x100)
+        // over 8-bit indices into "restart on index 0", which shreds every primitive that
+        // references vertex 0.
         void RewriteRestartIndices(const void* source, SizeT sizeBytes, VkIndexType indexType,
                                    Uint32 applicationRestartIndex, Vector<Uint8>& output) {
             output.resize(sizeBytes);
@@ -3932,6 +3988,12 @@ void main() {
                     if (indices[i] == static_cast<decltype(fixedMax)>(applicationRestartIndex)) {
                         indices[i] = fixedMax;
                     } else if (indices[i] == fixedMax) {
+                        MGLOG_E_ONCE("GL_PRIMITIVE_RESTART with restart index %u over index data that also uses "
+                                     "the all-ones index %u: both cannot be spelled at this index width, so every "
+                                     "all-ones index is drawn one vertex lower. Use "
+                                     "GL_PRIMITIVE_RESTART_FIXED_INDEX, or keep the all-ones value out of the "
+                                     "index data.",
+                                     applicationRestartIndex, static_cast<Uint32>(fixedMax));
                         indices[i] = fixedMax - 1;
                     }
                 }
@@ -3984,14 +4046,13 @@ void main() {
         const RenderStateParameters& rsp = MG_State::pGLContext->GetRenderStateParameters();
         if (rsp.PrimitiveRestartEnabled && !rsp.PrimitiveRestartFixedIndexEnabled) {
             const Uint32 restartIndex = rsp.PrimitiveRestartIndex;
-            Uint32 fixedMax = 0;
-            switch (vkIndexType) {
-            case VK_INDEX_TYPE_UINT8: fixedMax = 0xFFu; break;
-            case VK_INDEX_TYPE_UINT16: fixedMax = 0xFFFFu; break;
-            case VK_INDEX_TYPE_UINT32: fixedMax = 0xFFFFFFFFu; break;
-            default: break;
-            }
-            substituteRestart = restartIndex != fixedMax;
+            const Uint32 fixedMax = MG_Util::FixedRestartIndexForGLType(pIndexBufferView->indexType);
+            // STRICTLY less, and never truncated. Equal needs no rewrite (the driver already
+            // restarts there); GREATER means the index type cannot hold the application's restart
+            // index, so GL 4.6 core 10.3.6 says nothing matches it and the draw restarts nowhere -
+            // which is exactly what ResolvePrimitiveRestartEnable told the pipeline, so rewriting
+            // here would put restarts into a stream the pipeline was built not to restart on.
+            substituteRestart = restartIndex < fixedMax;
             substituteRestartIndex = restartIndex;
         }
 
@@ -4707,15 +4768,43 @@ void main() {
     // build in GetOrCreatePipeline - any new GL-state read there must be added here:
     //   - capability bits: CullFace, DepthTest, PolygonOffsetFill (mode gating rides
     //     the memo's mode key), RasterizerDiscard, ColorLogicOp, StencilTest,
-    //     PrimitiveRestart(+FixedIndex), plus the depth write mask
-    //   - patch vertices, polygon mode, cull face mode, depth func, logic op
+    //     PrimitiveRestart(+FixedIndex), SampleShading, SampleMask, plus the depth write mask
+    //   - patch vertices, polygon mode, cull face mode, depth func, logic op,
+    //     min sample shading, the glSampleMaski word
     //   - front/back stencil ops + compare funcs (ref/mask are dynamic state)
     //   - per draw buffer up to the render pass's colour span: indexed blend enable,
     //     blend factors/equations, indexed colour write mask (broadcast from index 0
     //     when the device lacks independentBlend - the same read the payload does)
     // FBO-derived payload inputs (attachment presence/formats/draw-buffer gating) are
     // pinned by the render-pass hash key, exactly as the version-keyed memo relied on.
-    Uint64 VulkanRenderer::ComputePipelineStateHash(Uint32 colorAttachmentCount) const {
+    // The fixed-function sample mask this draw actually gets, and the ONE place that decides it.
+    //
+    // GL 4.6 core 17.3.3 puts SAMPLE_MASK/SAMPLE_MASK_VALUE among the multisample fragment
+    // operations and says they make no change "if MULTISAMPLE is disabled, or if the value of
+    // SAMPLE_BUFFERS is not one" - so on a single-sample draw framebuffer the mask is a no-op.
+    // Vulkan has no such rule: pSampleMask is ANDed with coverage at every rasterizationSamples,
+    // and at one sample that coverage is bit 0 alone. Handing the raw GL word straight through
+    // therefore turned `glEnable(GL_SAMPLE_MASK); glSampleMaski(0, 0x2);` followed by a draw to
+    // the default framebuffer - the ordinary MSAA-render-then-present shape, and what dEQP's
+    // multisample cases leave enabled - into a fully discarded, black draw. All-ones restores
+    // the null-pSampleMask meaning the pipeline had before the mask was plumbed at all.
+    //
+    // SAMPLE_BUFFERS is the load-bearing half: MultisampleEnabled defaults to TRUE, so the
+    // capability check alone would gate nothing. It is here for spec completeness - GL lets
+    // glDisable(GL_MULTISAMPLE) switch the whole step off on a multisample target too.
+    //
+    // Both callers - the payload and ComputePipelineStateHash's memo word - go through this, so
+    // the memo key cannot describe a different mask than the pipeline was built with.
+    Uint32 VulkanRenderer::ResolveEffectiveSampleMask(VkSampleCountFlagBits rasterizationSamples) const {
+        constexpr Uint32 kFullCoverage = 0xffffffffu;
+        if (rasterizationSamples == VK_SAMPLE_COUNT_1_BIT) return kFullCoverage;
+        if (!MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::Multisample)) return kFullCoverage;
+        if (!MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::SampleMask)) return kFullCoverage;
+        return MG_State::pGLContext->GetRenderStateParameters().SampleMaskValue;
+    }
+
+    Uint64 VulkanRenderer::ComputePipelineStateHash(Uint32 colorAttachmentCount,
+                                                    VkSampleCountFlagBits rasterizationSamples) const {
         // One bulk fetch instead of ~17 per-field accessor calls into MG_State: every
         // input below is a plain field of RenderStateParameters, and each accessor this
         // replaces (IsCapabilityEnabled / Get*) is a verified pure read of that same
@@ -4733,8 +4822,45 @@ void main() {
         capabilityBits |= p.PrimitiveRestartEnabled ? 1ull << 6 : 0;
         capabilityBits |= p.PrimitiveRestartFixedIndexEnabled ? 1ull << 7 : 0;
         capabilityBits |= p.DepthMask ? 1ull << 8 : 0;
+        capabilityBits |= p.SampleShadingEnabled ? 1ull << 9 : 0;
+        // The EFFECTIVE mask enable, not the raw GL bit: at one sample GL says the whole
+        // multisample fragment-operations step makes no change, so the pipeline is built with
+        // full coverage and the memo word has to say so too. Keying on the raw bit here while
+        // the payload gates on the sample count would let one FBO's cached pipeline answer for
+        // another whose sample count reads the mask differently.
+        const Bool sampleMaskEffective = ResolveEffectiveSampleMask(rasterizationSamples) != 0xffffffffu;
+        capabilityBits |= sampleMaskEffective ? 1ull << 10 : 0;
         Uint64 hash = CombinePipelineStateWord(0x243F6A8885A308D3ull, capabilityBits);
+        // glMinSampleShading. Hashed by BITS, not by value: this memo compares hashes rather than
+        // versions, so an unhashed float would let a pipeline built at one rate be handed back
+        // after glMinSampleShading moved it - the memo would see identical state.
+        {
+            Uint32 minSampleShadingBits = 0;
+            std::memcpy(&minSampleShadingBits, &p.MinSampleShadingValue, sizeof(minSampleShadingBits));
+            hash = CombinePipelineStateWord(hash, static_cast<Uint64>(minSampleShadingBits));
+        }
+        // glSampleMaski's word, for the same reason glMinSampleShading's bits are hashed above:
+        // this memo compares hashes, not versions, so a mask that moved between two otherwise
+        // identical draws has to key a different pipeline. Hashed unconditionally rather than only
+        // while GL_SAMPLE_MASK is enabled - the enable bit is already in capabilityBits, and
+        // folding one more word costs nothing on a path that only recomputes when the
+        // pipeline-state version moved.
+        hash = CombinePipelineStateWord(hash, static_cast<Uint64>(ResolveEffectiveSampleMask(rasterizationSamples)));
         hash = CombinePipelineStateWord(hash, static_cast<Uint64>(p.PatchVertices));
+        // The default tessellation levels belong here for the same reason PatchVertices does:
+        // when a program has an evaluation stage and no control stage, both are compiled into the
+        // synthesized pass-through control stage, so two draws that differ only in a level need
+        // different pipelines. Hashed over the RAW BITS so a NaN level - which glPatchParameterfv
+        // accepts - keys to itself. Six extra words on a path that only recomputes when the
+        // pipeline-state version moved.
+        for (Uint32 i = 0; i < 4; ++i) {
+            hash = CombinePipelineStateWord(hash,
+                                            static_cast<Uint64>(std::bit_cast<Uint32>(p.PatchDefaultOuterLevel[i])));
+        }
+        for (Uint32 i = 0; i < 2; ++i) {
+            hash = CombinePipelineStateWord(hash,
+                                            static_cast<Uint64>(std::bit_cast<Uint32>(p.PatchDefaultInnerLevel[i])));
+        }
         hash = CombinePipelineStateWord(hash, static_cast<Uint64>(p.PolygonModeFront));
         hash = CombinePipelineStateWord(hash, static_cast<Uint64>(p.CullFaceModeSetting));
         hash = CombinePipelineStateWord(hash, static_cast<Uint64>(p.DepthFunc));
@@ -4779,13 +4905,42 @@ void main() {
         return program.HasLinkedShaderStage(ShaderStage::Geometry);
     }
 
+    // GL primitive restart is defined on the INDEX STREAM (GL 4.6 core 10.3.6): it splits
+    // primitives when a fetched index matches PRIMITIVE_RESTART_INDEX. Two consequences the
+    // capability bits alone cannot express, both resolved here because only the caller knows them:
+    //
+    //  - A non-indexed draw has no index stream, so restart is a no-op for it. Leaving the
+    //    pipeline's primitiveRestartEnable on for a glDrawArrays is what made the list-topology
+    //    guard below refuse those draws, so an application that enables GL_PRIMITIVE_RESTART once
+    //    at init lost every glDrawArrays on a device without the extension.
+    //  - The comparison is against the full 32-bit restart index with the fetched index
+    //    zero-extended, so a restart index the type cannot hold (0x100FF against UNSIGNED_BYTE
+    //    data) matches no index and that draw restarts NOWHERE. UploadAndBindIndexBuffer makes the
+    //    same call for the rewrite, and the two must agree or the pipeline says "restart" over
+    //    index data nothing rewrote.
+    Bool VulkanRenderer::ResolvePrimitiveRestartEnable(Flags<DrawSetupAspect> aspects,
+                                                       const IndexBufferView* pIndexBufferView) const {
+        if (!(aspects & DrawSetupAspect::IndexBuffer) || pIndexBufferView == nullptr) {
+            return false;
+        }
+        const RenderStateParameters& rsp = MG_State::pGLContext->GetRenderStateParameters();
+        if (rsp.PrimitiveRestartFixedIndexEnabled) {
+            return true;
+        }
+        if (!rsp.PrimitiveRestartEnabled) {
+            return false;
+        }
+        return rsp.PrimitiveRestartIndex <= MG_Util::FixedRestartIndexForGLType(pIndexBufferView->indexType);
+    }
+
     VkPipeline VulkanRenderer::GetOrCreatePipeline(
             GLenum mode,
             const MG_State::GLState::ProgramObject& program,
             const ProgramFactory::VkProgramObject& programObj,
             ProgramFactory::CompileOptionFlags transformFlags,
             const MG_State::GLState::VertexArrayObject& vao,
-            const RenderPassEntry& renderPassEntry) {
+            const RenderPassEntry& renderPassEntry,
+            Bool primitiveRestartEnable) {
         Bool invertClockwise = transformFlags & ProgramFactory::CompileOptionBit::PositionYFlip;
         if (programObj.stages.empty()) {
             MGLOG_D("GetOrCreatePipeline skipped: program has no shader stages");
@@ -4814,10 +4969,13 @@ void main() {
         // The version only guards recomputing the hash - unchanged version, unchanged bytes.
         const Uint renderStateVersion = MG_State::pGLContext->GetPipelineStateVersion();
         if (!m_pipelineStateHashValid || m_pipelineStateHashVersion != renderStateVersion ||
-            m_pipelineStateHashColorCount != renderPassEntry.colorAttachmentCount) {
-            m_pipelineStateHash = ComputePipelineStateHash(renderPassEntry.colorAttachmentCount);
+            m_pipelineStateHashColorCount != renderPassEntry.colorAttachmentCount ||
+            m_pipelineStateHashSampleCount != renderPassEntry.sampleCount) {
+            m_pipelineStateHash =
+                ComputePipelineStateHash(renderPassEntry.colorAttachmentCount, renderPassEntry.sampleCount);
             m_pipelineStateHashVersion = renderStateVersion;
             m_pipelineStateHashColorCount = renderPassEntry.colorAttachmentCount;
+            m_pipelineStateHashSampleCount = renderPassEntry.sampleCount;
             m_pipelineStateHashValid = true;
         }
         const Uint64 pipelineStateHash = m_pipelineStateHash;
@@ -4827,6 +4985,7 @@ void main() {
                 entry.programHash == programObj.hash && entry.vertexInputHash == vertexLayoutHash &&
                 entry.renderPassHash == renderPassHash &&
                 entry.pipelineStateHash == pipelineStateHash &&
+                entry.primitiveRestartEnable == primitiveRestartEnable &&
                 entry.transformFlags == transformFlags) {
                 return entry.pipeline;
             }
@@ -5025,22 +5184,50 @@ void main() {
                 : VK_POLYGON_MODE_FILL;
 
         const VkPrimitiveTopology vkTopology = MG_Util::ConvertPrimitiveModeToVkEnum(mode);
-        const Bool primitiveRestartEnabled =
-            MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::PrimitiveRestart) ||
-            MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::PrimitiveRestartFixedIndex);
+        // Resolved by the caller (ResolvePrimitiveRestartEnable), which knows whether the draw is
+        // indexed and with what index type; the capability bits alone answer neither.
+        Bool primitiveRestartEnabled = primitiveRestartEnable;
+
+        // GL applies restart to PATCHES only when PRIMITIVE_RESTART_FOR_PATCHES_SUPPORTED is true
+        // (GL 4.6 core 10.3.6). MobileGL supports no such thing - neither backend has a way to
+        // restart a patch stream - and GL_FALSE is a legal answer to that query, so a patch draw
+        // simply never restarts here. Doing this BEFORE the feature guard below is what keeps a
+        // perfectly ordinary GL_PATCHES draw from being refused on a device that lacks
+        // VK_EXT_primitive_topology_list_restart. (When GL_PRIMITIVE_RESTART_FOR_PATCHES_SUPPORTED
+        // is eventually added to glGetIntegerv it has to report GL_FALSE to stay consistent with
+        // this.)
+        if (vkTopology == VK_PRIMITIVE_TOPOLOGY_PATCH_LIST) {
+            primitiveRestartEnabled = false;
+        }
+
         // Primitive restart on a *list* topology requires the primitiveTopologyListRestart feature;
-        // strip/fan restart works without it. Silently dropping restarts would corrupt geometry, so
-        // hard-fail here (at the draw) with the reason when the device lacks the feature.
+        // strip/fan restart works without it. There is no fallback - silently dropping the restarts
+        // would weld the primitives on either side of each one together - so the draw is declined
+        // here with the reason.
+        //
+        // Declined, not thrown. This used to THROW_EXCEPTION, which unwinds a C++ exception through
+        // the C GL ABI and takes the process down (the hazard GL_Texture.cpp and RenderState.cpp
+        // already name); an application that merely enabled a legal desktop feature died instead of
+        // getting a draw that rendered nothing. VK_NULL_HANDLE is this function's established
+        // "skip this draw" answer, used by the no-stages case above.
+        //
+        // Reached only when this draw's index stream really does restart. Testing the raw
+        // capability bits here instead - which is what it did - refused every NON-INDEXED
+        // list-topology draw as well, so an application that enables GL_PRIMITIVE_RESTART once at
+        // init and then calls glDrawArrays(GL_TRIANGLES, ...) rendered nothing at all.
         const auto isListTopology = [](VkPrimitiveTopology t) {
             return t == VK_PRIMITIVE_TOPOLOGY_POINT_LIST || t == VK_PRIMITIVE_TOPOLOGY_LINE_LIST ||
                    t == VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST ||
                    t == VK_PRIMITIVE_TOPOLOGY_LINE_LIST_WITH_ADJACENCY ||
-                   t == VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST_WITH_ADJACENCY || t == VK_PRIMITIVE_TOPOLOGY_PATCH_LIST;
+                   t == VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST_WITH_ADJACENCY;
         };
         if (primitiveRestartEnabled && !m_primitiveTopologyListRestartFeatureEnabled && isListTopology(vkTopology)) {
-            THROW_EXCEPTION("Primitive restart on a list topology requires the primitiveTopologyListRestart device "
-                            "feature (VK_EXT_primitive_topology_list_restart), which this device does not support; use "
-                            "a strip/fan topology or a device that supports it.");
+            MGLOG_E_ONCE("Draw skipped: primitive restart on a list topology (0x%x) requires the "
+                         "primitiveTopologyListRestart device feature (VK_EXT_primitive_topology_list_restart), "
+                         "which this device does not support; use a strip/fan topology, or disable primitive "
+                         "restart for list-topology draws.",
+                         mode);
+            return VK_NULL_HANDLE;
         }
 
         PipelineFactory::PipelineCreatePayload payload {
@@ -5050,6 +5237,15 @@ void main() {
             .renderPass = renderPassEntry.renderPass,
             .colorAttachmentCount = renderPassEntry.colorAttachmentCount,
             .rasterizationSamples = renderPassEntry.sampleCount,
+            // ARB_sample_shading. Dropped on a device without sampleRateShading rather than
+            // hard-failing the draw: the rate is a hint, and the pipeline renders correctly at the
+            // driver's own rate. Both halves move the render state's PIPELINE version, so a cached
+            // pipeline built at the old rate cannot be handed back for the new one.
+            .sampleShadingEnable = m_sampleRateShadingFeatureEnabled &&
+                                   MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::SampleShading),
+            .minSampleShading = MG_State::pGLContext->GetMinSampleShadingValue(),
+            // Word 1 keeps its all-ones initialiser: GL has no state for samples 32..63.
+            .sampleMask = {ResolveEffectiveSampleMask(renderPassEntry.sampleCount), 0xffffffffu},
             .subpass = 0,
             .topology = vkTopology,
             .primitiveRestartEnable = primitiveRestartEnabled,
@@ -5106,10 +5302,21 @@ void main() {
         // program with a tessellation stage may only be drawn with GL_PATCHES), so nothing legal
         // loses its pass-through here; what it does lose is the pipeline, because the refusal
         // below then sees an evaluation stage with no control stage and declines.
+        //
+        // The default tessellation levels (glPatchParameterfv) are draw state for the same reason
+        // and are compiled into the same module, so they are read here too and their key is mixed
+        // into the pipeline hash - without that a pipeline memoised at one set of levels would be
+        // handed back after the application changed them.
         if (programObj.needsPassthroughTessControl && programObj.passthroughTessControlEmulatable &&
             vkTopology == VK_PRIMITIVE_TOPOLOGY_PATCH_LIST) {
-            payload.passthroughTessControlStage =
-                m_programFactory->GetOrCreatePassthroughTessControlStage(payload.patchControlPoints);
+            const FloatVec4& defaultOuterLevel = MG_State::pGLContext->GetPatchDefaultOuterLevel();
+            const FloatVec2& defaultInnerLevel = MG_State::pGLContext->GetPatchDefaultInnerLevel();
+            payload.passthroughTessControlKey = ProgramFactory::ComputePassthroughTessControlKey(
+                payload.patchControlPoints, defaultOuterLevel, defaultInnerLevel,
+                programObj.passthroughPerVertexMembers);
+            payload.passthroughTessControlStage = m_programFactory->GetOrCreatePassthroughTessControlStage(
+                payload.patchControlPoints, defaultOuterLevel, defaultInnerLevel,
+                programObj.passthroughPerVertexMembers);
         }
         if (!payload.stencilTestEnable) {
             payload.frontStencilFailOp = VK_STENCIL_OP_KEEP;
@@ -5309,8 +5516,21 @@ void main() {
                     colorAttachmentFormat = m_swapchainObject.GetSurfaceFormat().format;
                 } else if (colorAttachmentRenderbuffer != nullptr) {
                     textureExternalIndex = static_cast<Int>(colorAttachmentRenderbuffer->GetExternalIndex());
-                    colorAttachmentFormat = MG_Util::ConvertTextureInternalFormatToVkEnum(
-                        colorAttachmentRenderbuffer->GetInternalFormat());
+                    // The SAME resolver GetOrCreateRenderbufferResource backs the image with, so the
+                    // probe cannot ask about a format the attachment does not have. The strict 1:1
+                    // converter is the wrong question here and answered VK_FORMAT_UNDEFINED for
+                    // RGBA2/RGBA12/RGB10/RGB12/RGB16 and the packed 16-bit formats for RGBA4/RGB5_A1
+                    // - and VkFormatProperties for UNDEFINED are all zero, so blending was
+                    // force-disabled forever on attachments that blend perfectly well. Every
+                    // three-channel colour renderbuffer was in that set too (R8G8B8_UNORM is rarely
+                    // supported), which is the more ordinary shape.
+                    //
+                    // Resolved rather than looked up: GetOrCreateRenderbufferResource creates images
+                    // and bumps epochs, which a pipeline-state query must not do as a side effect.
+                    // A renderbuffer has no device-fallback step after the resolver (unlike the
+                    // texture path's D24 -> D32 substitution), so the resolver IS its live format.
+                    colorAttachmentFormat =
+                        ResolveTextureFormatInfo(colorAttachmentRenderbuffer->GetInternalFormat()).format;
                 } else {
                     auto* texture = colorAttachmentTexture;
                     MOBILEGL_ASSERT(texture != nullptr,
@@ -5360,18 +5580,32 @@ void main() {
                 }
             }
             // Dual-source blending (GL_SRC1_* factors from glBlendFunc paired with
-            // glBindFragDataLocationIndexed) requires the dualSrcBlend device feature. It is detected at
-            // device creation and surfaced in the POST; if a shader actually issues a draw with a SRC1
-            // factor on a device that lacks it, there is no fallback, so hard-fail here at use time
-            // rather than silently mistranslating the blend equation.
-            if (effectiveBlendEnabled && !m_dualSrcBlendFeatureEnabled &&
+            // glBindFragDataLocationIndexed) requires the dualSrcBlend device feature. It is detected
+            // at device creation and surfaced in the POST; there is no fallback that BLENDS correctly,
+            // so a draw that asks for a SRC1 factor on a device without the feature gets the blend
+            // DECLINED - this attachment is baked with blending off and neutral One/Zero factors, and
+            // the loss is logged once. Both the factors AND the enable have to be neutralised:
+            // VUID-VkPipelineColorBlendAttachmentState-srcColorBlendFactor-00608 and its three
+            // siblings forbid a VK_BLEND_FACTOR_SRC1_* in the struct without the feature whatever
+            // blendEnable says, so clearing only the enable would still be invalid pipeline state.
+            // The previous behaviour, throwing, took the whole process down over one unsupported
+            // blend factor; this is defined, survivable and visible in the log, and it matches what
+            // the non-blendable-format arm above already does.
+            if (!m_dualSrcBlendFeatureEnabled &&
                 (IsDualSourceBlendFactor(srcRGB) || IsDualSourceBlendFactor(dstRGB) ||
                  IsDualSourceBlendFactor(srcAlpha) || IsDualSourceBlendFactor(dstAlpha))) {
-                THROW_EXCEPTION(
-                    "Dual-source blending (GL_SRC1_* blend factor) was used on color attachment " +
-                    std::to_string(i) +
-                    ", but the Vulkan device does not support the dualSrcBlend feature (see the "
-                    "dualSrcBlend row in the driver POST). No fallback exists; the draw cannot proceed.");
+                MGLOG_E_ONCE(
+                    "GetOrCreatePipeline: dual-source blending (GL_SRC1_* blend factor) was requested on "
+                    "color attachment %u, but the Vulkan device does not support the dualSrcBlend feature "
+                    "(see the dualSrcBlend row in the driver POST). Blending is DECLINED on that "
+                    "attachment - the fragment's first output is written unblended and the second source "
+                    "is dropped (program=%u)",
+                    i, program.GetExternalIndex());
+                effectiveBlendEnabled = false;
+                srcRGB = BlendFactor::One;
+                dstRGB = BlendFactor::Zero;
+                srcAlpha = BlendFactor::One;
+                dstAlpha = BlendFactor::Zero;
             }
             payload.colorBlendAttachments[i] = MakeColorBlendAttachmentState(
                 effectiveBlendEnabled,
@@ -5391,6 +5625,7 @@ void main() {
             entry.vertexInputHash = vertexLayoutHash;
             entry.renderPassHash = renderPassHash;
             entry.pipelineStateHash = pipelineStateHash;
+            entry.primitiveRestartEnable = primitiveRestartEnable;
             entry.transformFlags = transformFlags;
             entry.pipeline = pipeline;
             m_pipelineMemoNext = (m_pipelineMemoNext + 1) % kPipelineMemoSize;
@@ -5775,7 +6010,11 @@ void main() {
             return false;
         }
         SetupDrawSnapshot& snap = *snapPtr;
-        if (snap.aspects != aspects.GetRaw() || snap.mode != mode) {
+        // Resolved once for the whole function: it guards the snapshot, keys the pipeline memo
+        // probe below, and is handed to GetOrCreatePipeline on a miss - all three must agree.
+        const Bool drawPrimitiveRestartEnable = ResolvePrimitiveRestartEnable(aspects, pIndexBufferView);
+        if (snap.aspects != aspects.GetRaw() || snap.mode != mode ||
+            snap.primitiveRestartEnable != drawPrimitiveRestartEnable) {
             return false;
         }
         if (m_clearManager->HasAnyPendingClears()) {
@@ -5869,6 +6108,16 @@ void main() {
             snap.programFactoryEpoch = m_programFactory->GetCacheStructureEpoch();
         }
         const auto& programObj = *programObjPtr;
+        // Pinned for BeginXfbCaptureForDraw, which otherwise decides from GL state alone and has
+        // no way to know the bound pipeline's last pre-rasterization module lost (or never got)
+        // its Xfb execution mode. See VkProgramObject::xfbCaptureDeclined.
+        m_currentDrawXfbCaptureDeclined = programObj.xfbCaptureDeclined;
+        // A refused program cannot reach here today - the full path refuses before it ever
+        // records a snapshot - but declining the fast path costs one compare and means the
+        // refusal does not depend on that ordering staying true.
+        if (programObj.pointSizeCapabilityUnsupported) {
+            return false;
+        }
 
         // The pipeline and the vertex-input pre-flight depend on the VAO only through
         // its resolved LAYOUT (layoutHash folds the attribute formats, bindings and the
@@ -6031,10 +6280,13 @@ void main() {
             // instead of missing forever on a monotonic version. A miss falls through
             // to the full lookup.
             if (!m_pipelineStateHashValid || m_pipelineStateHashVersion != renderStateVersion ||
-                m_pipelineStateHashColorCount != snap.renderPassColorCount) {
-                m_pipelineStateHash = ComputePipelineStateHash(snap.renderPassColorCount);
+                m_pipelineStateHashColorCount != snap.renderPassColorCount ||
+                m_pipelineStateHashSampleCount != snap.renderPassSampleCount) {
+                m_pipelineStateHash =
+                    ComputePipelineStateHash(snap.renderPassColorCount, snap.renderPassSampleCount);
                 m_pipelineStateHashVersion = renderStateVersion;
                 m_pipelineStateHashColorCount = snap.renderPassColorCount;
+                m_pipelineStateHashSampleCount = snap.renderPassSampleCount;
                 m_pipelineStateHashValid = true;
             }
             const auto memoTransformFlags =
@@ -6045,6 +6297,7 @@ void main() {
                     entry.programHash == programObj.hash && entry.vertexInputHash == vaoLayoutHash &&
                     entry.renderPassHash == snap.renderPassHash &&
                     entry.pipelineStateHash == m_pipelineStateHash &&
+                    entry.primitiveRestartEnable == drawPrimitiveRestartEnable &&
                     entry.transformFlags == memoTransformFlags) {
                     pipeline = entry.pipeline;
                     break;
@@ -6055,14 +6308,17 @@ void main() {
                 // index, depth/stencil participation, image epochs, no pending clears)
                 // was verified unchanged above, so this is a pure cache hit on the same
                 // entry the snapshot's pipeline was built against.
-                const RenderPassEntry& renderPassEntry = m_renderPassManager->GetOrCreateRenderPass(
+                const RenderPassEntry* renderPassEntry = m_renderPassManager->GetOrCreateRenderPass(
                     *drawFbo, m_imageIndexAcquired, snap.drawUsesDepthStencil);
-                if (!activeRenderPass->CompatibleWith(renderPassEntry)) {
+                // A decline (nullptr) is an attachment DirectVulkan cannot represent; the builder
+                // has already logged it. Fall out of the fast path the same way an incompatible
+                // pass does - the full path re-resolves, declines again and drops the draw.
+                if (renderPassEntry == nullptr || !activeRenderPass->CompatibleWith(*renderPassEntry)) {
                     return false;
                 }
                 pipeline = GetOrCreatePipeline(mode, program, programObj,
                                                ProgramFactory::CompileOptionFlags(snap.resolvedTransformFlags),
-                                               vao, renderPassEntry);
+                                               vao, *renderPassEntry, drawPrimitiveRestartEnable);
                 if (pipeline == VK_NULL_HANDLE) {
                     return false;
                 }
@@ -6265,6 +6521,16 @@ void main() {
             }
         }
         const auto& programObj = *resolvedProgramObj;
+        // Pinned for BeginXfbCaptureForDraw, which otherwise decides from GL state alone and has
+        // no way to know the bound pipeline's last pre-rasterization module lost (or never got)
+        // its Xfb execution mode. See VkProgramObject::xfbCaptureDeclined.
+        m_currentDrawXfbCaptureDeclined = programObj.xfbCaptureDeclined;
+        // The build already said why, once, naming the program and the stage. Refusing here -
+        // before any pipeline is built from it - is what makes that message a decline rather
+        // than a note attached to invalid usage the driver still receives.
+        if (programObj.pointSizeCapabilityUnsupported) {
+            return false;
+        }
         // For the snapshot's memoised entry pointer: if anything below inserts into the
         // program cache (blit/aux program compiles), the epoch moves and the snapshot
         // stores no pointer for this draw - the fast path then re-looks-up once.
@@ -6303,11 +6569,31 @@ void main() {
             const Uint64 programLifetimeId = program.GetLifetimeId();
             const Uint32 programVersion = program.GetBackendStateVersion();
             const Uint64 bindGeneration = MG_State::pGLContext->GetTextureBindGeneration();
+            // The bind generation alone stopped covering this set the moment ResolveSampledBinding
+            // started asking SamplesAsIncompleteTexture: membership now depends on the effective
+            // sampler PARAMETERS (MIN_FILTER decides whether the mip chain is read at all) and on
+            // the texture SHAPE, and neither moves the bind generation. A texture that flips
+            // incomplete -> complete under a fixed binding - one glTexParameteri, one
+            // glSamplerParameteri, a BASE_LEVEL/MAX_LEVEL change, or an upload that fills the
+            // chain - would keep replaying the FALLBACK out of this memo, so the real texture
+            // never got its pre-pass sync, its pending-clear materialisation or its sampled-layout
+            // transition, and the descriptor path would then transition it from INSIDE the open
+            // render pass, which the subpass declares no self-dependency for.
+            //
+            // The sampling-resolution generation is exactly the counter for that family and is
+            // deliberately coarse (any texture, any sampler), so this one term covers every input
+            // the predicate reads that the bind generation does not: TextureObjectBase::
+            // BumpShapeVersion and SamplerObject::BumpVersion both bump it, while WHICH sampler
+            // object a unit carries goes through TextureUnit::SetSamplerObject and moves the bind
+            // generation instead. Same term the SetupDrawSnapshot fast path and the LOD memo
+            // already carry.
+            const Uint64 samplingGeneration = MG_State::pGLContext->GetSamplingResolutionGeneration();
             const Bool sampledSetUnchanged =
                 m_lastSampledSetValid && m_lastSampledSetProgramLifetimeId == programLifetimeId &&
                 m_lastSampledSetProgramVersion == programVersion &&
                 m_lastSampledSetTransformFlags == transformFlags &&
-                m_lastSampledSetBindGeneration == bindGeneration;
+                m_lastSampledSetBindGeneration == bindGeneration &&
+                m_lastSampledSetSamplingGeneration == samplingGeneration;
             if (!sampledSetUnchanged) {
                 const Bool hasSampledTextures = m_uniformManager->CollectSampledTextures(
                     program, programObj, sampledTextures, &m_sampledBindingRecordsScratch);
@@ -6317,6 +6603,7 @@ void main() {
                 m_lastSampledSetProgramVersion = programVersion;
                 m_lastSampledSetTransformFlags = transformFlags;
                 m_lastSampledSetBindGeneration = bindGeneration;
+                m_lastSampledSetSamplingGeneration = samplingGeneration;
             }
             // Complete a freshly-made LOD decision (see above): its params sum
             // can only be taken once the sampled set is known. A genuine
@@ -6362,9 +6649,21 @@ void main() {
             }
 
             auto* textureResource = m_textureManager->SyncTextureAndGetDescriptor(*sampledTexture);
-            MOBILEGL_ASSERT(textureResource != nullptr,
-                            "%s: SyncTextureAndGetDescriptor failed for textureId=%d",
-                            __func__, sampledTexture->GetExternalIndex());
+            if (textureResource == nullptr) {
+                // SyncTextureAndGetDescriptor has a real failure channel - an incomplete or
+                // otherwise unbackable texture declines and returns nullptr with its own log
+                // line - and the assert that used to be the only guard here is compiled out of
+                // every build past DEBUG. The next line dereferenced it, so a sampler left
+                // pointing at a texture GL calls incomplete was a SIGSEGV inside SetupDraw
+                // rather than a degraded draw. Leave the slot null and carry on: the descriptor
+                // resolve substitutes the fallback texture for exactly these bindings
+                // (ResolveSamplerDescriptor's SamplesAsIncompleteTexture branch), and the fast
+                // path at the top of SetupDraw already treats a null resource as "re-resolve".
+                MGLOG_E_ONCE("SetupDraw: no texture resource for sampled textureId=%d; leaving the binding to the "
+                             "descriptor resolve's fallback",
+                             sampledTexture->GetExternalIndex());
+                continue;
+            }
             sampledResources[sampledIndex] = textureResource;
             MGLOG_D("SetupDraw: sampled textureId=%d layout(before)=%s(%d)",
                     sampledTexture->GetExternalIndex(), VkImageLayoutToString(textureResource->layout),
@@ -6428,9 +6727,14 @@ void main() {
             MOBILEGL_ASSERT(ready, "%s: TransitionTextureForSampling failed for textureId=%d",
                             __func__, sampledTexture->GetExternalIndex());
             auto* transitionedResource = m_textureManager->SyncTextureAndGetDescriptor(*sampledTexture);
-            MOBILEGL_ASSERT(transitionedResource != nullptr,
-                            "%s: post-transition SyncTextureAndGetDescriptor failed for textureId=%d",
-                            __func__, sampledTexture->GetExternalIndex());
+            if (transitionedResource == nullptr) {
+                // Same declined-sync channel as the first loop, and the same reason not to
+                // dereference it: StampResourceRecordingUse below takes a reference.
+                MGLOG_E_ONCE("SetupDraw: no texture resource after transitioning sampled textureId=%d; leaving the "
+                             "binding to the descriptor resolve's fallback",
+                             sampledTexture->GetExternalIndex());
+                continue;
+            }
             // Pre-pass stream bookkeeping: the draw about to be recorded reads
             // this image, so later out-of-pass work on it can no longer jump
             // ahead of the recording.
@@ -6447,12 +6751,23 @@ void main() {
             MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::DepthTest) ||
             MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::StencilTest);
         auto* renderPassEntry =
-            &m_renderPassManager->GetOrCreateRenderPass(*drawFbo, m_imageIndexAcquired, drawUsesDepthStencil);
+            m_renderPassManager->GetOrCreateRenderPass(*drawFbo, m_imageIndexAcquired, drawUsesDepthStencil);
+        // nullptr: the framebuffer has an attachment DirectVulkan cannot represent (a texture the
+        // texture manager declined to back, or a view it could not build). The builder logged which
+        // one; drop the draw here, exactly as an unresolvable sampler descriptor drops one in
+        // BindProgramUniformBuffers. Before this existed the same condition dereferenced a null
+        // resource or handed VK_NULL_HANDLE to vkCreateFramebuffer and took the process down.
+        if (renderPassEntry == nullptr) {
+            return false;
+        }
         if (activeRenderPass && !activeRenderPass->CompatibleWith(*renderPassEntry)) {
             VkRenderPassManager::EndRenderPass(frame.commandBuffer);
             activeRenderPass = nullptr;
             renderPassEntry =
-                &m_renderPassManager->GetOrCreateRenderPass(*drawFbo, m_imageIndexAcquired, drawUsesDepthStencil);
+                m_renderPassManager->GetOrCreateRenderPass(*drawFbo, m_imageIndexAcquired, drawUsesDepthStencil);
+            if (renderPassEntry == nullptr) {
+                return false;
+            }
         }
         if (renderPassEntry->attachmentCount == 0 || renderPassEntry->extent.x() <= 0 || renderPassEntry->extent.y() <= 0) {
             MGLOG_D("SetupDraw skipped: drawFbo=%u resolved to an empty render pass (attachmentCount=%u extent=%dx%d)",
@@ -6499,7 +6814,8 @@ void main() {
             }
         }
 
-        auto pipeline = GetOrCreatePipeline(mode, program, programObj, transformFlags, vao, *renderPassEntry);
+        auto pipeline = GetOrCreatePipeline(mode, program, programObj, transformFlags, vao, *renderPassEntry,
+                                            ResolvePrimitiveRestartEnable(aspects, pIndexBufferView));
         // GetOrCreatePipeline documents a VK_NULL_HANDLE return (empty stages, or a driver that
         // rejected vkCreateGraphicsPipelines). Binding it dereferences null inside the driver -
         // 9 of the 15 CTS process deaths were exactly this vkCmdBindPipeline. A draw that has no
@@ -6562,6 +6878,7 @@ void main() {
             if (nowActiveRenderPass != nullptr && !programObj.hasStorageImages) {
                 snap.valid = true;
                 snap.aspects = aspects.GetRaw();
+                snap.primitiveRestartEnable = ResolvePrimitiveRestartEnable(aspects, pIndexBufferView);
                 snap.mode = mode;
                 snap.programLifetimeId = program.GetLifetimeId();
                 snap.programVersion = program.GetBackendStateVersion();
@@ -6585,6 +6902,7 @@ void main() {
                 snap.drawUsesDepthStencil = drawUsesDepthStencil;
                 snap.renderPassExtent = renderPassEntry->extent;
                 snap.renderPassColorCount = renderPassEntry->colorAttachmentCount;
+                snap.renderPassSampleCount = renderPassEntry->sampleCount;
                 snap.pipeline = pipeline;
                 // The layout identity the fast path's aux-memo compare answers against.
                 // A memo hit here, not a rebuild: the pre-flight above resolved this
@@ -6796,8 +7114,10 @@ void main() {
         }
 
         auto* activeRenderPass = VkRenderPassManager::GetActiveRenderPass();
-        auto* renderPassEntry = &m_renderPassManager->GetOrCreateRenderPass(framebuffer, m_imageIndexAcquired);
-        if (renderPassEntry->attachmentCount == 0 ||
+        auto* renderPassEntry = m_renderPassManager->GetOrCreateRenderPass(framebuffer, m_imageIndexAcquired);
+        // A declined render pass is the same answer as an empty one for a clear: there is nothing
+        // attached that can be cleared inside a pass. The builder has already logged the reason.
+        if (renderPassEntry == nullptr || renderPassEntry->attachmentCount == 0 ||
             renderPassEntry->extent.x() <= 0 || renderPassEntry->extent.y() <= 0) {
             return ScissoredClearPrep::NoOp;
         }
@@ -6827,7 +7147,10 @@ void main() {
             activeRenderPass = nullptr;
             // Re-resolve: ending the pass updates tracked attachment layouts, which feed the
             // entry's load ops and initial layouts.
-            renderPassEntry = &m_renderPassManager->GetOrCreateRenderPass(framebuffer, m_imageIndexAcquired);
+            renderPassEntry = m_renderPassManager->GetOrCreateRenderPass(framebuffer, m_imageIndexAcquired);
+            if (renderPassEntry == nullptr) {
+                return ScissoredClearPrep::NoOp;
+            }
         }
         // A still-active pass is necessarily compatible here: the block above ended any
         // incompatible one and nothing since can change the active pass.
@@ -7379,7 +7702,8 @@ void main() {
 
     Bool VulkanRenderer::ClearDepthSliceWithRenderPass(VkCommandBuffer commandBuffer,
                                                        MG_State::GLState::ITextureObject& texture, Uint32 mipLevel,
-                                                       Uint32 depthSlice, const VkClearValue& clearValue) {
+                                                       Uint32 depthSlice, const VkClearValue& clearValue,
+                                                       VkImageLayout finalLayout) {
         auto* resource = m_textureManager->SyncTextureAndGetDescriptor(texture);
         if (resource == nullptr || resource->image == VK_NULL_HANDLE) return false;
         if (m_frameContext.GetCurrentFrameIndex() >= m_deferredDepthMipmapCleanup.size()) return false;
@@ -7392,7 +7716,11 @@ void main() {
 
         VkAttachmentDescription colorAttachment{};
         colorAttachment.format = resource->format;
-        colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+        // The image's own count, not a hardcoded one: a render-pass attachment must match the
+        // image it is given (VUID-VkFramebufferCreateInfo-pAttachments-00880), and this helper is
+        // now also the multisample path - a multisample image carries no TRANSFER_DST usage, so a
+        // load-op clear is the only legal way to clear it at all.
+        colorAttachment.samples = resource->sampleCount;
         colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
         colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
         colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
@@ -7400,7 +7728,7 @@ void main() {
         colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         // Hand the slice back in the layout the caller already tracks for the whole image, so its
         // closing barrier stays truthful and resource->layout is never touched from in here.
-        colorAttachment.finalLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        colorAttachment.finalLayout = finalLayout;
 
         VkAttachmentReference colorRef{};
         colorRef.attachment = 0;
@@ -7468,9 +7796,26 @@ void main() {
                         "MaterializePendingClearForTexture requires no active render pass on the target buffer");
 
         auto* resource = m_textureManager->SyncTextureAndGetDescriptor(texture);
-        MOBILEGL_ASSERT(resource != nullptr,
-                        "MaterializePendingClearForTexture: SyncTextureAndGetDescriptor failed for textureId=%d",
-                        texture.GetExternalIndex());
+        if (resource == nullptr) {
+            // Declined sync (an incomplete texture, say). Nothing to clear into, and every line
+            // below dereferences this - the assert that used to stand here is compiled out of
+            // every build past DEBUG.
+            MGLOG_E_ONCE("MaterializePendingClearForTexture: no texture resource for textureId=%d; the queued clears "
+                         "stay queued",
+                         texture.GetExternalIndex());
+            return false;
+        }
+
+        // A multisample image is not a transfer target: SyncTextureResource deliberately withholds
+        // TRANSFER_DST/TRANSFER_SRC from every one of them, so the vkCmdClearColorImage below -
+        // and the TRANSFER_DST transition ahead of it - are invalid usage
+        // (VUID-vkCmdClearColorImage-image-00002) on exactly the shape a
+        // glClearBufferfv-then-sample sequence produces. Clear it the one way that is legal at
+        // any sample count instead: a throwaway render pass whose whole content is its load-op
+        // clear, which is also what the 3D-slice case below already does.
+        if (resource->sampleCount != VK_SAMPLE_COUNT_1_BIT) {
+            return MaterializeMultisamplePendingClear(commandBuffer, texture, *resource, pendingClears);
+        }
 
         VkPipelineStageFlags srcStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
         VkAccessFlags srcAccessMask = 0;
@@ -7606,6 +7951,77 @@ void main() {
 
         m_clearManager->PopPendingClear(&texture);
         MGLOG_D("MaterializePendingClearForTexture: textureId=%d pending clear materialized",
+                texture.GetExternalIndex());
+        return true;
+    }
+
+    Bool VulkanRenderer::MaterializeMultisamplePendingClear(VkCommandBuffer commandBuffer,
+                                                            MG_State::GLState::ITextureObject& texture,
+                                                            VkTextureManager::TextureResource& resource,
+                                                            const Vector<PendingClearEntry>& pendingClears) {
+        // Colour only. GL can queue a depth/stencil clear on a multisample texture too, and the
+        // load-op idiom would serve it just as well, but this helper attaches its view as a
+        // COLOUR attachment; declining is honest and leaves the queue intact for a later path.
+        if ((resource.aspect & VK_IMAGE_ASPECT_COLOR_BIT) == 0) {
+            MGLOG_E_ONCE("MaterializeMultisamplePendingClear: textureId=%d is a multisample depth/stencil texture; "
+                         "its queued clear cannot be materialised out of a render pass yet",
+                         texture.GetExternalIndex());
+            return false;
+        }
+
+        Bool allCleared = true;
+        for (const auto& pendingClear : pendingClears) {
+            if (pendingClear.key.mipLevel >= resource.mipLevels) {
+                MGLOG_E_ONCE("MaterializeMultisamplePendingClear: textureId=%d pending clear mip=%u out of range %u",
+                             texture.GetExternalIndex(), pendingClear.key.mipLevel, resource.mipLevels);
+                allCleared = false;
+                continue;
+            }
+            auto clearPayload = pendingClear.payload;
+            PreCompensateSrgbClearColor(clearPayload, resource.format);
+            VkClearValue clearValue{};
+            clearValue.color = MakeVkClearColorValue(clearPayload, ColorFormatLacksAlpha(&texture));
+
+            // A multisample texture has exactly one level and, for the 2D target, one layer; the
+            // array target's layers are cleared one at a time, which is what this helper's
+            // per-layer view gives us.
+            const Uint32 firstLayer = pendingClear.key.baseArrayLayer;
+            const Uint32 layerCount = std::max(pendingClear.key.layerCount, 1u);
+            for (Uint32 layer = firstLayer; layer < firstLayer + layerCount; ++layer) {
+                if (layer >= resource.arrayLayers) break;
+                // COLOR_ATTACHMENT_OPTIMAL, not TRANSFER_DST: the image never has transfer usage,
+                // and a render target is where it came from and where it is going.
+                if (!ClearDepthSliceWithRenderPass(commandBuffer, texture, pendingClear.key.mipLevel, layer,
+                                                   clearValue, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)) {
+                    MGLOG_E_ONCE("MaterializeMultisamplePendingClear: textureId=%d layer %u could not be cleared",
+                                 texture.GetExternalIndex(), layer);
+                    allCleared = false;
+                }
+            }
+        }
+        if (!allCleared) {
+            return false;
+        }
+
+        // The load-op clear left every touched layer in COLOR_ATTACHMENT_OPTIMAL (each pass's
+        // finalLayout), so that - not the tracked layout on entry - is what the closing barrier
+        // has to start from.
+        // TransitionImageLayout takes the tracked layout by reference and updates it, so seeding
+        // it is both how the barrier learns its source and how resource->layout ends up right.
+        resource.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        const Bool ok = VkTextureManager::TransitionImageLayout(
+            commandBuffer, resource.image, resource.layout,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+            resource.aspect, 0, resource.mipLevels);
+        if (!ok) {
+            MGLOG_E_ONCE("MaterializeMultisamplePendingClear: failed to transition textureId=%d to the sampled layout",
+                         texture.GetExternalIndex());
+            return false;
+        }
+
+        m_clearManager->PopPendingClear(&texture);
+        MGLOG_D("MaterializeMultisamplePendingClear: textureId=%d pending clear materialised through a load-op pass",
                 texture.GetExternalIndex());
         return true;
     }
@@ -7992,8 +8408,14 @@ void main() {
 
         // A color-only blit never touches depth/stencil: let the default-FBO pass
         // it opens skip the depth attachment (depth-less flavor).
-        auto& renderPassEntry =
+        auto* renderPassEntryPtr =
             m_renderPassManager->GetOrCreateRenderPass(drawFbo, m_imageIndexAcquired, /*drawUsesDepthStencil=*/false);
+        if (renderPassEntryPtr == nullptr) {
+            // Declined (the builder logged which attachment). The caller's contract for `false` is
+            // "this blit was not serviced here", which is the honest answer.
+            return false;
+        }
+        auto& renderPassEntry = *renderPassEntryPtr;
         const Bool ok = VkRenderPassManager::BeginRenderPass(frame.commandBuffer, renderPassEntry);
         MOBILEGL_ASSERT(ok, "%s: BeginRenderPass failed", __func__);
 
@@ -8944,6 +9366,12 @@ void main() {
             VkExtent2D extent = {0, 0};
             Uint32 depth = 1;
             Uint32 arrayLayers = 1;
+            // Both resources carry a format; this copy used to decline to read it, which is why a
+            // four-row drift between the texture and renderbuffer format tables turned into
+            // corrupted texels with nothing in the log. vkCmdCopyImage requires size-compatible
+            // formats whenever they differ (VUID-vkCmdCopyImage-srcImage-01548) and there is no
+            // downstream check - a mismatched pair is a promise the driver takes at face value.
+            VkFormat format = VK_FORMAT_UNDEFINED;
         };
 
         Bool TryResolveCopyImageSliceMapping(TextureTarget target, const CopyImageVkImage& image, Uint32 mipLevel,
@@ -9063,6 +9491,7 @@ void main() {
                 out.extent = resource->extent;
                 out.depth = 1;
                 out.arrayLayers = 1;
+                out.format = resource->format;
                 return out.image != VK_NULL_HANDLE;
             }
             // An endpoint that named nothing is the frontend validator's INVALID_VALUE and never
@@ -9078,6 +9507,7 @@ void main() {
             out.extent = resource->extent;
             out.depth = resource->depth;
             out.arrayLayers = resource->arrayLayers;
+            out.format = resource->format;
             return true;
         };
         CopyImageVkImage srcImage{};
@@ -9117,6 +9547,42 @@ void main() {
             MGLOG_E_ONCE("%s: mip level out of range (src %d of %u, dst %d of %u); declining the copy", __func__,
                          srcLevel, srcImage.mipLevels, dstLevel, dstImage.mipLevels);
             return;
+        }
+        // Size compatibility, the guard whose absence let a table drift two files away reach the
+        // driver as a promise. glCopyImageSubData is a raw texel-block move (GL 4.6 core 18.3.2), and
+        // Vulkan says as much: when the two formats differ they must be size-compatible - the same
+        // texel block size - or vkCmdCopyImage is undefined (VUID-vkCmdCopyImage-srcImage-01548).
+        // Nothing else on this path asks: the three checks around it cover the mip range, the region
+        // bounds and the slice range, and none of them ever looked at a format.
+        //
+        // A decline rather than a MOBILEGL_ASSERT, for the reason the neighbouring guards spell out:
+        // assertions compile out of the release build that the CTS and shipping both run, which is
+        // exactly where the corruption was observed.
+        if (srcImage.format != dstImage.format) {
+            // Size-compatibility is the COLOUR rule. Vulkan makes each depth/stencil format compatible
+            // only with ITSELF, and the texel block sizes cannot tell them apart: X8_D24_UNORM_PACK32,
+            // D32_SFLOAT and D24_UNORM_S8_UINT are all 4 bytes and all in different compatibility
+            // classes, so a raw block-size test waves through exactly the pairs Vulkan forbids. The
+            // frontend cannot filter them either - its own texel-block resolver is byte-size only, so
+            // glCopyImageSubData between a GL_DEPTH_COMPONENT24 texture and a GL_DEPTH_COMPONENT32F
+            // one reaches here with two different depth formats and 4 == 4.
+            const Bool eitherIsDepthStencil =
+                ((srcImage.aspect | dstImage.aspect) & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)) != 0;
+            if (eitherIsDepthStencil) {
+                MGLOG_E_ONCE("%s: depth/stencil formats are compatible only with themselves, and source format "
+                             "%d differs from destination format %d; declining the copy",
+                             __func__, static_cast<Int>(srcImage.format), static_cast<Int>(dstImage.format));
+                return;
+            }
+            const Uint32 srcBlockSize = vkuGetFormatInfo(srcImage.format).texel_block_size;
+            const Uint32 dstBlockSize = vkuGetFormatInfo(dstImage.format).texel_block_size;
+            if (srcBlockSize == 0 || dstBlockSize == 0 || srcBlockSize != dstBlockSize) {
+                MGLOG_E_ONCE("%s: source format %d and destination format %d are not size-compatible "
+                             "(%u vs %u bytes per texel block); declining the copy",
+                             __func__, static_cast<Int>(srcImage.format), static_cast<Int>(dstImage.format),
+                             srcBlockSize, dstBlockSize);
+                return;
+            }
         }
         const VkImageAspectFlags copyAspectMask =
             srcImage.aspect & dstImage.aspect &
@@ -10190,9 +10656,38 @@ void main() {
         }
 
         auto* resource = m_textureManager->SyncTextureAndGetDescriptor(*textureObject);
-        if (resource == nullptr || resource->image == VK_NULL_HANDLE) {
-            MGLOG_E_ONCE("DirectVulkan::GetTexImage skipped: failed to sync textureId=%u",
-                    textureObject->GetExternalIndex());
+        // Two shapes end up in the same place, and for the same reason: the GL level being read has
+        // no GPU storage, so UploadDirtyMipLevels never wrote it and the CPU shadow is the ONLY copy
+        // of its bytes - which makes the shadow both the safe answer and the correct one.
+        //
+        //   (a) No VkImage at all. A mutable texture whose GL level 0 was never defined -
+        //       glTexImage2D(GL_TEXTURE_2D, 5, ...) and nothing else, exactly what the
+        //       clear_tex_image conformance cases build. VkTextureManager takes storage mip 0 as the
+        //       physical image extent (CheckMipmapCompleteness), so it refuses to back the texture.
+        //   (b) A VkImage with FEWER mip levels than the GL level count. GetUploadMipLevelCount
+        //       breaks at the first level with a zero extent, so "level 0 defined, a gap, level 3
+        //       defined" produces a one-mip image while GL_TEXTURE_MAX_LEVEL-style state still
+        //       reports four levels. The same clamp also fires on a base level small enough that the
+        //       full chain is shorter than the levels the application defined.
+        //
+        // (b) is the dangerous one and is why the level is bounded against the RESOURCE and not only
+        // against the GL-side count above: writing that level into imageSubresource.mipLevel is an
+        // out-of-range subresource, which is the promise the driver takes at face value. The
+        // glCopyImageSubData path two functions up carries the same guard for the same reason, added
+        // after it SIGSEGV'd inside the Adreno driver; the readback never had one.
+        const Bool hasImage = resource != nullptr && resource->image != VK_NULL_HANDLE;
+        const Bool levelIsBacked =
+            hasImage && ToStorageMipLevel(textureObject.get(), level) < resource->mipLevels;
+        if (!levelIsBacked) {
+            // Never gated on "syncing was inconvenient": a blanket shadow answer would silently
+            // return stale bytes for every render-to-texture result.
+            MGLOG_D("DirectVulkan::GetTexImage: textureId=%u level %d has no GPU storage (%s); answering "
+                    "from the CPU shadow",
+                    textureObject->GetExternalIndex(), level,
+                    hasImage ? "the image has fewer mip levels" : "the texture has no VkImage");
+            MG_Impl::GLImpl::CopyTextureImageToClientOrPBO_State(textureObject, textureUploadTarget, level, format,
+                                                                 type, bufSize, pixels,
+                                                                 "DirectVulkan::GetTextureImage");
             return;
         }
 
@@ -10208,19 +10703,30 @@ void main() {
                         "GetTexImage: failed to materialize pending clear for textureId=%d",
                         textureObject->GetExternalIndex());
 
+        // WHICH FACE the caller asked for. glGetTexImage names one face of a cube map through the
+        // TARGET token (GL_TEXTURE_CUBE_MAP_NEGATIVE_X and friends, GL 4.6 core 8.11), and a cube
+        // map's six faces are its VkImage's six ARRAY LAYERS - so unless the token is turned into a
+        // baseArrayLayer, every face token reads layer 0 and the whole cube answers as +X. The
+        // image's own target cannot supply this: a plain GL_TEXTURE_CUBE_MAP is not an array target,
+        // so the layer arithmetic below leaves it at one layer starting at zero, which is precisely
+        // the layer this face index has to displace. Same conversion, same reason, as
+        // VkClearManager's / VkRenderPassManager's ResolveAttachmentBaseArrayLayer, which resolve an
+        // ATTACHMENT's face; this is the readback's copy of it. Zero for every other target,
+        // including a cube map ARRAY - that one arrives as TextureUploadTarget::CubeMapArray with
+        // its layer-faces already counted in the level's z, not as a face token.
+        const Bool isCubeFaceTarget = textureUploadTarget >= TextureUploadTarget::CubeMapPositiveX &&
+            textureUploadTarget <= TextureUploadTarget::CubeMapNegativeZ;
+        const Int glCubeFaceLayer = isCubeFaceTarget
+            ? static_cast<Int>(textureUploadTarget) - static_cast<Int>(TextureUploadTarget::CubeMapPositiveX)
+            : 0;
+
         if ((resource->aspect & VK_IMAGE_ASPECT_COLOR_BIT) == 0) {
             if (format == GL_DEPTH_COMPONENT || format == GL_DEPTH_STENCIL || format == GL_STENCIL_INDEX) {
                 const auto levelSize =
                     textureMipmapObject->GetMipmapTexelSize(textureUploadTarget, static_cast<Uint>(level));
-                const Bool isCubeFace = textureUploadTarget >= TextureUploadTarget::CubeMapPositiveX &&
-                    textureUploadTarget <= TextureUploadTarget::CubeMapNegativeZ;
                 // Storage space: `resource` is the storage texture's, so a view's level and
                 // layer have to be shifted into its numbering (see ToStorageMipLevel).
-                const Int glArrayLayer = isCubeFace
-                    ? static_cast<Int>(textureUploadTarget) -
-                        static_cast<Int>(TextureUploadTarget::CubeMapPositiveX)
-                    : 0;
-                const Uint32 arrayLayer = ToStorageArrayLayer(textureObject.get(), glArrayLayer);
+                const Uint32 arrayLayer = ToStorageArrayLayer(textureObject.get(), glCubeFaceLayer);
                 const Uint32 storageLevel = ToStorageMipLevel(textureObject.get(), level);
                 // A 1D array's levelSize.y() is its LAYER count, and those layers are the rows
                 // GL wants back - but in Vulkan they are array layers of a one-row image, not
@@ -10315,7 +10821,10 @@ void main() {
         // Storage space, as above: a texture view reads its own level 0 out of whichever level
         // and layer of the parent it opened onto.
         copyRegion.imageSubresource.mipLevel = ToStorageMipLevel(textureObject.get(), level);
-        copyRegion.imageSubresource.baseArrayLayer = ToStorageArrayLayer(textureObject.get(), 0);
+        // glCubeFaceLayer, not 0: the cube face the target token named (see above). Non-zero for
+        // exactly one shape - a plain cube map read one face at a time - and layerCount is 1 there,
+        // so the copy stays inside the six layers the image has.
+        copyRegion.imageSubresource.baseArrayLayer = ToStorageArrayLayer(textureObject.get(), glCubeFaceLayer);
         copyRegion.imageSubresource.layerCount = static_cast<Uint32>(arrayLayers);
         copyRegion.imageExtent = {static_cast<Uint32>(width),
                                   is1dArrayImage ? 1u : static_cast<Uint32>(height),
@@ -10351,15 +10860,23 @@ void main() {
 
     void VulkanRenderer::GenerateMipmap(GLenum target) {
         const auto textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
-        // The other mipmappable targets - 1D, 1D array, cube map array - are legal GL and the front
-        // end lets them through, so reaching one here is a coverage gap in this backend, not a
-        // broken invariant. Declining leaves the mip chain unwritten; asserting took the process
-        // down with it.
+        // Whatever is left here is a coverage gap in this backend, not a broken invariant, so it
+        // declines (leaving the mip chain unwritten) rather than asserting the process down. What
+        // remains is the multisample targets, which GL 4.6 core 8.14.4 forbids to glGenerateMipmap
+        // outright.
+        //
+        // Every ARRAY target - 1D array, 2D array, cube map array - needs no blit code of its own:
+        // its layers live in the VkImage's arrayLayers, so resource->extent/depth already describe
+        // one layer's image and the loop below already copies every layer per level via
+        // srcSubresource.layerCount = resource->arrayLayers. The one thing they DO need is that the
+        // GL-space storage allocation not shrink the layer count down the chain, which
+        // MipShrinkingComponentCount handles.
         if (textureTarget != TextureTarget::Texture2D && textureTarget != TextureTarget::Texture2DArray &&
             textureTarget != TextureTarget::Texture3D && textureTarget != TextureTarget::TextureCubeMap &&
+            textureTarget != TextureTarget::TextureCubeMapArray &&
             // A 1D texture needs nothing special: its storage extent is {width, 1, 1}, so the blit
             // loop below already emits the y and z offsets of 0 and 1 that a 1D image requires.
-            textureTarget != TextureTarget::Texture1D) {
+            textureTarget != TextureTarget::Texture1D && textureTarget != TextureTarget::Texture1DArray) {
             MGLOG_W_ONCE("GenerateMipmap: unsupported target %s", MG_Util::ConvertTextureTargetToString(textureTarget).c_str());
             return;
         }
@@ -10630,6 +11147,19 @@ void main() {
         }
         const auto& program = MG_State::pGLContext->GetTransformFeedbackProgram();
         if (!program || program->GetTransformFeedbackVaryingCount() == 0) {
+            return false;
+        }
+        // The bound pipeline's last pre-rasterization stage has to have been declared with Xfb
+        // (VUID-vkCmdBeginTransformFeedbackEXT-None-04128). Everything above this line reads GL
+        // state, which cannot answer that: a program can be built as a capture variant and still
+        // end up with a module carrying no Xfb mode - the clip/XFB validation backstop rewinding
+        // past the decoration, or XfbCaptureDecoratePass resolving none of the requested varyings
+        // and changing nothing. Declining the span leaves the capture buffers untouched, which is
+        // the same nothing the driver would have written, without the undefined behaviour.
+        if (m_currentDrawXfbCaptureDeclined) {
+            MGLOG_E_ONCE("BeginXfbCaptureForDraw: declining the capture span - the bound program's last "
+                         "pre-rasterization stage carries no Xfb execution mode, so recording one would be "
+                         "undefined behaviour rather than a capture");
             return false;
         }
         const SizeT bufferCount = std::min<SizeT>(program->GetTransformFeedbackBufferCount(), 4);
@@ -12690,6 +13220,18 @@ void main() {
                                                 : supportedDeviceFeatures.robustBufferAccess;
         deviceFeatures.geometryShader = supportedDeviceFeatures.geometryShader;
         deviceFeatures.tessellationShader = supportedDeviceFeatures.tessellationShader;
+        // gl_PointSize is an ORDINARY per-vertex output in desktop GL - a tessellation
+        // evaluation or geometry shader may write it, and a program may capture it by name -
+        // but in Vulkan the PointSize built-in is only usable from those two stages when this
+        // feature is on (VUID-RuntimeSpirv-PointSize-06439; SPIR-V spells the requirement as
+        // the TessellationPointSize / GeometryPointSize capabilities, which glslang emits from
+        // any such write). Left off, every one of those programs is invalid usage that a lenient
+        // driver silently gives an undefined point size and a strict one faults on. Nothing here
+        // asks for it speculatively: the feature is taken only where the device advertises it.
+        deviceFeatures.shaderTessellationAndGeometryPointSize =
+            supportedDeviceFeatures.shaderTessellationAndGeometryPointSize;
+        m_tessellationAndGeometryPointSizeFeatureEnabled =
+            deviceFeatures.shaderTessellationAndGeometryPointSize == VK_TRUE;
         // Sampled-read barriers may only name the shader stages whose device feature is
         // actually enabled (VUID-vkCmdPipelineBarrier-srcStageMask-04090/-04091), so the
         // mask is assembled here, next to the feature decision, and handed to consumers.
@@ -12709,6 +13251,11 @@ void main() {
         m_fillModeNonSolidFeatureEnabled = deviceFeatures.fillModeNonSolid == VK_TRUE;
         deviceFeatures.dualSrcBlend = supportedDeviceFeatures.dualSrcBlend;
         m_dualSrcBlendFeatureEnabled = deviceFeatures.dualSrcBlend == VK_TRUE;
+        // ARB_sample_shading. Without this feature a pipeline may not set sampleShadingEnable
+        // (VUID-VkPipelineMultisampleStateCreateInfo-sampleShadingEnable-00784), so the GL enable
+        // has to be dropped rather than forwarded - which is what the flag below records.
+        deviceFeatures.sampleRateShading = supportedDeviceFeatures.sampleRateShading;
+        m_sampleRateShadingFeatureEnabled = deviceFeatures.sampleRateShading == VK_TRUE;
         // ARB_viewport_array rasterization. Without multiViewport a pipeline may declare exactly
         // one viewport (VUID-VkPipelineViewportStateCreateInfo-viewportCount-01216), so a shader's
         // gl_ViewportIndex can only ever select viewport 0 and the other fifteen rectangles are
@@ -12974,6 +13521,55 @@ void main() {
                 MGLOG_I("Enabled optional device extension: %s",
                         VK_EXT_PRIMITIVE_TOPOLOGY_LIST_RESTART_EXTENSION_NAME);
             }
+        }
+
+        // VK_EXT_custom_border_color: an arbitrary GL_TEXTURE_BORDER_COLOR, in float or integer form,
+        // instead of the four predefined VkBorderColor values. Without it a border outside
+        // transparent black / opaque black / opaque white has to be snapped, which is what made every
+        // border texel of a GL_RGBA8 texture with border (255,255,255,255) sample as 0 and what made
+        // an integer border of -1 come back as 0.
+        //
+        // customBorderColorWithoutFormat is required alongside customBorderColors, not merely
+        // preferred: a GL sampler object carries a border colour with no idea which texture it will
+        // be paired with, so the VkSamplerCustomBorderColorCreateInfoEXT this backend builds has to
+        // leave `format` VK_FORMAT_UNDEFINED.
+        m_customBorderColorFeatureEnabled = false;
+        m_maxCustomBorderColorSamplers = 0;
+        VkPhysicalDeviceCustomBorderColorFeaturesEXT customBorderColorFeatures{};
+        customBorderColorFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CUSTOM_BORDER_COLOR_FEATURES_EXT;
+        if (IsExtensionSupported(availableExtensions, VK_EXT_CUSTOM_BORDER_COLOR_EXTENSION_NAME) &&
+            getPhysicalDeviceFeatures2 != nullptr) {
+            VkPhysicalDeviceFeatures2 featureQuery{};
+            featureQuery.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+            featureQuery.pNext = &customBorderColorFeatures;
+            getPhysicalDeviceFeatures2(m_physicalDevice.handle, &featureQuery);
+            if (customBorderColorFeatures.customBorderColors == VK_TRUE &&
+                customBorderColorFeatures.customBorderColorWithoutFormat == VK_TRUE) {
+                if (!IsExtensionAlreadyEnabled(enabledDeviceExtensions,
+                                               VK_EXT_CUSTOM_BORDER_COLOR_EXTENSION_NAME)) {
+                    enabledDeviceExtensions.push_back(VK_EXT_CUSTOM_BORDER_COLOR_EXTENSION_NAME);
+                }
+                customBorderColorFeatures.pNext = const_cast<void*>(deviceCreateInfo.pNext);
+                deviceCreateInfo.pNext = &customBorderColorFeatures;
+                m_customBorderColorFeatureEnabled = true;
+
+                if (getPhysicalDeviceProperties2 != nullptr) {
+                    VkPhysicalDeviceCustomBorderColorPropertiesEXT customBorderColorProperties{};
+                    customBorderColorProperties.sType =
+                        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CUSTOM_BORDER_COLOR_PROPERTIES_EXT;
+                    VkPhysicalDeviceProperties2 propertyQuery{};
+                    propertyQuery.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+                    propertyQuery.pNext = &customBorderColorProperties;
+                    getPhysicalDeviceProperties2(m_physicalDevice.handle, &propertyQuery);
+                    m_maxCustomBorderColorSamplers = customBorderColorProperties.maxCustomBorderColorSamplers;
+                }
+                MGLOG_I("Enabled optional device extension: %s (maxCustomBorderColorSamplers=%u)",
+                        VK_EXT_CUSTOM_BORDER_COLOR_EXTENSION_NAME, m_maxCustomBorderColorSamplers);
+            }
+        }
+        if (!m_customBorderColorFeatureEnabled) {
+            MGLOG_I("%s unavailable; GL_TEXTURE_BORDER_COLOR snaps to the nearest predefined VkBorderColor",
+                    VK_EXT_CUSTOM_BORDER_COLOR_EXTENSION_NAME);
         }
 
         // Native subgroup topology, and VK_EXT_subgroup_size_control's

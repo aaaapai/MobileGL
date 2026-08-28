@@ -328,8 +328,48 @@ namespace MobileGL::MG_Impl::GLImpl {
         MG_State::pGLContext->SetSampleCoverage(std::clamp(static_cast<Float>(value), 0.0f, 1.0f), invert == GL_TRUE);
     }
 
+    // ARB_sample_shading / GL 4.6 core 14.3.1: "value is clamped to [0, 1] when specified", so
+    // there is no error to raise - a caller that asks for 2.0 gets 1.0 and GL_MIN_SAMPLE_SHADING_-
+    // VALUE reads back 1.0. Was a logging no-op while ARB_sample_shading was advertised, which
+    // let an application enable GL_SAMPLE_SHADING and then quietly get the driver's default rate.
+    void MinSampleShading_State(GLfloat value) {
+        MG_State::pGLContext->SetMinSampleShadingValue(std::clamp(static_cast<Float>(value), 0.0f, 1.0f));
+    }
+
     void PolygonOffset_State(GLfloat factor, GLfloat units) {
         MG_State::pGLContext->SetPolygonOffset(static_cast<Float>(factor), static_cast<Float>(units));
+    }
+
+    void PolygonOffsetClamp_State(GLfloat factor, GLfloat units, GLfloat clamp) {
+        // GL 4.6 core 14.6.5 / GL_EXT_polygon_offset_clamp. No error cases: any three floats are
+        // legal, and clamp = 0 is exactly glPolygonOffset. Whether the backend can APPLY the clamp
+        // is a separate question (see the DirectGLES/DirectVulkan forwarding); the state is
+        // recorded either way, because GL_POLYGON_OFFSET_CLAMP has to read back what was written.
+        MG_State::pGLContext->SetPolygonOffsetClamped(static_cast<Float>(factor), static_cast<Float>(units),
+                                                      static_cast<Float>(clamp));
+    }
+
+    void ClipControl_State(GLenum origin, GLenum depth) {
+        // GL 4.5 core 13.5: both arguments are strict enums, and either being wrong is
+        // GL_INVALID_ENUM with the state left untouched.
+        if (origin != GL_LOWER_LEFT && origin != GL_UPPER_LEFT) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidEnum,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "glClipControl origin must be GL_LOWER_LEFT or GL_UPPER_LEFT; got " +
+                                                 MG_Util::ConvertGLEnumToString(origin) + "."));
+            return;
+        }
+        if (depth != GL_NEGATIVE_ONE_TO_ONE && depth != GL_ZERO_TO_ONE) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidEnum,
+                MakeUnique<GenericErrorInfo>(
+                    "MG_Impl/GLImpl", __func__,
+                    "glClipControl depth must be GL_NEGATIVE_ONE_TO_ONE or GL_ZERO_TO_ONE; got " +
+                        MG_Util::ConvertGLEnumToString(depth) + "."));
+            return;
+        }
+        MG_State::pGLContext->SetClipControl(origin, depth);
     }
 
     void PolygonMode_State(GLenum face, GLenum mode) {
@@ -1013,8 +1053,20 @@ namespace MobileGL::MG_Impl::GLImpl {
         SampleCoverage_State(value, invert);
     }
 
+    void MinSampleShading(GLfloat value) {
+        MinSampleShading_State(value);
+    }
+
     void PolygonOffset(GLfloat factor, GLfloat units) {
         PolygonOffset_State(factor, units);
+    }
+
+    void PolygonOffsetClamp(GLfloat factor, GLfloat units, GLfloat clamp) {
+        PolygonOffsetClamp_State(factor, units, clamp);
+    }
+
+    void ClipControl(GLenum origin, GLenum depth) {
+        ClipControl_State(origin, depth);
     }
 
     void PolygonMode(GLenum face, GLenum mode) {

@@ -55,6 +55,44 @@ namespace MobileGL::MG_Util::SelfTest {
         String detail;
     };
 
+    // What the located-interface-block probe measured.
+    struct LocatedIoBlockMeasurement {
+        // The driver delivers nothing through an inter-stage interface block that carries an
+        // explicit layout(location=) once a geometry stage is in the pipeline. The only field
+        // any caller's behaviour depends on.
+        Bool detected = false;
+        // ...and it does the same WITHOUT a geometry stage, i.e. between a vertex and a
+        // fragment stage. False on the device this was characterised on, and reported because
+        // DirectGLES's repair is scoped to tessellation/geometry programs: a driver that
+        // answered true here would be losing block payloads the repair does not reach.
+        Bool alsoAffectsVertexToFragment = false;
+    };
+
+    // Draws one full-viewport triangle through VS+GS+FS whose two interface blocks carry an
+    // explicit layout(location = 0), and reports whether the payload the vertex stage wrote
+    // reached the fragment stage.
+    //
+    // The Mali-G1-Ultra ES driver (r54p1) delivers ZEROES: the stages compile, the program
+    // links with an empty info log, the draw runs without error, and the block is empty. It is
+    // the whole of the KHR-GLxx.shading_language_420pack interface-block group's failures on
+    // that device, and of a further 21 tessellation and geometry bodies beside it.
+    //
+    // TWO CONTROLS, and the first is why this is a LOCATION finding rather than a block one:
+    // (1) the identical three-stage program with the qualifier removed from both blocks must
+    // deliver its payload - without that, "this driver cannot carry an interface block through
+    // a geometry stage" would be the claim, which is false and would justify flattening every
+    // block on the device; and (2) a two-stage vertex-to-fragment program with a LOCATED block
+    // is measured separately, because that one works on the affected driver and is what scopes
+    // the repair to programs with a tessellation or geometry stage.
+    //
+    // Returns `detected` false when an entry point is missing, when the driver has no geometry
+    // stage, or when the unlocated control fails - an inconclusive probe must never be reported
+    // as a bug, and must never arm the repair. Restores every piece of GL state it touches.
+    LocatedIoBlockMeasurement ProbeLocatedIoBlocksLosePayload(const MG_External::GLESFunctionsTable& gl);
+
+    // ProbeLocatedIoBlocksLosePayload(), evaluated at most once per process.
+    const LocatedIoBlockMeasurement& LocatedIoBlocksLosePayload(const MG_External::GLESFunctionsTable& gl);
+
     // Blits one layer of an RGBA8 2D array onto another array's layer 1 and reports whether the
     // copy landed where it was asked to. Returns true only when the destination layer is ignored
     // while the control lands correctly.
@@ -260,6 +298,39 @@ namespace MobileGL::MG_Util::SelfTest {
     // ProbeImageWriteReadCoherencyResidual(), evaluated at most once per process.
     const ImageCoherencyResidualMeasurement& ImageWriteReadCoherencyResidual(
         const MG_External::GLESFunctionsTable& gl);
+
+    // Copies one known GL_UNSIGNED_SHORT_5_5_5_1 word out of a GL_RGB5_A1 2D array's mip
+    // level 1 into a plain 2D image with glCopyImageSubData and reads the landed texel back.
+    // Returns true only when the level-1 copy delivers the word's 5_5_5_1 <-> 1_5_5_5_REV
+    // field-order mirror while the identical level-0 copy delivers the word itself.
+    //
+    // The affected Mali stores 16-bit packed texels (RGB565 / RGB5_A1 / RGBA4) at a non-zero
+    // mip level of a 2D array in the *_REV field order every other image does NOT use.
+    // Uploads and readbacks decode that layout consistently, so nothing but a raw texel-block
+    // move can see it - which is exactly what glCopyImageSubData is defined to be, and why
+    // the whole KHR-GL4x.copy_image rgb5/rgb5_a1/rgba4 x *2d_array* matrix fails there while
+    // every other suite touching these formats passes. The textures reproduce the failing
+    // shape verbatim - THREE-level chains on both endpoints (30/15/7 x12 for the array,
+    // 7/3/1 for the plain 2D image), exactly the CTS's FUNCTIONAL_TEST_N_LEVELS = 3
+    // allocation - because a 14x14 base's level 1 measured clean on the same driver, so
+    // every deviation from the measured shape risks landing on the clean side of whatever
+    // allocation threshold picks the driver's layout, and a probe miss here is not a red
+    // test: it is the widening silently staying inert with all 18 bodies still failing.
+    //
+    // THE CONTROL is the identical copy out of mip level 0, which is clean on the affected
+    // driver too: it proves copy_image works between these images at all and that the
+    // upload/readback round trip is exact, so a driver that cannot host the shape reaches no
+    // verdict instead of being reported as this. The subject must also match the mirror
+    // PREDICTION, not merely differ from the expectation - a copy that delivered anything
+    // else is a different defect and reaches no verdict either. Restores every piece of GL
+    // state it touches.
+    Bool ProbeCopyImageMirrorsPacked16FieldOrder(const MG_External::GLESFunctionsTable& gl);
+
+    // ProbeCopyImageMirrorsPacked16FieldOrder(), evaluated at most once per process. The
+    // DirectGLES format normalization consults this to decide whether the three 16-bit packed
+    // normalized formats must be stored as 8-bit-per-channel ES storage (see
+    // PixelFormatNormalizeOptionBit::WidenPacked16Norm).
+    Bool CopyImageMirrorsPacked16FieldOrder(const MG_External::GLESFunctionsTable& gl);
 
     // Every known driver bug this GLES driver actually has. Bugs it does not have are absent,
     // so an unaffected device renders an empty section rather than a wall of "not affected".

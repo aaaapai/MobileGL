@@ -8,8 +8,10 @@
 
 #include "DriverBugProbes.h"
 
+#include <Config.h>
 #include <MG_Util/Debug/Log.h>
 
+#include <algorithm>
 #include <cstring>
 #include <optional>
 #include <string>
@@ -126,6 +128,21 @@ namespace MobileGL::MG_Util::SelfTest {
             GLfloat clearColor[4] = {0.0f, 0.0f, 0.0f, 0.0f};
             GLint packAlignment = 4;
             GLint packRowLength = 0;
+            // The rest of the pixel-transfer scope. The probes that upload or read back texels
+            // run under whatever scope their caller left - the lazy ones run from live paths,
+            // not just the POST screen - and a caller's skip/row-length/PBO would silently
+            // shear a probe's own data. Saved so a probe can zero them and the caller gets
+            // them back.
+            GLint packSkipPixels = 0;
+            GLint packSkipRows = 0;
+            GLint unpackAlignment = 4;
+            GLint unpackRowLength = 0;
+            GLint unpackImageHeight = 0;
+            GLint unpackSkipPixels = 0;
+            GLint unpackSkipRows = 0;
+            GLint unpackSkipImages = 0;
+            GLint pixelPackBuffer = 0;
+            GLint pixelUnpackBuffer = 0;
             GLint imageName = 0;
             GLint imageLevel = 0;
             GLint imageLayered = 0;
@@ -165,6 +182,16 @@ namespace MobileGL::MG_Util::SelfTest {
             gl.glGetIntegerv(GL_TEXTURE_BINDING_2D_ARRAY, &state.texture2DArray);
             gl.glGetIntegerv(GL_PACK_ALIGNMENT, &state.packAlignment);
             gl.glGetIntegerv(GL_PACK_ROW_LENGTH, &state.packRowLength);
+            gl.glGetIntegerv(GL_PACK_SKIP_PIXELS, &state.packSkipPixels);
+            gl.glGetIntegerv(GL_PACK_SKIP_ROWS, &state.packSkipRows);
+            gl.glGetIntegerv(GL_UNPACK_ALIGNMENT, &state.unpackAlignment);
+            gl.glGetIntegerv(GL_UNPACK_ROW_LENGTH, &state.unpackRowLength);
+            gl.glGetIntegerv(GL_UNPACK_IMAGE_HEIGHT, &state.unpackImageHeight);
+            gl.glGetIntegerv(GL_UNPACK_SKIP_PIXELS, &state.unpackSkipPixels);
+            gl.glGetIntegerv(GL_UNPACK_SKIP_ROWS, &state.unpackSkipRows);
+            gl.glGetIntegerv(GL_UNPACK_SKIP_IMAGES, &state.unpackSkipImages);
+            gl.glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING, &state.pixelPackBuffer);
+            gl.glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, &state.pixelUnpackBuffer);
             if (gl.glGetFloatv != nullptr) {
                 gl.glGetFloatv(GL_COLOR_CLEAR_VALUE, state.clearColor);
             }
@@ -220,6 +247,18 @@ namespace MobileGL::MG_Util::SelfTest {
             if (gl.glPixelStorei != nullptr) {
                 gl.glPixelStorei(GL_PACK_ALIGNMENT, state.packAlignment);
                 gl.glPixelStorei(GL_PACK_ROW_LENGTH, state.packRowLength);
+                gl.glPixelStorei(GL_PACK_SKIP_PIXELS, state.packSkipPixels);
+                gl.glPixelStorei(GL_PACK_SKIP_ROWS, state.packSkipRows);
+                gl.glPixelStorei(GL_UNPACK_ALIGNMENT, state.unpackAlignment);
+                gl.glPixelStorei(GL_UNPACK_ROW_LENGTH, state.unpackRowLength);
+                gl.glPixelStorei(GL_UNPACK_IMAGE_HEIGHT, state.unpackImageHeight);
+                gl.glPixelStorei(GL_UNPACK_SKIP_PIXELS, state.unpackSkipPixels);
+                gl.glPixelStorei(GL_UNPACK_SKIP_ROWS, state.unpackSkipRows);
+                gl.glPixelStorei(GL_UNPACK_SKIP_IMAGES, state.unpackSkipImages);
+            }
+            if (gl.glBindBuffer != nullptr) {
+                gl.glBindBuffer(GL_PIXEL_PACK_BUFFER, static_cast<GLuint>(state.pixelPackBuffer));
+                gl.glBindBuffer(GL_PIXEL_UNPACK_BUFFER, static_cast<GLuint>(state.pixelUnpackBuffer));
             }
             if (gl.glClearColor != nullptr) {
                 gl.glClearColor(state.clearColor[0], state.clearColor[1], state.clearColor[2],
@@ -1687,6 +1726,416 @@ namespace MobileGL::MG_Util::SelfTest {
     }
 
     namespace {
+        // ===================== LOCATED INTER-STAGE INTERFACE BLOCKS =====================
+
+        constexpr const char* kIoBlockProbeName = "located interface block";
+
+        // This probe's OWN requirements, not HasEveryEntryPoint's. That one is the geometry
+        // storage probe's list and asks for storage buffers and buffer mapping, which nothing
+        // here touches - borrowing it would let one unresolved SSBO pointer leave a driver that
+        // HAS this defect unrepaired, which is the opposite of what a gate is for. Covers what
+        // BuildProgram, Save/Restore, PrepareForProbeDraw and the draw below actually call.
+        Bool HasIoBlockProbeEntryPoints(const GLESFunctionsTable& gl) {
+            return gl.glCreateShader && gl.glShaderSource && gl.glCompileShader && gl.glGetShaderiv &&
+                   gl.glGetShaderInfoLog && gl.glCreateProgram && gl.glAttachShader &&
+                   gl.glLinkProgram && gl.glGetProgramiv && gl.glGetProgramInfoLog &&
+                   gl.glDeleteShader && gl.glDeleteProgram && gl.glUseProgram && gl.glGenVertexArrays &&
+                   gl.glBindVertexArray && gl.glDeleteVertexArrays && gl.glGenRenderbuffers &&
+                   gl.glBindRenderbuffer && gl.glRenderbufferStorage && gl.glDeleteRenderbuffers &&
+                   gl.glGenFramebuffers && gl.glBindFramebuffer && gl.glFramebufferRenderbuffer &&
+                   gl.glCheckFramebufferStatus && gl.glDeleteFramebuffers && gl.glViewport &&
+                   gl.glClearColor && gl.glClear && gl.glDrawArrays && gl.glReadPixels &&
+                   gl.glPixelStorei && gl.glGetIntegerv && gl.glGetIntegeri_v && gl.glGetError &&
+                   gl.glEnable && gl.glDisable && gl.glIsEnabled;
+        }
+        // Two values that survive an 8-bit target exactly, so the read is a comparison and not
+        // a tolerance: 0.25 -> 64, 0.5 -> 128. A stage that received nothing reads 0/0, which is
+        // nowhere near either.
+        constexpr GLubyte kIoBlockExpectedR = 0x40;
+        constexpr GLubyte kIoBlockExpectedG = 0x80;
+
+        // `@BL@` becomes the layout qualifier under test, or nothing at all for the control.
+        // Position comes from gl_VertexID, so no probe here needs a vertex buffer.
+        String BuildIoBlockVertexSource(const char* blockQualifier) {
+            return format("#version 320 es\n"
+                          "precision highp float;\n"
+                          "{}out MgProbeBlock {{ vec2 mg_probeValue; }} mg_probeOut;\n"
+                          "void main() {{\n"
+                          "    vec2 mg_p = vec2((gl_VertexID == 1) ? 3.0 : -1.0,\n"
+                          "                     (gl_VertexID == 2) ? 3.0 : -1.0);\n"
+                          "    gl_Position = vec4(mg_p, 0.0, 1.0);\n"
+                          "    mg_probeOut.mg_probeValue = vec2(0.25, 0.5);\n"
+                          "}}\n",
+                          blockQualifier);
+        }
+
+        // The block name changes across the geometry stage, because the two boundaries are two
+        // separate interfaces; one name would also be the in-and-out-under-one-name shape
+        // UniquifyIoBlockNamesPass exists for, and confusing one defect with the other is
+        // exactly what this file's control rule is against.
+        String BuildIoBlockGeometrySource(const char* blockQualifier) {
+            return format("#version 320 es\n"
+                          "precision highp float;\n"
+                          "layout(triangles) in;\n"
+                          "layout(triangle_strip, max_vertices = 3) out;\n"
+                          "{0}in MgProbeBlock {{ vec2 mg_probeValue; }} mg_probeIn[];\n"
+                          "{0}out MgProbeBlock2 {{ vec2 mg_probeValue; }} mg_probeOut;\n"
+                          "void main() {{\n"
+                          "    for (int i = 0; i < 3; ++i) {{\n"
+                          "        gl_Position = gl_in[i].gl_Position;\n"
+                          "        mg_probeOut.mg_probeValue = mg_probeIn[i].mg_probeValue;\n"
+                          "        EmitVertex();\n"
+                          "    }}\n"
+                          "}}\n",
+                          blockQualifier);
+        }
+
+        String BuildIoBlockFragmentSource(const char* blockQualifier, const char* blockName) {
+            return format("#version 320 es\n"
+                          "precision highp float;\n"
+                          "{}in {} {{ vec2 mg_probeValue; }} mg_probeIn;\n"
+                          "layout(location = 0) out vec4 mg_probeColor;\n"
+                          "void main() {{ mg_probeColor = vec4(mg_probeIn.mg_probeValue, 0.0, 1.0); }}\n",
+                          blockQualifier, blockName);
+        }
+
+        // Builds and draws one of the four programs this probe compares and reports whether the
+        // fragment stage received the payload. `outRan` distinguishes "the payload did not
+        // arrive" from "this program could not be built or drawn at all" - the second is
+        // inconclusive and must never become a finding.
+        Bool IoBlockPayloadArrives(const GLESFunctionsTable& gl, const char* blockQualifier,
+                                   Bool withGeometryStage, Bool& outRan) {
+            outRan = false;
+            Vector<StageSource> stages;
+            stages.push_back({GL_VERTEX_SHADER, BuildIoBlockVertexSource(blockQualifier), "vertex"});
+            if (withGeometryStage) {
+                stages.push_back(
+                    {GL_GEOMETRY_SHADER, BuildIoBlockGeometrySource(blockQualifier), "geometry"});
+            }
+            stages.push_back({GL_FRAGMENT_SHADER,
+                              BuildIoBlockFragmentSource(blockQualifier,
+                                                         withGeometryStage ? "MgProbeBlock2"
+                                                                           : "MgProbeBlock"),
+                              "fragment"});
+
+            const ProgramBuild build = BuildProgram(gl, stages, kIoBlockProbeName);
+            if (!build.linked) {
+                if (build.program != 0) gl.glDeleteProgram(build.program);
+                return false;
+            }
+
+            GLuint renderbuffer = 0;
+            GLuint framebuffer = 0;
+            Bool arrives = false;
+            gl.glGenRenderbuffers(1, &renderbuffer);
+            gl.glBindRenderbuffer(GL_RENDERBUFFER, renderbuffer);
+            gl.glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, 1, 1);
+            gl.glGenFramebuffers(1, &framebuffer);
+            gl.glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+            gl.glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER,
+                                         renderbuffer);
+            if (gl.glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE) {
+                gl.glUseProgram(build.program);
+                gl.glViewport(0, 0, 1, 1);
+                gl.glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+                gl.glClear(GL_COLOR_BUFFER_BIT);
+                Drain(gl);
+                gl.glDrawArrays(GL_TRIANGLES, 0, 3);
+                if (gl.glGetError() == GL_NO_ERROR) {
+                    GLubyte pixel[4] = {0, 0, 0, 0};
+                    gl.glReadPixels(0, 0, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+                    if (gl.glGetError() == GL_NO_ERROR) {
+                        outRan = true;
+                        // One bit of slack each way, for a driver that rounds the 8-bit
+                        // conversion the other direction.
+                        arrives = pixel[0] + 1 >= kIoBlockExpectedR && pixel[0] <= kIoBlockExpectedR + 1 &&
+                                  pixel[1] + 1 >= kIoBlockExpectedG && pixel[1] <= kIoBlockExpectedG + 1;
+                    }
+                }
+            }
+
+            if (framebuffer != 0) gl.glDeleteFramebuffers(1, &framebuffer);
+            if (renderbuffer != 0) gl.glDeleteRenderbuffers(1, &renderbuffer);
+            gl.glDeleteProgram(build.program);
+            return arrives;
+        }
+    } // namespace
+
+    LocatedIoBlockMeasurement ProbeLocatedIoBlocksLosePayload(const GLESFunctionsTable& gl) {
+        LocatedIoBlockMeasurement measurement;
+        if (!HasIoBlockProbeEntryPoints(gl)) return measurement;
+
+        SavedState saved;
+        Save(gl, saved);
+        // The colour mask is not in SavedState - no other probe touches it - so this one saves
+        // and puts back its own. It has to be forced open: a masked channel would read back as
+        // zero and turn a healthy driver into a "payload lost" verdict.
+        GLboolean savedColorMask[4] = {GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE};
+        const Bool canMaskColor = gl.glColorMask != nullptr && gl.glGetBooleanv != nullptr;
+        if (canMaskColor) {
+            gl.glGetBooleanv(GL_COLOR_WRITEMASK, savedColorMask);
+            gl.glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        }
+        GLuint vao = 0;
+        gl.glGenVertexArrays(1, &vao);
+        gl.glBindVertexArray(vao);
+        PrepareForProbeDraw(gl);
+
+        // THE CONTROL, and it runs first: the identical three-stage program with no location on
+        // the blocks. If THAT cannot carry the payload, this driver's problem is not the
+        // qualifier and the probe has no finding to make - reporting one would justify dropping
+        // a qualifier that was never the cause.
+        Bool controlRan = false;
+        const Bool controlArrives = IoBlockPayloadArrives(gl, "", true, controlRan);
+        if (controlRan && controlArrives) {
+            Bool subjectRan = false;
+            const Bool subjectArrives =
+                IoBlockPayloadArrives(gl, "layout(location = 0) ", true, subjectRan);
+            if (subjectRan && !subjectArrives) {
+                measurement.detected = true;
+                // The second control, and the one that scopes the repair: the same located
+                // block between a vertex and a fragment stage. It arrives on the driver this
+                // was characterised on, which is why DirectGLES only drops the qualifier for
+                // programs that have a tessellation or geometry stage. A driver where this one
+                // ALSO fails is losing payloads the repair does not reach, and the report says
+                // so rather than implying the fix is complete.
+                Bool vsFsRan = false;
+                const Bool vsFsArrives =
+                    IoBlockPayloadArrives(gl, "layout(location = 0) ", false, vsFsRan);
+                measurement.alsoAffectsVertexToFragment = vsFsRan && !vsFsArrives;
+            }
+        }
+
+        if (vao != 0) {
+            gl.glBindVertexArray(0);
+            gl.glDeleteVertexArrays(1, &vao);
+        }
+        if (canMaskColor) {
+            gl.glColorMask(savedColorMask[0], savedColorMask[1], savedColorMask[2], savedColorMask[3]);
+        }
+        Restore(gl, saved);
+        Drain(gl);
+        return measurement;
+    }
+
+    const LocatedIoBlockMeasurement& LocatedIoBlocksLosePayload(const GLESFunctionsTable& gl) {
+        // One driver per process, and the answer is structural rather than sampled.
+        static const LocatedIoBlockMeasurement measurement = ProbeLocatedIoBlocksLosePayload(gl);
+        return measurement;
+    }
+
+    namespace {
+        // ===================== PACKED16 COPY-IMAGE FIELD ORDER =====================
+
+        constexpr const char* kPacked16CopyProbeName = "packed16 copy-image field order";
+
+        // The shape the KHR-GL4x.copy_image failures pin, verbatim: on the affected Mali only a
+        // 2D array whose base level is 30x30x12 showed the divergence at LEVEL 1 (the same
+        // suite's level-0 copies and a 14x14 base's level 1 round-trip clean), so the probe
+        // reproduces those dimensions rather than a minimal shape that might sit on the clean
+        // side of whatever allocation threshold picks the driver's layout. VERBATIM INCLUDES
+        // THE LEVEL COUNT: the CTS allocates THREE-level chains on BOTH endpoints
+        // (FUNCTIONAL_TEST_N_LEVELS = 3, makeTextureComplete(0, 2): 30/15/7 x12 for the array,
+        // 7/3/1 for the plain image), and every device data point above came from those
+        // allocations - a chain one level shorter has never been measured on the affected
+        // driver, and a probe miss here is not a red anything, it is the widening silently
+        // staying inert with all 18 bodies red.
+        constexpr GLsizei kPacked16BaseSize = 30;
+        constexpr GLsizei kPacked16Layers = 12;
+        constexpr GLsizei kPacked16DstSize = 7;
+        constexpr GLint kPacked16Levels = 3;
+
+        // One GL_RGB5_A1 texel, as the client word the probe uploads everywhere:
+        // (R, G, B, A) = (0, 1, 3, 1) under GL_UNSIGNED_SHORT_5_5_5_1. Chosen because 5551 is
+        // the one 16-bit packed layout whose field widths are not a palindrome - its mirror
+        // fixes the DIRECTION of the swap - and because this word's mirror differs in every
+        // channel including alpha, so no expansion rounding can confuse the two predictions.
+        constexpr Uint16 kPacked16Word = 0x0047;
+        // What an FBO readback answers for the word, as UNorm8: (0, 1, 3) / 31 and alpha 1.
+        constexpr GLubyte kPacked16Expected[4] = {0, 8, 25, 255};
+        // The same readback when the stored bits are the mirrored re-encoding: 0x0047 decoded
+        // as 5_5_5_1 and re-encoded as 1_5_5_5_REV is 0x8C20, which the destination's non-REV
+        // layout then decodes as (17, 16, 16) / 31 with alpha 0. This is byte-for-byte the
+        // arithmetic behind every failing CTS body (src 0x0047 -> got 0x8C20).
+        constexpr GLubyte kPacked16Mirrored[4] = {140, 132, 132, 0};
+        // A 5-bit step is 255/31 ~ 8.2 UNorm8 codes; half a step accepts every 5-bit-to-8-bit
+        // expansion a driver uses (floor, round, bit replication) while still telling two
+        // adjacent 5-bit values apart.
+        constexpr Int kPacked16Tolerance = 4;
+
+        // A three-level GL_RGB5_A1 2D array (30/15/7, twelve layers each) allocated the way
+        // MobileGL's own mutable-texture path allocates one (glTexImage3D per level), with
+        // every texel of every level holding kPacked16Word. MAX_LEVEL is clamped to the
+        // CTS's makeTextureComplete(0, 2) shape, which also keeps the chain complete - some
+        // drivers refuse glCopyImageSubData on an incomplete texture.
+        GLuint MakePacked16ArrayTexture(const GLESFunctionsTable& gl) {
+            GLuint texture = 0;
+            gl.glGenTextures(1, &texture);
+            if (texture == 0) return 0;
+            gl.glBindTexture(GL_TEXTURE_2D_ARRAY, texture);
+            gl.glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            gl.glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+            gl.glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAX_LEVEL, kPacked16Levels - 1);
+            for (GLint level = 0; level < kPacked16Levels; ++level) {
+                const GLsizei size = kPacked16BaseSize >> level;
+                const Vector<Uint16> words(
+                    static_cast<SizeT>(size) * static_cast<SizeT>(size) * kPacked16Layers, kPacked16Word);
+                gl.glTexImage3D(GL_TEXTURE_2D_ARRAY, level, GL_RGB5_A1, size, size, kPacked16Layers, 0,
+                                GL_RGBA, GL_UNSIGNED_SHORT_5_5_5_1, words.data());
+            }
+            gl.glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+            return texture;
+        }
+
+        // The plain-2D destination, three levels (7/3/1) like the CTS's, every level filled
+        // with 0xFFFF - the CTS's own (1,1,1,1) destination fill - so a copy that silently
+        // did nothing reads as "no verdict" rather than as either prediction.
+        GLuint MakePacked16DstTexture(const GLESFunctionsTable& gl) {
+            GLuint texture = 0;
+            gl.glGenTextures(1, &texture);
+            if (texture == 0) return 0;
+            gl.glBindTexture(GL_TEXTURE_2D, texture);
+            gl.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            gl.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+            gl.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, kPacked16Levels - 1);
+            for (GLint level = 0; level < kPacked16Levels; ++level) {
+                const GLsizei size = std::max<GLsizei>(kPacked16DstSize >> level, 1);
+                const Vector<Uint16> fill(static_cast<SizeT>(size) * size, Uint16{0xFFFF});
+                gl.glTexImage2D(GL_TEXTURE_2D, level, GL_RGB5_A1, size, size, 0, GL_RGBA,
+                                GL_UNSIGNED_SHORT_5_5_5_1, fill.data());
+            }
+            gl.glBindTexture(GL_TEXTURE_2D, 0);
+            return texture;
+        }
+
+        // The destination's texel (0, 0), through a framebuffer of its own. False when the
+        // attachment is incomplete or the read errors - both are declines, not verdicts.
+        Bool ReadPacked16DstTexel(const GLESFunctionsTable& gl, GLuint texture, GLubyte out[4]) {
+            GLuint framebuffer = 0;
+            gl.glGenFramebuffers(1, &framebuffer);
+            if (framebuffer == 0) return false;
+            gl.glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+            gl.glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
+            Bool read = false;
+            if (gl.glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE) {
+                gl.glReadBuffer(GL_COLOR_ATTACHMENT0);
+                Drain(gl);
+                gl.glReadPixels(0, 0, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, out);
+                read = gl.glGetError() == GL_NO_ERROR;
+            }
+            gl.glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            gl.glDeleteFramebuffers(1, &framebuffer);
+            Drain(gl);
+            return read;
+        }
+
+        // Copies a kPacked16DstSize-square region out of layer 0 of the array's `sourceLevel`
+        // onto a freshly filled 2D destination and hands back the destination's texel (0, 0).
+        // False when the copy raised an error or the readback could not run.
+        Bool Packed16CopyLandsTexel(const GLESFunctionsTable& gl, GLuint array, GLint sourceLevel,
+                                    GLubyte out[4]) {
+            const GLuint destination = MakePacked16DstTexture(gl);
+            if (destination == 0) return false;
+            Drain(gl);
+            gl.glCopyImageSubData(array, GL_TEXTURE_2D_ARRAY, sourceLevel, 0, 0, 0, destination,
+                                  GL_TEXTURE_2D, 0, 0, 0, 0, kPacked16DstSize, kPacked16DstSize, 1);
+            const Bool copied = gl.glGetError() == GL_NO_ERROR;
+            const Bool read = copied && ReadPacked16DstTexel(gl, destination, out);
+            gl.glDeleteTextures(1, &destination);
+            Drain(gl);
+            return read;
+        }
+
+        Bool Packed16TexelNear(const GLubyte got[4], const GLubyte want[4]) {
+            for (Int i = 0; i < 4; ++i) {
+                const Int delta = static_cast<Int>(got[i]) - static_cast<Int>(want[i]);
+                if (delta > kPacked16Tolerance || delta < -kPacked16Tolerance) return false;
+            }
+            return true;
+        }
+    } // namespace
+
+    Bool ProbeCopyImageMirrorsPacked16FieldOrder(const GLESFunctionsTable& gl) {
+        if (!gl.glGenTextures || !gl.glBindTexture || !gl.glTexParameteri || !gl.glTexImage2D ||
+            !gl.glTexImage3D || !gl.glDeleteTextures || !gl.glCopyImageSubData || !gl.glGenFramebuffers ||
+            !gl.glBindFramebuffer || !gl.glFramebufferTexture2D || !gl.glCheckFramebufferStatus ||
+            !gl.glDeleteFramebuffers || !gl.glReadBuffer || !gl.glReadPixels || !gl.glPixelStorei ||
+            !gl.glGetError) {
+            return false;
+        }
+
+        SavedState saved;
+        Save(gl, saved);
+        // The uploads and readbacks below run under the probe's own tight pixel-transfer
+        // scope - a caller's skip/row-length/PBO would shear the probe's data into a false
+        // verdict either way. Restore puts the caller's scope back with the rest.
+        gl.glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        gl.glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+        gl.glPixelStorei(GL_UNPACK_IMAGE_HEIGHT, 0);
+        gl.glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
+        gl.glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
+        gl.glPixelStorei(GL_UNPACK_SKIP_IMAGES, 0);
+        gl.glPixelStorei(GL_PACK_ALIGNMENT, 1);
+        gl.glPixelStorei(GL_PACK_ROW_LENGTH, 0);
+        gl.glPixelStorei(GL_PACK_SKIP_PIXELS, 0);
+        gl.glPixelStorei(GL_PACK_SKIP_ROWS, 0);
+        if (gl.glBindBuffer != nullptr) {
+            gl.glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+            gl.glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+        }
+        Drain(gl);
+
+        Bool detected = false;
+        const GLuint array = MakePacked16ArrayTexture(gl);
+        GLubyte control[4] = {0, 0, 0, 0};
+        GLubyte subject[4] = {0, 0, 0, 0};
+        // THE CONTROL: the identical copy out of the array's LEVEL 0, which is clean on the
+        // affected driver too. It proves glCopyImageSubData works between a 5551 array and a
+        // 5551 2D image at all, that the upload and the FBO readback round-trip the word, and
+        // that only the mip level moves the answer - so a driver with no copy_image, or none
+        // for these formats, reaches no verdict instead of being reported as this.
+        if (array == 0 || !Packed16CopyLandsTexel(gl, array, 0, control)) {
+            MGLOG_I("[driver-bug] %s probe reached no verdict (the level-0 control copy could not run)",
+                    kPacked16CopyProbeName);
+        } else if (!Packed16TexelNear(control, kPacked16Expected)) {
+            MGLOG_I("[driver-bug] %s probe reached no verdict (the level-0 control read back "
+                    "(%d, %d, %d, %d) instead of the uploaded word's (%d, %d, %d, %d))",
+                    kPacked16CopyProbeName, control[0], control[1], control[2], control[3],
+                    kPacked16Expected[0], kPacked16Expected[1], kPacked16Expected[2], kPacked16Expected[3]);
+        } else if (!Packed16CopyLandsTexel(gl, array, 1, subject)) {
+            MGLOG_I("[driver-bug] %s probe reached no verdict (the level-1 subject copy could not run)",
+                    kPacked16CopyProbeName);
+        } else if (Packed16TexelNear(subject, kPacked16Mirrored)) {
+            detected = true;
+            MGLOG_I("[driver-bug] %s probe: a copy out of the array's level 1 delivered "
+                    "(%d, %d, %d, %d), the 1_5_5_5_REV re-encoding of the word - THE FIELD ORDER "
+                    "OF A NON-ZERO ARRAY MIP LEVEL IS MIRRORED",
+                    kPacked16CopyProbeName, subject[0], subject[1], subject[2], subject[3]);
+        } else if (!Packed16TexelNear(subject, kPacked16Expected)) {
+            MGLOG_I("[driver-bug] %s probe reached no verdict (the level-1 copy read back "
+                    "(%d, %d, %d, %d), which is neither the word nor its mirror)",
+                    kPacked16CopyProbeName, subject[0], subject[1], subject[2], subject[3]);
+        } else {
+            // The clean verdict is logged too: on a device run the FIRST question is whether
+            // this probe executed at all, and a silent clean path is indistinguishable from a
+            // probe that never ran.
+            MGLOG_I("[driver-bug] %s probe: a copy out of the array's level 1 delivered the word "
+                    "intact - the field order is consistent",
+                    kPacked16CopyProbeName);
+        }
+        if (array != 0) gl.glDeleteTextures(1, &array);
+        Restore(gl, saved);
+        return detected;
+    }
+
+    Bool CopyImageMirrorsPacked16FieldOrder(const GLESFunctionsTable& gl) {
+        // One driver per process, and the answer is structural (the driver's storage layout
+        // for a shape), not sampled.
+        static const Bool mirrored = ProbeCopyImageMirrorsPacked16FieldOrder(gl);
+        return mirrored;
+    }
+
+    namespace {
         Optional<DriverBugFinding> ProbeExplicitVertexInputLocationCeilingBug(const GLESFunctionsTable& gl) {
             const VertexInputLocationCeilingMeasurement& measurement = ExplicitVertexInputLocationCeiling(gl);
             if (!measurement.detected) return std::nullopt;
@@ -1808,6 +2257,89 @@ namespace MobileGL::MG_Util::SelfTest {
                     percentOf(measurement.emittedShapeMismatchedTexels))};
         }
 
+        Optional<DriverBugFinding> ProbeLocatedIoBlockPayloadBug(const GLESFunctionsTable& gl) {
+            const LocatedIoBlockMeasurement& measurement = LocatedIoBlocksLosePayload(gl);
+            if (!measurement.detected) return std::nullopt;
+            String detail =
+                "an inter-stage interface block that carries an explicit layout(location = N) "
+                "delivers NOTHING once a geometry (or tessellation) stage is in the pipeline: the "
+                "stages compile, the program links with an empty info log, the draw raises no "
+                "error, and the consuming stage reads zeroes. The byte-identical program with the "
+                "qualifier removed from the blocks carries its payload correctly, which is what "
+                "makes this a LOCATION defect rather than an interface-block one - blocks "
+                "themselves work here";
+            detail += measurement.alsoAffectsVertexToFragment
+                          ? ". A located block between a VERTEX and a FRAGMENT stage is lost on "
+                            "this driver too, so the defect is wider than the repair below "
+                            "reaches: MobileGL only drops the qualifier for programs that have a "
+                            "tessellation or geometry stage, and a located block in a plain "
+                            "vertex+fragment program is still emitted as the application wrote it"
+                          : ". A located block between a VERTEX and a FRAGMENT stage is delivered "
+                            "correctly on the same driver, which is what scopes the repair";
+            // The repair can be switched off from the environment, and a report that said
+            // "Fixed" while the strip was disabled would be describing a build nobody is
+            // running. The verdict follows what this process will actually do, not what the
+            // code is capable of.
+            const Bool repairDisabled =
+                MG_Config::Features.EsprytUnlocatedIoBlocks == MG_Config::QuirkOverride::ForceOff;
+            if (repairDisabled) {
+                detail +=
+                    ". THE REPAIR IS DISABLED in this process: MOBILEGL_ESPRYT_UNLOCATED_IO_BLOCKS "
+                    "is set to force located blocks ON, so DirectGLES emits the location "
+                    "qualifier the driver cannot honour and the payload is lost. Unset the "
+                    "variable to get the repair back";
+            } else {
+                detail +=
+                    ". MobileGL emits a tessellation/geometry program's interface blocks with no "
+                    "location qualifier at all (StripIoBlockLocationsPass) and lets ES match them "
+                    "by block name and member sequence, which it does; the locations were invented "
+                    "by the cross-stage IO resolver rather than written by the application";
+            }
+            return DriverBugFinding{"Located inter-stage interface blocks carry no payload",
+                                    (repairDisabled || measurement.alsoAffectsVertexToFragment)
+                                        ? DriverBugVerdict::Unfixable
+                                        : DriverBugVerdict::Fixed,
+                                    Move(detail)};
+        }
+
+        Optional<DriverBugFinding> ProbeCopyImagePacked16FieldOrderBug(const GLESFunctionsTable& gl) {
+            if (!CopyImageMirrorsPacked16FieldOrder(gl)) return std::nullopt;
+            // The mitigation is a knob (MOBILEGL_WIDEN_PACKED16_STORAGE), so the row consults
+            // it: under ForceOff - the documented negative control - the corruption is
+            // replayed verbatim, and a hardcoded "Fixed" would be exactly the kind of
+            // reassurance this file exists to refuse. Auto and ForceOn both widen once this
+            // probe has fired. Should POST ever run before env parsing, the field still holds
+            // its Auto default - which is also what the widening itself consults, so the row
+            // and the behaviour cannot disagree.
+            const Bool widened = MG_Config::Features.EsprytWidenPacked16Storage !=
+                                 MG_Config::QuirkOverride::ForceOff;
+            String detail =
+                "the driver's physical field order for a 16-bit packed texel (RGB565 / RGB5_A1 / "
+                "RGBA4) at a non-zero mip level of a GL_TEXTURE_2D_ARRAY is the *_REV mirror of "
+                "the order every other image uses, so a glCopyImageSubData - a raw texel-block "
+                "move - between such a level and any other image lands the R/G/B/A fields "
+                "reversed (a 5551 word 0x0047 arrives as 0x8C20). Uploads and readbacks of the "
+                "same level are clean - the driver decodes its own layout consistently, which is "
+                "this probe's control - so only the raw-copy path ever crosses the two layouts. ";
+            if (widened) {
+                detail +=
+                    "MobileGL stores these three formats as 8-bit-per-channel ES storage on this "
+                    "driver instead (GL_RGB8 / GL_RGBA8, the storage their canonical shadow "
+                    "already holds and the client word round-trips through exactly), so no "
+                    "16-bit packed image is left for a copy to disagree about, at twice the "
+                    "memory for images of those formats; override with "
+                    "MOBILEGL_WIDEN_PACKED16_STORAGE";
+                return DriverBugFinding{
+                    "glCopyImageSubData mirrors 16-bit packed texels at a non-zero array mip level",
+                    DriverBugVerdict::Fixed, detail};
+            }
+            detail += "MOBILEGL_WIDEN_PACKED16_STORAGE=0 keeps the native narrow storage, so such "
+                      "copies are left exactly as the driver delivers them, mirrored words included";
+            return DriverBugFinding{
+                "glCopyImageSubData mirrors 16-bit packed texels at a non-zero array mip level",
+                DriverBugVerdict::Unfixable, detail};
+        }
+
         // The table. One row per known driver bug; see the header for how to add a sibling.
         using DriverBugProbeFn = Optional<DriverBugFinding> (*)(const GLESFunctionsTable&);
         constexpr DriverBugProbeFn kGlesDriverBugProbes[] = {
@@ -1818,6 +2350,8 @@ namespace MobileGL::MG_Util::SelfTest {
             &ProbeImageCoherencyResidualBug,
             &ProbeExplicitVertexInputLocationCeilingBug,
             &ProbeLayeredBlitDestinationBug,
+            &ProbeLocatedIoBlockPayloadBug,
+            &ProbeCopyImagePacked16FieldOrderBug,
         };
     } // namespace
 

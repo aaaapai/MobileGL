@@ -492,6 +492,10 @@ namespace MobileGL::MG_State::GLState {
         // time, for anything cached during the pending window itself.)
         ++m_backendStateVersion;
         BumpLinkObservableVersions();
+        // The separable flag takes effect HERE, at the link, and nowhere else (GL 4.6 core 7.3).
+        // Latched before the early-outs below so a link that fails still counts as a link -
+        // what must not update it is a link that never happened at all.
+        m_linkedSeparable = m_separable;
         // A whole-struct reset, unlike ResetLinkArtifacts(): during the pending window this
         // is what every gated reader sees, so it has to be the complete "not linked" state -
         // including the fields ResetLinkArtifacts deliberately preserves for its own callers.
@@ -536,6 +540,34 @@ namespace MobileGL::MG_State::GLState {
         task->in.explicitFragDataIndex = m_explicitFragDataIndex;
         task->in.requestedXfbVaryings = m_requestedXfbVaryings;
         task->in.requestedXfbBufferMode = m_requestedXfbBufferMode;
+        // ARB_gl_spirv: a program built from SPIR-V declares its transform feedback through
+        // XfbBuffer/XfbStride/Offset DECORATIONS, and glTransformFeedbackVaryings has no effect on
+        // it at all. glSpecializeShader translated those decorations into the equivalent name
+        // request (ShaderCompiler::SpecializeAndDecompileSpirvModule), and this is where it enters
+        // the link - so everything downstream, the frontend packer and both backends, sees one
+        // declaration form instead of two.
+        //
+        // The capture stage is the LAST vertex-processing stage the program has, which is the same
+        // rule ProgramLinkTask::ResolveTransformFeedbackVaryings resolves the names against. The
+        // application's own request wins if it made one: that can only happen on a mixed program,
+        // which is not a shape ARB_gl_spirv defines, and honouring what the application explicitly
+        // asked for is the safer of the two readings.
+        if (task->in.requestedXfbVaryings.empty()) {
+            for (const ShaderStage captureStage:
+                 {ShaderStage::Geometry, ShaderStage::TessEval, ShaderStage::TessControl,
+                  ShaderStage::Vertex}) {
+                Bool stagePresent = false;
+                for (const auto& shader : m_shaders) {
+                    if (!shader || shader->GetShaderStage() != captureStage) continue;
+                    stagePresent = true;
+                    if (shader->GetSpirvXfbVaryings().empty()) continue;
+                    task->in.requestedXfbVaryings = shader->GetSpirvXfbVaryings();
+                    task->in.requestedXfbBufferMode = shader->GetSpirvXfbBufferMode();
+                    break;
+                }
+                if (stagePresent) break;
+            }
+        }
         task->in.maxFragmentOutputColorNumber = m_maxFragmentOutputColorNumber;
 
         Vector<SharedPtr<ShaderCompileTask>> deps;

@@ -76,6 +76,23 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         using CompileOptionFlags = Flags<CompileOptionBit>;
         using HashType = Uint64;
 
+        // The gl_PerVertex members a pass-through tessellation control stage may have to carry,
+        // in the order glslang declares them - which is the order a redeclaration must use.
+        // Which of them exist is a function of the neighbouring stage's GLSL VERSION
+        // (gl_CullDistance joins the block at #version 450), so the mask is read off that
+        // stage's SPIR-V rather than assumed. See ReflectPerVertexInputMembers.
+        enum class PerVertexMemberBit : Uint32 {
+            Position = 1u << 0,
+            PointSize = 1u << 1,
+            ClipDistance = 1u << 2,
+            CullDistance = 1u << 3,
+        };
+        // What a program parsed below #version 450 carries, and the fallback when a module's
+        // block cannot be read.
+        static constexpr Uint32 kDefaultPerVertexMembers =
+            static_cast<Uint32>(PerVertexMemberBit::Position) | static_cast<Uint32>(PerVertexMemberBit::PointSize) |
+            static_cast<Uint32>(PerVertexMemberBit::ClipDistance);
+
         struct UpdateAfterBindLimits {
             Bool enabled = false;
             Uint32 maxPerStageSamplers = 0;
@@ -185,6 +202,32 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             // tessellation stages are present or neither
             // (VUID-VkGraphicsPipelineCreateInfo-pStages-00730). So the draw path has to supply
             // the pass-through stage GL describes; see GetOrCreatePassthroughTessControlStage.
+            // True when this program was built AS a transform-feedback capture variant but its
+            // last pre-rasterization module does NOT carry the Xfb execution mode - so the
+            // renderer must decline the capture span instead of issuing
+            // vkCmdBeginTransformFeedbackEXT against it
+            // (VUID-vkCmdBeginTransformFeedbackEXT-None-04128).
+            //
+            // Two ways to get here, and neither is visible from GL state, which is all
+            // BeginXfbCaptureForDraw otherwise consults: the clip/XFB validation backstop had to
+            // rewind past the capture decoration, or XfbCaptureDecoratePass resolved none of the
+            // requested varyings and returned without changing anything (its own MGLOG_E path)
+            // while its runner still reported success. Both used to ship a non-Xfb module under
+            // an Xfb-flagged cache entry - the flag and the layout are part of the program cache
+            // key, so it was sticky for every later captured draw of the program, not a glitch.
+            Bool xfbCaptureDeclined = false;
+            // The program has a tessellation or geometry module declaring TessellationPointSize /
+            // GeometryPointSize on a device whose shaderTessellationAndGeometryPointSize feature
+            // is off, so a pipeline built from it is invalid usage
+            // (VUID-RuntimeSpirv-PointSize-06439). Its draws are refused in SetupDraw rather than
+            // handed to the driver - the same contract PipelineFactory's half-tessellated refusal
+            // implements one level up, and the counterpart of the DirectGLES arm that reports a
+            // driver with neither point-size extension by name.
+            //
+            // Sticky by construction, which is what makes ONE log line honest: the flag lives on
+            // the cache entry, so every later draw of the same program variant reads the same
+            // answer instead of re-deciding it.
+            Bool pointSizeCapabilityUnsupported = false;
             Bool needsPassthroughTessControl = false;
             // ...and the pass-through this renderer can synthesize carries gl_Position and
             // nothing else, so it is only correct when the evaluation stage's inputs are
@@ -194,6 +237,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             // instead (PipelineFactory::CreatePipeline refuses the pipeline and the draw is
             // skipped). See ReflectPassthroughTessControlNeed.
             Bool passthroughTessControlEmulatable = false;
+            // Which gl_PerVertex members the evaluation stage's `in gl_PerVertex gl_in[]` block
+            // actually carries, as a PerVertexMemberBit mask read off its SPIR-V. The synthesized
+            // control stage has to redeclare the SAME shape: glslang appends gl_CullDistance to
+            // that block from #version 450 upward, so a 450/460 program - and every ESSL program,
+            // which the source processor rewrites to "#version 460 core" - carries four members
+            // where a 430 program carries three. A fixed three-member pass-through fed the
+            // evaluation stage a differently-shaped block, which is the black-frame-no-error case
+            // this whole family is written around.
+            Uint32 passthroughPerVertexMembers = 0;
             // Frame-boundary counter value of the last GetOrCreateProgram hit; drives
             // cache eviction (see OnFrameBoundary). Mutable: the draw snapshot's memoised
             // entry pointer re-stamps use through a const reference (StampProgramUse).
@@ -249,6 +301,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 writesViewportIndexBuiltin = other.writesViewportIndexBuiltin;
                 needsPassthroughTessControl = other.needsPassthroughTessControl;
                 passthroughTessControlEmulatable = other.passthroughTessControlEmulatable;
+                passthroughPerVertexMembers = other.passthroughPerVertexMembers;
                 lastUsedFrame = other.lastUsedFrame;
                 other.hash = 0;
                 other.descriptorSetLayout = VK_NULL_HANDLE;
@@ -267,6 +320,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 other.writesViewportIndexBuiltin = false;
                 other.needsPassthroughTessControl = false;
                 other.passthroughTessControlEmulatable = false;
+                other.passthroughPerVertexMembers = 0;
                 other.lastUsedFrame = 0;
             }
             VkProgramObject& operator=(VkProgramObject&& other) noexcept {
@@ -311,6 +365,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 writesViewportIndexBuiltin = other.writesViewportIndexBuiltin;
                 needsPassthroughTessControl = other.needsPassthroughTessControl;
                 passthroughTessControlEmulatable = other.passthroughTessControlEmulatable;
+                passthroughPerVertexMembers = other.passthroughPerVertexMembers;
                 lastUsedFrame = other.lastUsedFrame;
                 other.hash = 0;
                 other.descriptorSetLayout = VK_NULL_HANDLE;
@@ -329,6 +384,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 other.writesViewportIndexBuiltin = false;
                 other.needsPassthroughTessControl = false;
                 other.passthroughTessControlEmulatable = false;
+                other.passthroughPerVertexMembers = 0;
                 other.lastUsedFrame = 0;
                 return *this;
             }
@@ -396,12 +452,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         explicit ProgramFactory(VkDevice device, const VulkanRendererConfig& config, Uint32 maxBindings,
                                 Bool shaderDrawParametersEnabled,
                                 Bool unformattedFloatStorageImagesEnabled,
+                                Bool tessellationAndGeometryPointSizeEnabled,
                                 Bool enableSpirvValidation,
                                 UpdateAfterBindLimits updateAfterBindLimits,
                                 SubgroupLoweringPolicy subgroupPolicy)
             : m_device(device), m_maxBindings(maxBindings), m_config(config),
               m_shaderDrawParametersEnabled(shaderDrawParametersEnabled),
               m_unformattedFloatStorageImagesEnabled(unformattedFloatStorageImagesEnabled),
+              m_tessellationAndGeometryPointSizeEnabled(tessellationAndGeometryPointSizeEnabled),
               m_enableSpirvValidation(enableSpirvValidation),
               m_updateAfterBindLimits(updateAfterBindLimits),
               m_subgroupPolicy(subgroupPolicy) {
@@ -485,18 +543,40 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         // the caller then has no control stage to inject, and CreatePipeline refuses the
         // pipeline rather than handing the driver a half-tessellated one.
         //
-        // Keyed on the patch size because GL takes the output patch size from PATCH_VERTICES,
-        // which is draw state, not link state - the CTS case that motivated this links at the
-        // default 3 and draws at 4. The pipeline cache already re-keys on patchControlPoints,
-        // so the module a pipeline was built with is part of that pipeline's identity.
-        // Compiling is bounded by the number of distinct patch sizes a program draws with
-        // (MAX_PATCH_VERTICES = 32 in the worst case, one or two in practice) and only ever
-        // happens for the rare program that has no control stage at all.
-        VkPipelineShaderStageCreateInfo GetOrCreatePassthroughTessControlStage(Uint32 patchVertices);
+        // Keyed on the patch size, the six default tessellation levels AND the gl_PerVertex
+        // member set, because all three decide what the generator emits. The size comes from
+        // PATCH_VERTICES and the levels from PATCH_DEFAULT_OUTER_LEVEL / PATCH_DEFAULT_INNER_LEVEL
+        // - draw state rather than link state, and the CTS case that motivated this links at the
+        // default 3 and draws at 4. The member set comes from the neighbouring evaluation stage's
+        // own SPIR-V, so two programs at different GLSL versions need different modules. The
+        // pipeline cache re-keys on the same inputs, so the module a pipeline was built with is
+        // part of that pipeline's identity. Compiling is bounded by the number of distinct
+        // (size, levels, members) combinations a program draws with - one or two in practice -
+        // and only ever happens for the rare program that has no control stage at all.
+        VkPipelineShaderStageCreateInfo GetOrCreatePassthroughTessControlStage(Uint32 patchVertices,
+                                                                              const FloatVec4& defaultOuterLevel,
+                                                                              const FloatVec2& defaultInnerLevel,
+                                                                              Uint32 perVertexMembers);
 
         // Source of the module above. Exposed for tests: the generated GLSL is the whole
         // contract with the evaluation stage, so it is worth pinning independently of a device.
-        static String BuildPassthroughTessControlSource(Uint32 patchVertices);
+        static String BuildPassthroughTessControlSource(Uint32 patchVertices, const FloatVec4& defaultOuterLevel,
+                                                        const FloatVec2& defaultInnerLevel, Uint32 perVertexMembers);
+
+        // The identity of one such module: everything the generator bakes in, folded into a
+        // 64-bit key over the raw bits (so -0.0 and +0.0 key apart, which is harmless, and NaN
+        // keys to itself, which is what matters). Shared with PipelineFactory, which mixes the
+        // same value into the pipeline hash so a pipeline can never be handed a module built for
+        // different levels or a different block shape.
+        static Uint64 ComputePassthroughTessControlKey(Uint32 patchVertices, const FloatVec4& defaultOuterLevel,
+                                                       const FloatVec2& defaultInnerLevel, Uint32 perVertexMembers);
+
+        // The PerVertexMemberBit mask of the INPUT per-vertex block a module declares, read
+        // straight out of its SPIR-V (OpMemberDecorate ... BuiltIn on the struct behind the one
+        // Input variable that is an array of a Block-decorated struct). Zero when the module has
+        // no such block. Exposed for tests, which is the only way to pin the shape agreement
+        // without a device.
+        static Uint32 ReflectPerVertexInputMembers(const Vector<Uint>& spirv);
 
     private:
         struct ProgramLookupCache {
@@ -539,6 +619,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         // True only when the logical device enabled both
         // shaderStorageImageReadWithoutFormat and shaderStorageImageWriteWithoutFormat.
         Bool m_unformattedFloatStorageImagesEnabled = false;
+        // True when the logical device enabled shaderTessellationAndGeometryPointSize. When it is
+        // FALSE a program whose tessellation or geometry module declares TessellationPointSize /
+        // GeometryPointSize is refused at build time (see VkProgramObject::
+        // pointSizeCapabilityUnsupported) instead of being handed to the driver as invalid usage.
+        Bool m_tessellationAndGeometryPointSizeEnabled = false;
         // Startup snapshot used only by internally synthesized shader modules, which do not
         // originate from a ProgramLinkTask.
         Bool m_enableSpirvValidation = false;
@@ -556,11 +641,20 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         // See GetCacheStructureEpoch(). Starts at 1 so a zero-initialized memo can never match.
         Uint64 m_cacheStructureEpoch = 1;
         IEvictionObserver* m_evictionObserver = nullptr;
-        // Pass-through tessellation control stages by input patch size. Never evicted: at most
-        // MAX_PATCH_VERTICES entries exist for the lifetime of the device, and every pipeline
-        // ever built from one keeps referencing its module. A failed build is cached as
+        // Pass-through tessellation control stages by the identity of what was compiled into
+        // them - the input patch size and the six default tessellation levels, folded into one
+        // 64-bit key by ComputePassthroughTessControlKey (the levels are float state, so the map
+        // cannot simply be keyed on the patch size any more). A failed build is cached as
         // VK_NULL_HANDLE so a broken generator costs one compile, not one per draw.
-        UnorderedMap<Uint32, VkPipelineShaderStageCreateInfo> m_passthroughTessControlStages;
+        //
+        // Hard-capped, because the key is application-controlled: glPatchParameterfv clamps
+        // nothing, so an application that recomputes a level per frame mints a new key per frame.
+        // Reaching the cap destroys every module and starts over (see the flush in
+        // GetOrCreatePassthroughTessControlStage); the cap is far above what any program that
+        // holds its levels still will ever need. The gl_PerVertex member set is in the key too
+        // and adds only a handful of values, so it does not move the cap in practice.
+        static constexpr SizeT kMaxPassthroughTessControlStages = 64;
+        UnorderedMap<Uint64, VkPipelineShaderStageCreateInfo> m_passthroughTessControlStages;
         static inline XXH64_state_t* m_hashState = XXH64_createState();
     };
 } // namespace MobileGL::MG_Backend::DirectVulkan

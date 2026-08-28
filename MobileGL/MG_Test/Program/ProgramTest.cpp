@@ -9,6 +9,7 @@
 #include <gtest/gtest.h>
 #include <spirv_reflect.h>
 #include <cstring>
+#include <utility>
 #include <vector>
 
 #include "Includes.h"
@@ -18,6 +19,7 @@
 #include "MG_Backend/BackendObjects.h"
 #include "MG_Impl/GLImpl/Getter/GL_Getter.h"
 #include "MG_Impl/GLImpl/Program/GL_Program.h"
+#include "MG_Impl/GLImpl/Program/GL_ProgramPipeline.h"
 #include "MG_State/GLState/Core.h"
 #include "MG_State/GLState/ProgramState/ShaderPreprocessCache.h"
 #include "MG_Util/Async/ShaderCompilePool.h"
@@ -31,6 +33,13 @@ protected:
     void SetUp() override { MobileGL::Initialize(); }
 
     void TearDown() override {}
+
+    // GL error flags are sticky per code and the context outlives an individual test in this
+    // binary, so a pending error would be handed to whoever runs next.
+    static void DrainProgramTestErrors() {
+        for (Int drained = 0; drained < 16 && GetError() != GL_NO_ERROR; ++drained) {
+        }
+    }
 };
 
 TEST_F(ProgramTest, Sanity) {
@@ -3808,4 +3817,1174 @@ TEST_F(ProgramTest, ImplicitLocationStaysInRangeWhenABufferBlockSharesTheProgram
         runCase(maxLocations - implicitCount, implicitCount);
     }
     EXPECT_EQ(GetError(), GL_NO_ERROR);
+}
+
+// --- `layout(vertices = N) out` against GL_MAX_PATCH_VERTICES -----------------------------------
+//
+// GL 4.6 core 11.2.1.1 makes N > MAX_PATCH_VERTICES a LINK failure. Nothing enforced it: glslang
+// only rejects N <= 0, and carries maxPatchVertices in TBuiltInResource purely so
+// gl_MaxPatchVertices can expand from it. The check deliberately lives at link and not at compile,
+// because KHR-GL4x.tessellation_shader.compilation_and_linking_errors.
+// tc_invalid_output_patch_vertex_count requires the shader to COMPILE ("Compilation passed as
+// allowed") and only the program to fail.
+TEST_F(ProgramTest, TessControlOutputPatchSizePastTheLimitFailsToLinkButStillCompiles) {
+    GLint maxPatchVertices = 0;
+    GetIntegerv(GL_MAX_PATCH_VERTICES, &maxPatchVertices);
+    ASSERT_GT(maxPatchVertices, 0);
+    ASSERT_EQ(GetError(), GL_NO_ERROR);
+
+    const char* kVs = R"(#version 460 core
+void main() { gl_Position = vec4(0.0); }
+)";
+    const char* kTes = R"(#version 460 core
+layout(triangles, equal_spacing, cw) in;
+void main() { gl_Position = gl_in[0].gl_Position; }
+)";
+
+    const char* kTcsPrologue = R"(#version 460 core
+layout(vertices = )";
+    const char* kTcsEpilogue = R"() out;
+void main() {
+    gl_out[gl_InvocationID].gl_Position = gl_in[gl_InvocationID].gl_Position;
+    gl_TessLevelOuter[0] = 1.0;
+}
+)";
+
+    const auto buildWith = [&](const GLint vertices) {
+        const String tcs = String(kTcsPrologue) + std::to_string(vertices) + kTcsEpilogue;
+        const char* tcsSource = tcs.c_str();
+
+        const GLuint vs = CreateShader(GL_VERTEX_SHADER);
+        ShaderSource(vs, 1, &kVs, nullptr);
+        CompileShader(vs);
+        const GLuint tc = CreateShader(GL_TESS_CONTROL_SHADER);
+        ShaderSource(tc, 1, &tcsSource, nullptr);
+        CompileShader(tc);
+        const GLuint te = CreateShader(GL_TESS_EVALUATION_SHADER);
+        ShaderSource(te, 1, &kTes, nullptr);
+        CompileShader(te);
+
+        // The offending stage COMPILES; only the link is allowed to notice.
+        GLint tcCompiled = GL_FALSE;
+        GetShaderiv(tc, GL_COMPILE_STATUS, &tcCompiled);
+        EXPECT_EQ(tcCompiled, GL_TRUE) << "vertices=" << vertices << " must still compile";
+
+        const GLuint program = CreateProgram();
+        AttachShader(program, vs);
+        AttachShader(program, tc);
+        AttachShader(program, te);
+        LinkProgram(program);
+        GLint linkStatus = GL_FALSE;
+        GetProgramiv(program, GL_LINK_STATUS, &linkStatus);
+        char infoLog[1024] = "";
+        GetProgramInfoLog(program, sizeof(infoLog), nullptr, infoLog);
+        return std::pair<GLint, String>{linkStatus, String(infoLog)};
+    };
+
+    const auto atTheLimit = buildWith(maxPatchVertices);
+    EXPECT_EQ(atTheLimit.first, GL_TRUE)
+        << "exactly GL_MAX_PATCH_VERTICES is legal: " << atTheLimit.second;
+
+    const auto pastTheLimit = buildWith(maxPatchVertices + 1);
+    EXPECT_EQ(pastTheLimit.first, GL_FALSE) << "one past GL_MAX_PATCH_VERTICES must not link";
+    EXPECT_NE(pastTheLimit.second.find("GL_MAX_PATCH_VERTICES"), String::npos)
+        << "the info log must name the limit it broke: " << pastTheLimit.second;
+
+    DrainProgramTestErrors();
+}
+
+// gl_NumSamples has no SPIR-V built-in, so the source pipeline lowers it onto a reserved
+// default-block uniform (ShaderTranspiler::NUM_SAMPLES_UNIFORM_NAME). Two things have to hold at
+// once: the program has to BUILD (it used to die at compile with "'gl_NumSamples' : undeclared
+// identifier", which is what took all 144 KHR-GL46.sample_variables.mask.* bodies down), and the
+// uniform standing in for the built-in has to stay invisible to GL - gl_NumSamples is a built-in,
+// so a conformant implementation reports nothing for it and no glUniform* may reach it.
+TEST_F(ProgramTest, GlNumSamplesLowersToAHiddenReservedUniform) {
+    const char* vsSource = R"(#version 460 core
+void main() { gl_Position = vec4(0.0); }
+)";
+    const char* fsSource = R"(#version 460 core
+uniform int u_sampleMask;
+layout(location = 0) out vec4 o_color;
+void main() {
+    for (int i = 0; i < (gl_NumSamples + 31) / 32; ++i) {
+        gl_SampleMask[i] = u_sampleMask & gl_SampleMaskIn[i];
+    }
+    o_color = vec4(1.0, 0.0, 0.0, 1.0);
+}
+)";
+    GLuint vs = CompileShaderChecked(GL_VERTEX_SHADER, vsSource);
+    GLuint fs = CompileShaderChecked(GL_FRAGMENT_SHADER, fsSource);
+    GLuint program = LinkVsFs(vs, fs, GL_TRUE);
+
+    // u_sampleMask and nothing else: the stand-in must not enlarge the enumeration.
+    GLint activeUniforms = 0;
+    GetProgramiv(program, GL_ACTIVE_UNIFORMS, &activeUniforms);
+    EXPECT_EQ(activeUniforms, 1);
+    EXPECT_NE(GetUniformLocation(program, "u_sampleMask"), -1);
+    EXPECT_EQ(GetUniformLocation(program, "mg_NumSamples"), -1);
+    EXPECT_EQ(GetUniformLocation(program, "gl_NumSamples"), -1);
+    EXPECT_EQ(GetUniformBlockIndex(program, "MGL_GLOBAL_UBO"), GL_INVALID_INDEX);
+
+    char nameBuf[64] = "";
+    for (GLint i = 0; i < activeUniforms; ++i) {
+        GLsizei nameLen = 0;
+        GLint size = 0;
+        GLenum type = 0;
+        GetActiveUniform(program, static_cast<GLuint>(i), sizeof(nameBuf), &nameLen, &size, &type, nameBuf);
+        EXPECT_TRUE(std::strcmp(nameBuf, "mg_NumSamples") != 0) << nameBuf;
+    }
+
+    // The driver-side write path, which is what the draw path calls. It reports true only when the
+    // program really did take the shim AND the optimized SPIR-V kept the member.
+    const auto& programObject = MG_State::pGLContext->GetProgramObject(program);
+    ASSERT_NE(programObject, nullptr);
+    EXPECT_TRUE(programObject->UsesReservedNumSamples());
+    EXPECT_TRUE(programObject->WriteReservedNumSamples(4));
+
+    const Uint32 versionAfterFirstWrite = programObject->GetUBOContentVersion();
+    // Value-identical rewrite: no re-upload, so no version bump - a run of draws into one
+    // framebuffer must not dirty the UBO every draw.
+    EXPECT_TRUE(programObject->WriteReservedNumSamples(4));
+    EXPECT_EQ(programObject->GetUBOContentVersion(), versionAfterFirstWrite);
+    // A different framebuffer's sample count does have to reach the GPU.
+    EXPECT_TRUE(programObject->WriteReservedNumSamples(1));
+    EXPECT_NE(programObject->GetUBOContentVersion(), versionAfterFirstWrite);
+
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+}
+
+// A program whose fragment stage never mentions gl_NumSamples pays nothing and has nothing to
+// write - the gate the draw path reads before it touches the SPIR-V join.
+TEST_F(ProgramTest, ProgramWithoutGlNumSamplesHasNoReservedUniform) {
+    const char* vsSource = R"(#version 460 core
+void main() { gl_Position = vec4(0.0); }
+)";
+    const char* fsSource = R"(#version 460 core
+layout(location = 0) out vec4 o_color;
+void main() { o_color = vec4(1.0); }
+)";
+    GLuint vs = CompileShaderChecked(GL_VERTEX_SHADER, vsSource);
+    GLuint fs = CompileShaderChecked(GL_FRAGMENT_SHADER, fsSource);
+    GLuint program = LinkVsFs(vs, fs, GL_TRUE);
+
+    const auto& programObject = MG_State::pGLContext->GetProgramObject(program);
+    ASSERT_NE(programObject, nullptr);
+    EXPECT_FALSE(programObject->UsesReservedNumSamples());
+    EXPECT_FALSE(programObject->WriteReservedNumSamples(4));
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+}
+
+// glGetProgramiv's geometry and tessellation link properties (GL 4.6 core table 23.35). None of
+// these had a source: GL_GEOMETRY_VERTICES_OUT / _INPUT_TYPE / _OUTPUT_TYPE were listed in the
+// switch only to fall through into the GL_INVALID_ENUM default, GL_GEOMETRY_SHADER_INVOCATIONS
+// and the five GL_TESS_* pnames were not listed at all, and the link recorded nothing but the
+// geometry INPUT primitive. 72 of the tessellation family's 116 failing conformance bodies died
+// on the first of these queries, before touching a single tessellation feature.
+namespace {
+    GLuint CompileStage(GLenum type, const char* source) {
+        const GLuint shader = CreateShader(type);
+        ShaderSource(shader, 1, &source, nullptr);
+        CompileShader(shader);
+        GLint status = GL_FALSE;
+        GetShaderiv(shader, GL_COMPILE_STATUS, &status);
+        if (status != GL_TRUE) {
+            char infoLog[2048] = "";
+            GetShaderInfoLog(shader, sizeof(infoLog), nullptr, infoLog);
+            ADD_FAILURE() << "stage " << type << " failed to compile: " << infoLog;
+        }
+        return shader;
+    }
+
+    GLuint LinkStages(const std::vector<std::pair<GLenum, const char*>>& stages) {
+        const GLuint program = CreateProgram();
+        for (const auto& [type, source] : stages) {
+            const GLuint shader = CompileStage(type, source);
+            AttachShader(program, shader);
+            DeleteShader(shader);
+        }
+        LinkProgram(program);
+        GLint linkStatus = GL_FALSE;
+        GetProgramiv(program, GL_LINK_STATUS, &linkStatus);
+        if (linkStatus != GL_TRUE) {
+            char infoLog[2048] = "";
+            GetProgramInfoLog(program, sizeof(infoLog), nullptr, infoLog);
+            ADD_FAILURE() << "link failed: " << infoLog;
+        }
+        return program;
+    }
+
+    constexpr const char* kPassthroughVs = R"(#version 460 core
+void main() { gl_Position = vec4(0.0, 0.0, 0.0, 1.0); }
+)";
+    constexpr const char* kPassthroughFs = R"(#version 460 core
+out vec4 mgColor;
+void main() { mgColor = vec4(1.0); }
+)";
+} // namespace
+
+// Two fragment outputs on ONE location with DIFFERENT colour indices is not an aliasing error -
+// it is dual-source blending (GL 4.6 core 11.1.3 / ARB_blend_func_extended, core since 3.3), and
+// the GL_SRC1_* blend factors have nothing to read without it. The link-time aliasing check keyed
+// on the colour number alone, so every such program failed to link with "alias color number 0"
+// and the whole feature was unreachable from shader-side GLSL.
+TEST_F(ProgramTest, FragmentOutputsMayShareALocationWhenTheirColorIndexDiffers) {
+    constexpr const char* dualSourceFs = R"(#version 460 core
+layout(location = 0, index = 0) out vec4 fragColor0;
+layout(location = 0, index = 1) out vec4 fragColor1;
+void main() { fragColor0 = vec4(1.0); fragColor1 = vec4(0.5); }
+)";
+    const GLuint program = LinkStages({{GL_VERTEX_SHADER, kPassthroughVs}, {GL_FRAGMENT_SHADER, dualSourceFs}});
+    GLint linkStatus = GL_FALSE;
+    GetProgramiv(program, GL_LINK_STATUS, &linkStatus);
+    ASSERT_EQ(linkStatus, GL_TRUE) << [&] {
+        char log[512] = "";
+        GetProgramInfoLog(program, sizeof(log), nullptr, log);
+        return std::string(log);
+    }();
+    // Both outputs are active and both sit on colour number 0 - which is the shape that used to be
+    // refused. (glGetFragDataIndex still answers 0 for the index-1 output: it reports only what
+    // glBindFragDataLocationIndexed bound, and reflecting the shader-side qualifier is a separate
+    // gap, so it is deliberately not asserted here.)
+    EXPECT_EQ(GetFragDataLocation(program, "fragColor0"), 0);
+    EXPECT_EQ(GetFragDataLocation(program, "fragColor1"), 0);
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+}
+
+// The check it must NOT stop making: two outputs on the same colour number AND the same index
+// really do alias, and that link has to fail. Aliased through glBindFragDataLocation rather than
+// through two `layout(location = 0)` qualifiers on purpose - the qualifier form is caught by
+// glslang at COMPILE time, so it would never reach the link-time rule this pins.
+TEST_F(ProgramTest, FragmentOutputsSharingAColorNumberAtTheSameIndexStillFailToLink) {
+    constexpr const char* twoOutputFs = R"(#version 460 core
+out vec4 fragColorA;
+out vec4 fragColorB;
+void main() { fragColorA = vec4(1.0); fragColorB = vec4(0.5); }
+)";
+    const GLuint program = CreateProgram();
+    const GLuint vs = CreateShader(GL_VERTEX_SHADER);
+    ShaderSource(vs, 1, &kPassthroughVs, nullptr);
+    CompileShader(vs);
+    AttachShader(program, vs);
+    DeleteShader(vs);
+    const GLuint fs = CreateShader(GL_FRAGMENT_SHADER);
+    ShaderSource(fs, 1, &twoOutputFs, nullptr);
+    CompileShader(fs);
+    AttachShader(program, fs);
+    DeleteShader(fs);
+
+    BindFragDataLocation(program, 0, "fragColorA");
+    BindFragDataLocation(program, 0, "fragColorB");
+    LinkProgram(program);
+    GLint linkStatus = GL_TRUE;
+    GetProgramiv(program, GL_LINK_STATUS, &linkStatus);
+    EXPECT_EQ(linkStatus, GL_FALSE);
+    char infoLog[512] = "";
+    GetProgramInfoLog(program, sizeof(infoLog), nullptr, infoLog);
+    EXPECT_NE(std::string(infoLog).find("alias color number"), std::string::npos) << infoLog;
+
+    // ...and the same pair separated by the colour INDEX links, which is the whole point of the
+    // key being a pair.
+    BindFragDataLocationIndexed(program, 0, 1, "fragColorB");
+    LinkProgram(program);
+    GetProgramiv(program, GL_LINK_STATUS, &linkStatus);
+    EXPECT_EQ(linkStatus, GL_TRUE) << [&] {
+        char log[512] = "";
+        GetProgramInfoLog(program, sizeof(log), nullptr, log);
+        return std::string(log);
+    }();
+    for (int i = 0; i < 32 && GetError() != GL_NO_ERROR; ++i) {
+    }
+}
+
+// An API colour index of ZERO is "no override", not "index 0". glBindFragDataLocation is
+// glBindFragDataLocationIndexed with index 0 (GL_Program.cpp), so the blanket-bind pattern -
+// portable code that binds every output name it knows about, without caring about dual-source -
+// writes a real 0 into the frag-data index map for an output whose shader qualifier says 1.
+// Reading that 0 as an override collapsed both outputs onto slot (0,0) and failed the link as an
+// alias, while the IO resolver had left the qualifier at 1 and the emitted SPIR-V still carried
+// Index 1 - validation rejecting a program the backend had already built correctly.
+//
+// The rule pinned here is the codebase's (non-zero API index wins, zero falls back to the shader
+// qualifier), which is also what GL 4.6 core 15.2.3 gives for THIS shape: a shader layout
+// qualifier is used and the bound value ignored.
+TEST_F(ProgramTest, AnApiColorIndexOfZeroDoesNotOverrideTheShaderIndexQualifier) {
+    constexpr const char* dualSourceFs = R"(#version 460 core
+layout(location = 0, index = 0) out vec4 fragColor0;
+layout(location = 0, index = 1) out vec4 fragColor1;
+void main() { fragColor0 = vec4(1.0); fragColor1 = vec4(0.5); }
+)";
+    const GLuint program = CreateProgram();
+    const GLuint vs = CreateShader(GL_VERTEX_SHADER);
+    ShaderSource(vs, 1, &kPassthroughVs, nullptr);
+    CompileShader(vs);
+    AttachShader(program, vs);
+    DeleteShader(vs);
+    const GLuint fs = CreateShader(GL_FRAGMENT_SHADER);
+    ShaderSource(fs, 1, &dualSourceFs, nullptr);
+    CompileShader(fs);
+    AttachShader(program, fs);
+    DeleteShader(fs);
+
+    // The blanket bind: colour number 0, index 0, on the output the shader put at index 1.
+    BindFragDataLocation(program, 0, "fragColor0");
+    BindFragDataLocation(program, 0, "fragColor1");
+    LinkProgram(program);
+    GLint linkStatus = GL_FALSE;
+    GetProgramiv(program, GL_LINK_STATUS, &linkStatus);
+    EXPECT_EQ(linkStatus, GL_TRUE) << [&] {
+        char log[512] = "";
+        GetProgramInfoLog(program, sizeof(log), nullptr, log);
+        return std::string(log);
+    }();
+
+    // The explicit indexed form with a NON-zero index is still an override, and still links.
+    BindFragDataLocationIndexed(program, 0, 1, "fragColor1");
+    LinkProgram(program);
+    GetProgramiv(program, GL_LINK_STATUS, &linkStatus);
+    EXPECT_EQ(linkStatus, GL_TRUE);
+    EXPECT_EQ(GetFragDataIndex(program, "fragColor1"), 1);
+    for (int i = 0; i < 32 && GetError() != GL_NO_ERROR; ++i) {
+    }
+}
+
+TEST_F(ProgramTest, GetProgramivReportsTheGeometryStageLinkProperties) {
+    constexpr const char* gs = R"(#version 460 core
+layout(triangles, invocations = 3) in;
+layout(line_strip, max_vertices = 7) out;
+void main() {
+    for (int i = 0; i < 3; ++i) { gl_Position = gl_in[i].gl_Position; EmitVertex(); }
+    EndPrimitive();
+}
+)";
+    const GLuint program =
+        LinkStages({{GL_VERTEX_SHADER, kPassthroughVs}, {GL_GEOMETRY_SHADER, gs}, {GL_FRAGMENT_SHADER, kPassthroughFs}});
+
+    GLint value = -1;
+    GetProgramiv(program, GL_GEOMETRY_INPUT_TYPE, &value);
+    EXPECT_EQ(value, GL_TRIANGLES);
+    GetProgramiv(program, GL_GEOMETRY_OUTPUT_TYPE, &value);
+    EXPECT_EQ(value, GL_LINE_STRIP);
+    GetProgramiv(program, GL_GEOMETRY_VERTICES_OUT, &value);
+    EXPECT_EQ(value, 7);
+    GetProgramiv(program, GL_GEOMETRY_SHADER_INVOCATIONS, &value);
+    EXPECT_EQ(value, 3);
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+
+    // ...and INVALID_OPERATION, not INVALID_ENUM, on a program that has no geometry stage: GL
+    // says "a linked program object with a geometry shader", which the conformance suite checks
+    // from both sides.
+    const GLuint noGeometry = LinkStages({{GL_VERTEX_SHADER, kPassthroughVs}, {GL_FRAGMENT_SHADER, kPassthroughFs}});
+    for (const GLenum pname : {GL_GEOMETRY_INPUT_TYPE, GL_GEOMETRY_OUTPUT_TYPE, GL_GEOMETRY_VERTICES_OUT,
+                               GL_GEOMETRY_SHADER_INVOCATIONS}) {
+        GetProgramiv(noGeometry, pname, &value);
+        EXPECT_EQ(GetError(), static_cast<GLenum>(GL_INVALID_OPERATION)) << "pname " << pname;
+    }
+}
+
+TEST_F(ProgramTest, GetProgramivReportsTheTessellationStageLinkProperties) {
+    constexpr const char* tcs = R"(#version 460 core
+layout(vertices = 3) out;
+void main() {
+    gl_TessLevelOuter[0] = 1.0; gl_TessLevelOuter[1] = 1.0; gl_TessLevelOuter[2] = 1.0;
+    gl_TessLevelInner[0] = 1.0;
+    gl_out[gl_InvocationID].gl_Position = gl_in[gl_InvocationID].gl_Position;
+}
+)";
+    constexpr const char* tes = R"(#version 460 core
+layout(quads, fractional_odd_spacing, cw, point_mode) in;
+void main() { gl_Position = gl_in[0].gl_Position; }
+)";
+    const GLuint program = LinkStages({{GL_VERTEX_SHADER, kPassthroughVs},
+                                       {GL_TESS_CONTROL_SHADER, tcs},
+                                       {GL_TESS_EVALUATION_SHADER, tes},
+                                       {GL_FRAGMENT_SHADER, kPassthroughFs}});
+
+    GLint value = -1;
+    GetProgramiv(program, GL_TESS_CONTROL_OUTPUT_VERTICES, &value);
+    EXPECT_EQ(value, 3);
+    GetProgramiv(program, GL_TESS_GEN_MODE, &value);
+    EXPECT_EQ(value, GL_QUADS);
+    GetProgramiv(program, GL_TESS_GEN_SPACING, &value);
+    EXPECT_EQ(value, GL_FRACTIONAL_ODD);
+    GetProgramiv(program, GL_TESS_GEN_VERTEX_ORDER, &value);
+    EXPECT_EQ(value, GL_CW);
+    GetProgramiv(program, GL_TESS_GEN_POINT_MODE, &value);
+    EXPECT_EQ(value, GL_TRUE);
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+
+    // GLSL 4.60 4.4.2.3 defaults: equal_spacing, ccw, no point mode.
+    constexpr const char* defaultTes = R"(#version 460 core
+layout(triangles) in;
+void main() { gl_Position = gl_in[0].gl_Position; }
+)";
+    const GLuint defaults = LinkStages({{GL_VERTEX_SHADER, kPassthroughVs},
+                                        {GL_TESS_CONTROL_SHADER, tcs},
+                                        {GL_TESS_EVALUATION_SHADER, defaultTes},
+                                        {GL_FRAGMENT_SHADER, kPassthroughFs}});
+    GetProgramiv(defaults, GL_TESS_GEN_MODE, &value);
+    EXPECT_EQ(value, GL_TRIANGLES);
+    GetProgramiv(defaults, GL_TESS_GEN_SPACING, &value);
+    EXPECT_EQ(value, GL_EQUAL);
+    GetProgramiv(defaults, GL_TESS_GEN_VERTEX_ORDER, &value);
+    EXPECT_EQ(value, GL_CCW);
+    GetProgramiv(defaults, GL_TESS_GEN_POINT_MODE, &value);
+    EXPECT_EQ(value, GL_FALSE);
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+
+    const GLuint noTess = LinkStages({{GL_VERTEX_SHADER, kPassthroughVs}, {GL_FRAGMENT_SHADER, kPassthroughFs}});
+    for (const GLenum pname : {GL_TESS_CONTROL_OUTPUT_VERTICES, GL_TESS_GEN_MODE, GL_TESS_GEN_SPACING,
+                               GL_TESS_GEN_VERTEX_ORDER, GL_TESS_GEN_POINT_MODE}) {
+        GetProgramiv(noTess, pname, &value);
+        EXPECT_EQ(GetError(), static_cast<GLenum>(GL_INVALID_OPERATION)) << "pname " << pname;
+    }
+}
+
+// The context-wide tessellation state the same conformance group reads before it links anything.
+// glGetBooleanv and glGetFloatv both have to answer GL_PATCH_DEFAULT_OUTER_LEVEL, which is
+// FLOAT state - a delegation that writes element 0 only would leave the other three components
+// as whatever was in the caller's stack.
+TEST_F(ProgramTest, ContextWideTessellationPropertiesAnswerEveryWidth) {
+    GLfloat outer[4] = {-1.0f, -1.0f, -1.0f, -1.0f};
+    GetFloatv(GL_PATCH_DEFAULT_OUTER_LEVEL, outer);
+    for (const GLfloat level : outer) EXPECT_FLOAT_EQ(level, 1.0f);
+
+    GLfloat inner[2] = {-1.0f, -1.0f};
+    GetFloatv(GL_PATCH_DEFAULT_INNER_LEVEL, inner);
+    for (const GLfloat level : inner) EXPECT_FLOAT_EQ(level, 1.0f);
+
+    GLboolean outerBools[4] = {GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE};
+    GetBooleanv(GL_PATCH_DEFAULT_OUTER_LEVEL, outerBools);
+    for (const GLboolean level : outerBools) EXPECT_EQ(level, GL_TRUE);
+
+    GLint restart = -1;
+    GetIntegerv(GL_PRIMITIVE_RESTART_FOR_PATCHES_SUPPORTED, &restart);
+    EXPECT_EQ(restart, GL_FALSE);
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+}
+
+// ---------------------------------------------------------------------------------------------
+// The binding-range rule (GLSL 4.30 4.4.5 / ES 3.1 4.4.4): layout(binding = N) at or above the
+// resource kind's implementation limit is an error. glslang cannot enforce it for MobileGL - it
+// owns ceilings for samplers/images and for atomic counters and the relaxed Vulkan parse switches
+// both OFF, and for uniform and storage BLOCKS it has no ceiling at all - so MobileGL enforces it
+// itself, at the link, from TMglGlslIoResolver::CheckDeclaredBindingRange. es31cLayoutBindingTests
+// accepts a link-time rejection: its predicate, compiledAndLinked(), is the AND of the two.
+//
+// The two ceilings asserted here are frontend constants, so they hold with no backend active,
+// which is what makes them testable in this GPU-free binary. The sampler and image ceilings are
+// backend-derived and read zero here, i.e. "do not enforce"; their arm is the same code path.
+// ---------------------------------------------------------------------------------------------
+
+namespace {
+    // Links a compute program from one source and returns its LINK_STATUS. Compute, because every
+    // kind this rule covers can be declared in a compute shader and nothing else has to be
+    // supplied alongside it.
+    GLint LinkComputeProgramStatus(const char* source, String* outInfoLog = nullptr) {
+        char infoLog[2048] = "";
+        const GLuint shader = CreateShader(GL_COMPUTE_SHADER);
+        ShaderSource(shader, 1, &source, nullptr);
+        CompileShader(shader);
+        GLint compileStatus = GL_FALSE;
+        GetShaderiv(shader, GL_COMPILE_STATUS, &compileStatus);
+        if (compileStatus != GL_TRUE) {
+            GetShaderInfoLog(shader, sizeof(infoLog), nullptr, infoLog);
+            if (outInfoLog) *outInfoLog = infoLog;
+            // A compile-time rejection satisfies the same rule; report it as "not linked".
+            return GL_FALSE;
+        }
+        const GLuint program = CreateProgram();
+        AttachShader(program, shader);
+        LinkProgram(program);
+        GLint linkStatus = GL_FALSE;
+        GetProgramiv(program, GL_LINK_STATUS, &linkStatus);
+        GetProgramInfoLog(program, sizeof(infoLog), nullptr, infoLog);
+        if (outInfoLog) *outInfoLog = infoLog;
+        return linkStatus;
+    }
+} // namespace
+
+TEST_F(ProgramTest, UniformBlockBindingAtTheLimitIsRejected) {
+    DrainProgramTestErrors();
+
+    GLint maxUniformBufferBindings = 0;
+    GetIntegerv(GL_MAX_UNIFORM_BUFFER_BINDINGS, &maxUniformBufferBindings);
+    ASSERT_GT(maxUniformBufferBindings, 0);
+
+    const String legal = "#version 430 core\nlayout(local_size_x = 1) in;\nlayout(binding = " +
+                         std::to_string(maxUniformBufferBindings - 1) +
+                         ", std140) uniform Blk { vec4 v; } blk;\nvoid main() { }\n";
+    EXPECT_EQ(LinkComputeProgramStatus(legal.c_str()), GL_TRUE)
+        << "the last binding in the range is legal and must still link";
+
+    String infoLog;
+    const String overRange = "#version 430 core\nlayout(local_size_x = 1) in;\nlayout(binding = " +
+                             std::to_string(maxUniformBufferBindings) +
+                             ", std140) uniform Blk { vec4 v; } blk;\nvoid main() { }\n";
+    EXPECT_EQ(LinkComputeProgramStatus(overRange.c_str(), &infoLog), GL_FALSE)
+        << "a uniform block binding at GL_MAX_UNIFORM_BUFFER_BINDINGS must be rejected";
+    EXPECT_NE(infoLog.find("GL_MAX_UNIFORM_BUFFER_BINDINGS"), String::npos)
+        << "the info log must name the limit the declaration broke; got: " << infoLog;
+
+    DrainProgramTestErrors();
+}
+
+TEST_F(ProgramTest, AtomicCounterBindingAtTheLimitIsRejected) {
+    DrainProgramTestErrors();
+
+    GLint maxAtomicBindings = 0;
+    GetIntegerv(GL_MAX_ATOMIC_COUNTER_BUFFER_BINDINGS, &maxAtomicBindings);
+    ASSERT_GT(maxAtomicBindings, 0);
+
+    const String legal = "#version 430 core\nlayout(local_size_x = 1) in;\nlayout(binding = " +
+                         std::to_string(maxAtomicBindings - 1) +
+                         ") uniform atomic_uint counter;\nvoid main() { atomicCounterIncrement(counter); }\n";
+    EXPECT_EQ(LinkComputeProgramStatus(legal.c_str()), GL_TRUE)
+        << "the last counter binding in the range is legal and must still link";
+
+    String infoLog;
+    const String overRange = "#version 430 core\nlayout(local_size_x = 1) in;\nlayout(binding = " +
+                             std::to_string(maxAtomicBindings) +
+                             ") uniform atomic_uint counter;\nvoid main() { atomicCounterIncrement(counter); }\n";
+    EXPECT_EQ(LinkComputeProgramStatus(overRange.c_str(), &infoLog), GL_FALSE)
+        << "an atomic_uint binding at GL_MAX_ATOMIC_COUNTER_BUFFER_BINDINGS must be rejected";
+
+    DrainProgramTestErrors();
+}
+
+// The arrayed-instance half of the rule: an array of N takes base .. base + N - 1, and every one
+// of them has to fit. A base that is itself legal is therefore not enough.
+TEST_F(ProgramTest, ArrayedUniformBlockInstanceMustFitEntirelyBelowTheBindingLimit) {
+    DrainProgramTestErrors();
+
+    GLint maxUniformBufferBindings = 0;
+    GetIntegerv(GL_MAX_UNIFORM_BUFFER_BINDINGS, &maxUniformBufferBindings);
+    ASSERT_GE(maxUniformBufferBindings, 4);
+
+    const String fits = "#version 430 core\nlayout(local_size_x = 1) in;\nlayout(binding = " +
+                        std::to_string(maxUniformBufferBindings - 4) +
+                        ", std140) uniform Blk { vec4 v; } blk[4];\nvoid main() { }\n";
+    EXPECT_EQ(LinkComputeProgramStatus(fits.c_str()), GL_TRUE)
+        << "base + count - 1 is the last legal binding, so this array fits exactly";
+
+    const String spills = "#version 430 core\nlayout(local_size_x = 1) in;\nlayout(binding = " +
+                          std::to_string(maxUniformBufferBindings - 3) +
+                          ", std140) uniform Blk { vec4 v; } blk[4];\nvoid main() { }\n";
+    EXPECT_EQ(LinkComputeProgramStatus(spills.c_str()), GL_FALSE)
+        << "the array's last element is past the limit even though its base is not";
+
+    DrainProgramTestErrors();
+}
+
+// The storage-block arm still has its own COMPILE-time enforcement (the lexical scan glslang's
+// relaxed parse leaves MobileGL to do), and the link-time check is a backstop for it. Both agree
+// because both read ResolveResourceBindingLimits; this pins the outcome rather than the site.
+TEST_F(ProgramTest, StorageBlockBindingAtTheLimitIsStillRejected) {
+    DrainProgramTestErrors();
+
+    GLint maxStorageBindings = 0;
+    GetIntegerv(GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS, &maxStorageBindings);
+    if (maxStorageBindings <= 0) {
+        GTEST_SKIP() << "no storage-buffer binding points advertised in this configuration";
+    }
+
+    const String overRange = "#version 430 core\nlayout(local_size_x = 1) in;\nlayout(binding = " +
+                             std::to_string(maxStorageBindings) +
+                             ", std430) buffer Blk { vec4 v; } blk;\nvoid main() { blk.v = vec4(0.0); }\n";
+    EXPECT_EQ(LinkComputeProgramStatus(overRange.c_str()), GL_FALSE);
+
+    DrainProgramTestErrors();
+}
+
+// ---------------------------------------------------------------------------------------------
+// GL_PROGRAM_SEPARABLE is LATCHED at link (GL 4.6 core 7.3), and glUseProgramStages tests the
+// latched flag, not the live one.
+// ---------------------------------------------------------------------------------------------
+
+TEST_F(ProgramTest, ProgramSeparableIsLatchedAtLinkNotReportedLive) {
+    DrainProgramTestErrors();
+
+    const GLuint program = CreateProgram();
+    GLint separable = GL_TRUE;
+    GetProgramiv(program, GL_PROGRAM_SEPARABLE, &separable);
+    EXPECT_EQ(separable, GL_FALSE) << "a fresh program is not separable";
+
+    // Requested but never linked: the request has not taken effect yet.
+    ProgramParameteri(program, GL_PROGRAM_SEPARABLE, GL_TRUE);
+    GetProgramiv(program, GL_PROGRAM_SEPARABLE, &separable);
+    EXPECT_EQ(separable, GL_FALSE) << "GL_PROGRAM_SEPARABLE takes effect at the NEXT link";
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+
+    // Link it, and the request lands.
+    const char* vsSource = "#version 330 core\nvoid main() { gl_Position = vec4(0.0); }\n";
+    const GLuint vs = CreateShader(GL_VERTEX_SHADER);
+    ShaderSource(vs, 1, &vsSource, nullptr);
+    CompileShader(vs);
+    AttachShader(program, vs);
+    LinkProgram(program);
+    GetProgramiv(program, GL_PROGRAM_SEPARABLE, &separable);
+    EXPECT_EQ(separable, GL_TRUE);
+
+    // Clearing the live flag does not un-separate the EXECUTABLE that was already linked.
+    ProgramParameteri(program, GL_PROGRAM_SEPARABLE, GL_FALSE);
+    GetProgramiv(program, GL_PROGRAM_SEPARABLE, &separable);
+    EXPECT_EQ(separable, GL_TRUE) << "the latched flag only moves at a link";
+
+    DrainProgramTestErrors();
+}
+
+TEST_F(ProgramTest, UseProgramStagesRequiresAProgramLinkedAsSeparable) {
+    DrainProgramTestErrors();
+
+    const char* vsSource = "#version 330 core\nvoid main() { gl_Position = vec4(0.0); }\n";
+    const GLuint vs = CreateShader(GL_VERTEX_SHADER);
+    ShaderSource(vs, 1, &vsSource, nullptr);
+    CompileShader(vs);
+
+    // Linked, but NOT as a separable program.
+    const GLuint monolithic = CreateProgram();
+    AttachShader(monolithic, vs);
+    LinkProgram(monolithic);
+    GLint linkStatus = GL_FALSE;
+    GetProgramiv(monolithic, GL_LINK_STATUS, &linkStatus);
+    ASSERT_EQ(linkStatus, GL_TRUE);
+    DrainProgramTestErrors();
+
+    GLuint pipeline = 0;
+    GenProgramPipelines(1, &pipeline);
+    UseProgramStages(pipeline, GL_VERTEX_SHADER_BIT, monolithic);
+    EXPECT_EQ(GetError(), GL_INVALID_OPERATION)
+        << "GL 4.6 core 7.4: the program must have been LINKED with PROGRAM_SEPARABLE set";
+
+    // The same program, relinked as separable, is accepted.
+    ProgramParameteri(monolithic, GL_PROGRAM_SEPARABLE, GL_TRUE);
+    LinkProgram(monolithic);
+    DrainProgramTestErrors();
+    UseProgramStages(pipeline, GL_VERTEX_SHADER_BIT, monolithic);
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+
+    DeleteProgramPipelines(1, &pipeline);
+    DrainProgramTestErrors();
+}
+
+// GL 4.6 core 7.6: an unlinked program is GL_INVALID_OPERATION for both of these, and
+// glProgramUniform*'s location == -1 early-out must not swallow it - -1 is exactly what an
+// application holds after asking an unlinked program for a location.
+TEST_F(ProgramTest, UniformEntryPointsRejectAnUnlinkedProgram) {
+    DrainProgramTestErrors();
+
+    const GLuint program = CreateProgram();
+
+    EXPECT_EQ(GetUniformLocation(program, "uAnything"), -1);
+    EXPECT_EQ(GetError(), GL_INVALID_OPERATION);
+
+    const GLfloat value = 1.0f;
+    ProgramUniform1fv(program, -1, 1, &value);
+    EXPECT_EQ(GetError(), GL_INVALID_OPERATION)
+        << "the link check has to run BEFORE the location == -1 early-out";
+
+    ProgramUniform1f(program, 0, 1.0f);
+    EXPECT_EQ(GetError(), GL_INVALID_OPERATION);
+
+    // THE MATRIX FORMS TOO. The reorder originally landed on ProgramUniformv_State alone, so all
+    // thirteen glProgramUniformMatrix* entry points kept the old `if (location == -1) return;`
+    // first statement and stayed silent on exactly the case the rule exists for.
+    const GLfloat m[16] = {};
+    ProgramUniformMatrix2fv(program, -1, 1, GL_FALSE, m);
+    EXPECT_EQ(GetError(), GL_INVALID_OPERATION) << "glProgramUniformMatrix2fv";
+    ProgramUniformMatrix3fv(program, -1, 1, GL_FALSE, m);
+    EXPECT_EQ(GetError(), GL_INVALID_OPERATION) << "glProgramUniformMatrix3fv";
+    ProgramUniformMatrix4fv(program, -1, 1, GL_FALSE, m);
+    EXPECT_EQ(GetError(), GL_INVALID_OPERATION) << "glProgramUniformMatrix4fv";
+    ProgramUniformMatrix2x3fv(program, -1, 1, GL_FALSE, m);
+    EXPECT_EQ(GetError(), GL_INVALID_OPERATION) << "glProgramUniformMatrix2x3fv";
+    ProgramUniformMatrix3x2fv(program, -1, 1, GL_FALSE, m);
+    EXPECT_EQ(GetError(), GL_INVALID_OPERATION) << "glProgramUniformMatrix3x2fv";
+    ProgramUniformMatrix2x4fv(program, -1, 1, GL_FALSE, m);
+    EXPECT_EQ(GetError(), GL_INVALID_OPERATION) << "glProgramUniformMatrix2x4fv";
+    ProgramUniformMatrix4x2fv(program, -1, 1, GL_FALSE, m);
+    EXPECT_EQ(GetError(), GL_INVALID_OPERATION) << "glProgramUniformMatrix4x2fv";
+    ProgramUniformMatrix3x4fv(program, -1, 1, GL_FALSE, m);
+    EXPECT_EQ(GetError(), GL_INVALID_OPERATION) << "glProgramUniformMatrix3x4fv";
+    ProgramUniformMatrix4x3fv(program, -1, 1, GL_FALSE, m);
+    EXPECT_EQ(GetError(), GL_INVALID_OPERATION) << "glProgramUniformMatrix4x3fv";
+
+    const GLdouble md[16] = {};
+    ProgramUniformMatrix2dv(program, -1, 1, GL_FALSE, md);
+    EXPECT_EQ(GetError(), GL_INVALID_OPERATION) << "glProgramUniformMatrix2dv";
+    ProgramUniformMatrix3dv(program, -1, 1, GL_FALSE, md);
+    EXPECT_EQ(GetError(), GL_INVALID_OPERATION) << "glProgramUniformMatrix3dv";
+    ProgramUniformMatrix4dv(program, -1, 1, GL_FALSE, md);
+    EXPECT_EQ(GetError(), GL_INVALID_OPERATION) << "glProgramUniformMatrix4dv";
+    ProgramUniformMatrix2x3dv(program, -1, 1, GL_FALSE, md);
+    EXPECT_EQ(GetError(), GL_INVALID_OPERATION) << "glProgramUniformMatrix2x3dv";
+    ProgramUniformMatrix3x2dv(program, -1, 1, GL_FALSE, md);
+    EXPECT_EQ(GetError(), GL_INVALID_OPERATION) << "glProgramUniformMatrix3x2dv";
+    ProgramUniformMatrix2x4dv(program, -1, 1, GL_FALSE, md);
+    EXPECT_EQ(GetError(), GL_INVALID_OPERATION) << "glProgramUniformMatrix2x4dv";
+    ProgramUniformMatrix4x2dv(program, -1, 1, GL_FALSE, md);
+    EXPECT_EQ(GetError(), GL_INVALID_OPERATION) << "glProgramUniformMatrix4x2dv";
+    ProgramUniformMatrix3x4dv(program, -1, 1, GL_FALSE, md);
+    EXPECT_EQ(GetError(), GL_INVALID_OPERATION) << "glProgramUniformMatrix3x4dv";
+    ProgramUniformMatrix4x3dv(program, -1, 1, GL_FALSE, md);
+    EXPECT_EQ(GetError(), GL_INVALID_OPERATION) << "glProgramUniformMatrix4x3dv";
+
+    // A name GL never handed out is INVALID_VALUE, and the -1 location must not swallow that
+    // either - this is the second error the early-out was hiding.
+    ProgramUniformMatrix4fv(0xDEADBEEFu, -1, 1, GL_FALSE, m);
+    EXPECT_EQ(GetError(), GL_INVALID_VALUE);
+
+    DrainProgramTestErrors();
+}
+
+// ---------------------------------------------------------------------------------------------
+// GL_ARB_gl_spirv, core since 4.6. glShaderBinary and glSpecializeShader were
+// DECLARE_GL_FUNCTION_STUB entry points - they took their arguments, recorded no error and did
+// nothing - and glGetShaderiv(GL_SPIR_V_BINARY) fell into the terminal INVALID_ENUM arm, which is
+// where all nine gl_spirv conformance bodies died.
+//
+// The module below is a real one, compiled ahead of time by glslangValidator (-G --target-env
+// opengl) so this GPU-free binary needs no toolchain at run time. Its GLSL:
+//     layout(location = 0) in vec2 aPos;
+//     layout(constant_id = 3) const float uScale = 1.0;
+//     void main() { gl_Position = vec4(aPos * uScale, 0.0, 1.0); }
+// The RENDERING half of the path is asserted separately, on a real context, in
+// MG_IntegrationTest/Scenarios/SpirvShaderBinaryScenario.cpp.
+// ---------------------------------------------------------------------------------------------
+
+namespace {
+    // Asserts a call recorded exactly one error and drains it, so the next case starts clean.
+    void ExpectOnlyThisGlError(GLenum expected) {
+        EXPECT_EQ(GetError(), expected);
+        EXPECT_EQ(GetError(), GL_NO_ERROR) << "the call recorded more than one error";
+    }
+
+        // 255 words
+        const unsigned int kVertexModule[] = {
+            0x07230203u, 0x00010000u, 0x0008000bu, 0x00000020u, 0x00000000u, 0x00020011u, 0x00000001u, 0x0006000bu,
+            0x00000001u, 0x4c534c47u, 0x6474732eu, 0x3035342eu, 0x00000000u, 0x0003000eu, 0x00000000u, 0x00000001u,
+            0x0009000fu, 0x00000000u, 0x00000004u, 0x6e69616du, 0x00000000u, 0x0000000du, 0x00000012u, 0x0000001eu,
+            0x0000001fu, 0x00030003u, 0x00000002u, 0x000001c2u, 0x00040005u, 0x00000004u, 0x6e69616du, 0x00000000u,
+            0x00060005u, 0x0000000bu, 0x505f6c67u, 0x65567265u, 0x78657472u, 0x00000000u, 0x00060006u, 0x0000000bu,
+            0x00000000u, 0x505f6c67u, 0x7469736fu, 0x006e6f69u, 0x00070006u, 0x0000000bu, 0x00000001u, 0x505f6c67u,
+            0x746e696fu, 0x657a6953u, 0x00000000u, 0x00070006u, 0x0000000bu, 0x00000002u, 0x435f6c67u, 0x4470696cu,
+            0x61747369u, 0x0065636eu, 0x00070006u, 0x0000000bu, 0x00000003u, 0x435f6c67u, 0x446c6c75u, 0x61747369u,
+            0x0065636eu, 0x00030005u, 0x0000000du, 0x00000000u, 0x00040005u, 0x00000012u, 0x736f5061u, 0x00000000u,
+            0x00040005u, 0x00000014u, 0x61635375u, 0x0000656cu, 0x00050005u, 0x0000001eu, 0x565f6c67u, 0x65747265u,
+            0x00444978u, 0x00060005u, 0x0000001fu, 0x495f6c67u, 0x6174736eu, 0x4965636eu, 0x00000044u, 0x00030047u,
+            0x0000000bu, 0x00000002u, 0x00050048u, 0x0000000bu, 0x00000000u, 0x0000000bu, 0x00000000u, 0x00050048u,
+            0x0000000bu, 0x00000001u, 0x0000000bu, 0x00000001u, 0x00050048u, 0x0000000bu, 0x00000002u, 0x0000000bu,
+            0x00000003u, 0x00050048u, 0x0000000bu, 0x00000003u, 0x0000000bu, 0x00000004u, 0x00040047u, 0x00000012u,
+            0x0000001eu, 0x00000000u, 0x00040047u, 0x00000014u, 0x00000001u, 0x00000003u, 0x00040047u, 0x0000001eu,
+            0x0000000bu, 0x00000005u, 0x00040047u, 0x0000001fu, 0x0000000bu, 0x00000006u, 0x00020013u, 0x00000002u,
+            0x00030021u, 0x00000003u, 0x00000002u, 0x00030016u, 0x00000006u, 0x00000020u, 0x00040017u, 0x00000007u,
+            0x00000006u, 0x00000004u, 0x00040015u, 0x00000008u, 0x00000020u, 0x00000000u, 0x0004002bu, 0x00000008u,
+            0x00000009u, 0x00000001u, 0x0004001cu, 0x0000000au, 0x00000006u, 0x00000009u, 0x0006001eu, 0x0000000bu,
+            0x00000007u, 0x00000006u, 0x0000000au, 0x0000000au, 0x00040020u, 0x0000000cu, 0x00000003u, 0x0000000bu,
+            0x0004003bu, 0x0000000cu, 0x0000000du, 0x00000003u, 0x00040015u, 0x0000000eu, 0x00000020u, 0x00000001u,
+            0x0004002bu, 0x0000000eu, 0x0000000fu, 0x00000000u, 0x00040017u, 0x00000010u, 0x00000006u, 0x00000002u,
+            0x00040020u, 0x00000011u, 0x00000001u, 0x00000010u, 0x0004003bu, 0x00000011u, 0x00000012u, 0x00000001u,
+            0x00040032u, 0x00000006u, 0x00000014u, 0x3f800000u, 0x0004002bu, 0x00000006u, 0x00000016u, 0x00000000u,
+            0x0004002bu, 0x00000006u, 0x00000017u, 0x3f800000u, 0x00040020u, 0x0000001bu, 0x00000003u, 0x00000007u,
+            0x00040020u, 0x0000001du, 0x00000001u, 0x0000000eu, 0x0004003bu, 0x0000001du, 0x0000001eu, 0x00000001u,
+            0x0004003bu, 0x0000001du, 0x0000001fu, 0x00000001u, 0x00050036u, 0x00000002u, 0x00000004u, 0x00000000u,
+            0x00000003u, 0x000200f8u, 0x00000005u, 0x0004003du, 0x00000010u, 0x00000013u, 0x00000012u, 0x0005008eu,
+            0x00000010u, 0x00000015u, 0x00000013u, 0x00000014u, 0x00050051u, 0x00000006u, 0x00000018u, 0x00000015u,
+            0x00000000u, 0x00050051u, 0x00000006u, 0x00000019u, 0x00000015u, 0x00000001u, 0x00070050u, 0x00000007u,
+            0x0000001au, 0x00000018u, 0x00000019u, 0x00000016u, 0x00000017u, 0x00050041u, 0x0000001bu, 0x0000001cu,
+            0x0000000du, 0x0000000fu, 0x0003003eu, 0x0000001cu, 0x0000001au, 0x000100fdu, 0x00010038u,
+        };
+} // namespace
+
+TEST_F(ProgramTest, ShaderBinaryStoresASpirvModuleAndTheStateQueryReportsIt) {
+    DrainProgramTestErrors();
+
+    const GLuint shader = CreateShader(GL_VERTEX_SHADER);
+    GLint isSpirv = GL_TRUE;
+    GetShaderiv(shader, GL_SPIR_V_BINARY, &isSpirv);
+    EXPECT_EQ(GetError(), GL_NO_ERROR) << "GL_SPIR_V_BINARY is an accepted pname in a 4.6 context";
+    EXPECT_EQ(isSpirv, GL_FALSE);
+
+    ShaderBinary(1, &shader, GL_SHADER_BINARY_FORMAT_SPIR_V, kVertexModule, sizeof(kVertexModule));
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+    GetShaderiv(shader, GL_SPIR_V_BINARY, &isSpirv);
+    EXPECT_EQ(isSpirv, GL_TRUE);
+
+    // glCompileShader on a SPIR-V shader is INVALID_OPERATION: glSpecializeShader is what compiles
+    // one. This is the whole of spirv_modules_error_verification_test's first assertion.
+    CompileShader(shader);
+    EXPECT_EQ(GetError(), GL_INVALID_OPERATION);
+
+    // glShaderSource takes the object back to being a GLSL shader.
+    const char* source = "#version 450 core\nvoid main() { gl_Position = vec4(0.0); }\n";
+    ShaderSource(shader, 1, &source, nullptr);
+    GetShaderiv(shader, GL_SPIR_V_BINARY, &isSpirv);
+    EXPECT_EQ(isSpirv, GL_FALSE);
+    CompileShader(shader);
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+
+    DrainProgramTestErrors();
+}
+
+TEST_F(ProgramTest, ShaderBinaryValidatesItsArguments) {
+    DrainProgramTestErrors();
+
+    GLuint shaders[2] = {0, 0};
+    shaders[0] = CreateShader(GL_VERTEX_SHADER);
+    shaders[1] = CreateShader(GL_FRAGMENT_SHADER);
+
+    // The only accepted format is the SPIR-V one; the stub used to accept everything silently.
+    ShaderBinary(1, shaders, GL_PROGRAM_BINARY_FORMATS, kVertexModule, sizeof(kVertexModule));
+    ExpectOnlyThisGlError(GL_INVALID_ENUM);
+
+    // A SPIR-V module is a sequence of 32-bit words.
+    ShaderBinary(1, shaders, GL_SHADER_BINARY_FORMAT_SPIR_V, kVertexModule, sizeof(kVertexModule) - 1);
+    ExpectOnlyThisGlError(GL_INVALID_VALUE);
+
+    // The same shader twice is INVALID_VALUE, and nothing may have been attached.
+    GLuint duplicated[2] = {shaders[0], shaders[0]};
+    ShaderBinary(2, duplicated, GL_SHADER_BINARY_FORMAT_SPIR_V, kVertexModule, sizeof(kVertexModule));
+    ExpectOnlyThisGlError(GL_INVALID_VALUE);
+    GLint isSpirv = GL_TRUE;
+    GetShaderiv(shaders[0], GL_SPIR_V_BINARY, &isSpirv);
+    EXPECT_EQ(isSpirv, GL_FALSE) << "a rejected glShaderBinary is all-or-nothing";
+
+    // A name that is not a shader object.
+    GLuint bogus = 0xBADBEEF;
+    ShaderBinary(1, &bogus, GL_SHADER_BINARY_FORMAT_SPIR_V, kVertexModule, sizeof(kVertexModule));
+    ExpectOnlyThisGlError(GL_INVALID_VALUE);
+
+    // Something that is not SPIR-V at all: the magic number gate, before SPIRV-Cross ever sees it.
+    const unsigned int notSpirv[4] = {0xDEADBEEFu, 0u, 0u, 0u};
+    ShaderBinary(1, shaders, GL_SHADER_BINARY_FORMAT_SPIR_V, notSpirv, sizeof(notSpirv));
+    ExpectOnlyThisGlError(GL_INVALID_VALUE);
+    GetShaderiv(shaders[0], GL_SPIR_V_BINARY, &isSpirv);
+    EXPECT_EQ(isSpirv, GL_FALSE);
+
+    // ONE call, TWO shader objects - the shape spirv_modules_shader_binary_multiple_shader_objects_test
+    // exercises. Both end up holding the module.
+    ShaderBinary(2, shaders, GL_SHADER_BINARY_FORMAT_SPIR_V, kVertexModule, sizeof(kVertexModule));
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+    for (const GLuint shader : shaders) {
+        GetShaderiv(shader, GL_SPIR_V_BINARY, &isSpirv);
+        EXPECT_EQ(isSpirv, GL_TRUE);
+    }
+
+    DrainProgramTestErrors();
+}
+
+TEST_F(ProgramTest, SpecializeShaderCompilesTheModuleAndAppliesItsConstants) {
+    DrainProgramTestErrors();
+
+    const GLuint shader = CreateShader(GL_VERTEX_SHADER);
+
+    // Before any module: INVALID_OPERATION rather than a silent no-op.
+    const unsigned int constantId = 3;
+    const unsigned int constantValue = 0;
+    SpecializeShader(shader, "main", 1, &constantId, &constantValue);
+    ExpectOnlyThisGlError(GL_INVALID_OPERATION);
+
+    ShaderBinary(1, &shader, GL_SHADER_BINARY_FORMAT_SPIR_V, kVertexModule, sizeof(kVertexModule));
+    ASSERT_EQ(GetError(), GL_NO_ERROR);
+
+    // Constant id 3 is the module's `uScale`, handed over as the bit pattern of 0.5f.
+    float half = 0.5f;
+    unsigned int halfBits = 0;
+    std::memcpy(&halfBits, &half, sizeof(halfBits));
+    SpecializeShader(shader, "main", 1, &constantId, &halfBits);
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+
+    GLint compiled = GL_FALSE;
+    GetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
+    char infoLog[2048] = "";
+    GetShaderInfoLog(shader, sizeof(infoLog), nullptr, infoLog);
+    EXPECT_EQ(compiled, GL_TRUE) << infoLog;
+
+    // The module stays attached after specialization - GL_SPIR_V_BINARY keeps reading TRUE - but
+    // the shader may NOT be specialized again. ARB_gl_spirv: "Once specialized, a shader may not
+    // be re-specialized without first re-associating the original SPIR-V module with it, through
+    // ShaderBinary."
+    GLint isSpirv = GL_FALSE;
+    GetShaderiv(shader, GL_SPIR_V_BINARY, &isSpirv);
+    EXPECT_EQ(isSpirv, GL_TRUE);
+    SpecializeShader(shader, "main", 0, nullptr, nullptr);
+    ExpectOnlyThisGlError(GL_INVALID_OPERATION);
+    GetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
+    EXPECT_EQ(compiled, GL_TRUE) << "the refused call must not have disturbed the first specialization";
+
+    // Re-associating the module is what makes a second specialization legal again - and it is the
+    // only thing that does.
+    ShaderBinary(1, &shader, GL_SHADER_BINARY_FORMAT_SPIR_V, kVertexModule, sizeof(kVertexModule));
+    ASSERT_EQ(GetError(), GL_NO_ERROR);
+    SpecializeShader(shader, "main", 0, nullptr, nullptr);
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+    GetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
+    EXPECT_EQ(compiled, GL_TRUE);
+
+    DrainProgramTestErrors();
+}
+
+// glShaderSource does the same re-association in the other direction: it turns the object back
+// into a GLSL shader, so a later glShaderBinary + glSpecializeShader pair is legal again.
+TEST_F(ProgramTest, ShaderSourceClearsTheSpecializedLatch) {
+    DrainProgramTestErrors();
+
+    const GLuint shader = CreateShader(GL_VERTEX_SHADER);
+    ShaderBinary(1, &shader, GL_SHADER_BINARY_FORMAT_SPIR_V, kVertexModule, sizeof(kVertexModule));
+    SpecializeShader(shader, "main", 0, nullptr, nullptr);
+    ASSERT_EQ(GetError(), GL_NO_ERROR);
+
+    const char* source = "#version 450 core\nvoid main() { gl_Position = vec4(0.0); }\n";
+    ShaderSource(shader, 1, &source, nullptr);
+    ShaderBinary(1, &shader, GL_SHADER_BINARY_FORMAT_SPIR_V, kVertexModule, sizeof(kVertexModule));
+    ASSERT_EQ(GetError(), GL_NO_ERROR);
+    SpecializeShader(shader, "main", 0, nullptr, nullptr);
+    EXPECT_EQ(GetError(), GL_NO_ERROR) << "the latch must not survive a round trip through glShaderSource";
+
+    DrainProgramTestErrors();
+}
+
+// A shader that came from glShaderBinary has never had glShaderSource called on it, so GL 4.6
+// core 7.1 makes its source the empty string - including AFTER glSpecializeShader, when the
+// object internally holds the GLSL the module was translated into. That text is MobileGL's, not
+// the application's, and handing it back invites an application to cache and re-submit it.
+TEST_F(ProgramTest, ASpirvShaderReportsNoApplicationSource) {
+    DrainProgramTestErrors();
+
+    const GLuint shader = CreateShader(GL_VERTEX_SHADER);
+    ShaderBinary(1, &shader, GL_SHADER_BINARY_FORMAT_SPIR_V, kVertexModule, sizeof(kVertexModule));
+    ASSERT_EQ(GetError(), GL_NO_ERROR);
+
+    GLint sourceLength = -1;
+    GetShaderiv(shader, GL_SHADER_SOURCE_LENGTH, &sourceLength);
+    EXPECT_EQ(sourceLength, 0);
+
+    SpecializeShader(shader, "main", 0, nullptr, nullptr);
+    ASSERT_EQ(GetError(), GL_NO_ERROR);
+    GLint compiled = GL_FALSE;
+    GetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
+    ASSERT_EQ(compiled, GL_TRUE) << "the leak this pins only exists on the specialized path";
+
+    sourceLength = -1;
+    GetShaderiv(shader, GL_SHADER_SOURCE_LENGTH, &sourceLength);
+    EXPECT_EQ(sourceLength, 0) << "the SPIRV-Cross GLSL is not the application's source";
+
+    char buffer[64];
+    std::memset(buffer, 'x', sizeof(buffer));
+    GLsizei written = -1;
+    GetShaderSource(shader, static_cast<GLsizei>(sizeof(buffer)), &written, buffer);
+    EXPECT_EQ(written, 0);
+    EXPECT_EQ(buffer[0], '\0');
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+
+    // A GLSL shader still answers with what the application gave it.
+    const char* source = "#version 450 core\nvoid main() { gl_Position = vec4(0.0); }\n";
+    ShaderSource(shader, 1, &source, nullptr);
+    GetShaderiv(shader, GL_SHADER_SOURCE_LENGTH, &sourceLength);
+    EXPECT_EQ(sourceLength, static_cast<GLint>(std::strlen(source)) + 1);
+
+    DrainProgramTestErrors();
+}
+
+// The two conditions ARB_gl_spirv ENUMERATES are GL_INVALID_VALUE, not compile failures: "an
+// INVALID_VALUE error is generated if pEntryPoint does not name a valid entry point for shader"
+// and "...if any element of pConstantIndex refers to a specialization constant that does not exist
+// in the shader module contained in shader". Both used to be reported as COMPILE_STATUS false with
+// no GL error, which an application checking glGetError could not see at all.
+//
+// The distinction matters beyond the error code: an erroring GL command must have NO OTHER EFFECT,
+// so neither of these may leave the shader object in a failed-compile state. The conformance suite
+// leans on exactly that - it fails specialization twice on one object and then requires the next,
+// well-formed call on that same object to succeed.
+TEST_F(ProgramTest, SpecializeShaderRaisesInvalidValueForBadEntryPointsAndUnknownConstants) {
+    DrainProgramTestErrors();
+
+    const GLuint shader = CreateShader(GL_VERTEX_SHADER);
+    ShaderBinary(1, &shader, GL_SHADER_BINARY_FORMAT_SPIR_V, kVertexModule, sizeof(kVertexModule));
+    ASSERT_EQ(GetError(), GL_NO_ERROR);
+
+    // A constant id the module does not declare.
+    const unsigned int unknownId = 4242;
+    const unsigned int value = 0;
+    SpecializeShader(shader, "main", 1, &unknownId, &value);
+    ExpectOnlyThisGlError(GL_INVALID_VALUE);
+
+    // An entry point the module does not carry.
+    SpecializeShader(shader, "notMain", 0, nullptr, nullptr);
+    ExpectOnlyThisGlError(GL_INVALID_VALUE);
+
+    // Neither of them may name an entry point at all.
+    SpecializeShader(shader, nullptr, 0, nullptr, nullptr);
+    ExpectOnlyThisGlError(GL_INVALID_VALUE);
+    SpecializeShader(shader, "", 0, nullptr, nullptr);
+    ExpectOnlyThisGlError(GL_INVALID_VALUE);
+
+    // A repeated constant index is GL_INVALID_VALUE at the entry point itself.
+    const unsigned int repeated[2] = {3, 3};
+    const unsigned int values[2] = {0, 0};
+    SpecializeShader(shader, "main", 2, repeated, values);
+    ExpectOnlyThisGlError(GL_INVALID_VALUE);
+
+    // AND NOW THE POINT: none of the five refused calls specialized the shader or damaged it, so
+    // the well-formed call that follows must still be accepted. Latching the "specialized" flag on
+    // the failure path - the obvious way to implement the re-specialization rule - breaks exactly
+    // here, which is why the flag is only ever set on the success path.
+    SpecializeShader(shader, "main", 0, nullptr, nullptr);
+    EXPECT_EQ(GetError(), GL_NO_ERROR) << "a failed specialization does not make the shader specialized";
+    GLint compiled = GL_FALSE;
+    GetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
+    EXPECT_EQ(compiled, GL_TRUE);
+
+    DrainProgramTestErrors();
+}
+
+// A GENUINE compile failure of a well-formed request keeps the COMPILE_STATUS surface: the module
+// is a valid SPIR-V module naming a real entry point, it simply cannot be translated for this
+// stage. Nothing about that is one of the enumerated errors.
+TEST_F(ProgramTest, SpecializeShaderStillReportsATranslationFailureThroughCompileStatus) {
+    DrainProgramTestErrors();
+
+    // The vertex module handed to a FRAGMENT shader object: its only entry point carries the
+    // Vertex execution model, so no fragment entry point named "main" exists in it.
+    const GLuint shader = CreateShader(GL_FRAGMENT_SHADER);
+    ShaderBinary(1, &shader, GL_SHADER_BINARY_FORMAT_SPIR_V, kVertexModule, sizeof(kVertexModule));
+    ASSERT_EQ(GetError(), GL_NO_ERROR);
+
+    SpecializeShader(shader, "main", 0, nullptr, nullptr);
+    // Reported as INVALID_VALUE (there is no such entry point FOR THIS STAGE) - the stage is part
+    // of what "a valid entry point for shader" means.
+    ExpectOnlyThisGlError(GL_INVALID_VALUE);
+
+    DrainProgramTestErrors();
+}
+
+TEST_F(ProgramTest, ShaderBinaryFormatsAreAdvertisedConsistently) {
+    DrainProgramTestErrors();
+
+    GLint count = -1;
+    GetIntegerv(GL_NUM_SHADER_BINARY_FORMATS, &count);
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+    ASSERT_EQ(count, 1);
+
+    GLint formats[4] = {0, 0, 0, 0};
+    GetIntegerv(GL_SHADER_BINARY_FORMATS, formats);
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+    EXPECT_EQ(formats[0], static_cast<GLint>(GL_SHADER_BINARY_FORMAT_SPIR_V))
+        << "the count and the list have to describe the same thing";
+
+    DrainProgramTestErrors();
+}
+
+// ---------------------------------------------------------------------------------------------
+// ARB_gl_spirv makes XfbBuffer / XfbStride / Offset DECORATIONS the only way a SPIR-V program
+// declares transform feedback - glTransformFeedbackVaryings has no effect on such a program. The
+// decorations were ignored entirely: the link ran off `in.requestedXfbVaryings`, which is empty
+// for a SPIR-V program, so a module that asked for capture captured nothing and
+// GL_TRANSFORM_FEEDBACK_VARYINGS answered zero.
+//
+// glSpecializeShader now reflects the decorations and re-expresses them as the equivalent
+// glTransformFeedbackVaryings request (ARB_transform_feedback3's gl_SkipComponentsN carrying the
+// declared offset), which is the form every consumer downstream already implements.
+//
+// The module below is `layout(xfb_buffer = 0, xfb_offset = 16) out gl_PerVertex { vec4
+// gl_Position; };` over a trivial vertex shader - the exact shape gl4cGlSpirvTests'
+// spirv_modules_state_queries_test feeds in first. Offset 16 with a stride of 32 means the capture
+// is four components in, i.e. one gl_SkipComponents4 ahead of gl_Position.
+// ---------------------------------------------------------------------------------------------
+
+namespace {
+    // 177 words
+    const unsigned int kXfbVertexModule[] = {
+        0x07230203u, 0x00010000u, 0x0008000bu, 0x00000015u, 0x00000000u, 0x00020011u, 0x00000001u, 0x00020011u,
+        0x00000035u, 0x0006000bu, 0x00000001u, 0x4c534c47u, 0x6474732eu, 0x3035342eu, 0x00000000u, 0x0003000eu,
+        0x00000000u, 0x00000001u, 0x0009000fu, 0x00000000u, 0x00000004u, 0x6e69616du, 0x00000000u, 0x0000000au,
+        0x0000000eu, 0x00000013u, 0x00000014u, 0x00030010u, 0x00000004u, 0x0000000bu, 0x00030003u, 0x00000002u,
+        0x000001c2u, 0x00040005u, 0x00000004u, 0x6e69616du, 0x00000000u, 0x00060005u, 0x00000008u, 0x505f6c67u,
+        0x65567265u, 0x78657472u, 0x00000000u, 0x00060006u, 0x00000008u, 0x00000000u, 0x505f6c67u, 0x7469736fu,
+        0x006e6f69u, 0x00030005u, 0x0000000au, 0x00000000u, 0x00050005u, 0x0000000eu, 0x69736f70u, 0x6e6f6974u,
+        0x00000000u, 0x00050005u, 0x00000013u, 0x565f6c67u, 0x65747265u, 0x00444978u, 0x00060005u, 0x00000014u,
+        0x495f6c67u, 0x6174736eu, 0x4965636eu, 0x00000044u, 0x00030047u, 0x00000008u, 0x00000002u, 0x00050048u,
+        0x00000008u, 0x00000000u, 0x0000000bu, 0x00000000u, 0x00050048u, 0x00000008u, 0x00000000u, 0x00000023u,
+        0x00000010u, 0x00040047u, 0x0000000au, 0x00000024u, 0x00000000u, 0x00040047u, 0x0000000au, 0x00000025u,
+        0x00000020u, 0x00040047u, 0x0000000eu, 0x0000001eu, 0x00000000u, 0x00040047u, 0x00000013u, 0x0000000bu,
+        0x00000005u, 0x00040047u, 0x00000014u, 0x0000000bu, 0x00000006u, 0x00020013u, 0x00000002u, 0x00030021u,
+        0x00000003u, 0x00000002u, 0x00030016u, 0x00000006u, 0x00000020u, 0x00040017u, 0x00000007u, 0x00000006u,
+        0x00000004u, 0x0003001eu, 0x00000008u, 0x00000007u, 0x00040020u, 0x00000009u, 0x00000003u, 0x00000008u,
+        0x0004003bu, 0x00000009u, 0x0000000au, 0x00000003u, 0x00040015u, 0x0000000bu, 0x00000020u, 0x00000001u,
+        0x0004002bu, 0x0000000bu, 0x0000000cu, 0x00000000u, 0x00040020u, 0x0000000du, 0x00000001u, 0x00000007u,
+        0x0004003bu, 0x0000000du, 0x0000000eu, 0x00000001u, 0x00040020u, 0x00000010u, 0x00000003u, 0x00000007u,
+        0x00040020u, 0x00000012u, 0x00000001u, 0x0000000bu, 0x0004003bu, 0x00000012u, 0x00000013u, 0x00000001u,
+        0x0004003bu, 0x00000012u, 0x00000014u, 0x00000001u, 0x00050036u, 0x00000002u, 0x00000004u, 0x00000000u,
+        0x00000003u, 0x000200f8u, 0x00000005u, 0x0004003du, 0x00000007u, 0x0000000fu, 0x0000000eu, 0x00050041u,
+        0x00000010u, 0x00000011u, 0x0000000au, 0x0000000cu, 0x0003003eu, 0x00000011u, 0x0000000fu, 0x000100fdu,
+        0x00010038u,
+    };
+} // namespace
+
+TEST_F(ProgramTest, ASpirvModulesXfbDecorationsBecomeTheProgramsCaptureList) {
+    DrainProgramTestErrors();
+
+    const GLuint shader = CreateShader(GL_VERTEX_SHADER);
+    ShaderBinary(1, &shader, GL_SHADER_BINARY_FORMAT_SPIR_V, kXfbVertexModule, sizeof(kXfbVertexModule));
+    ASSERT_EQ(GetError(), GL_NO_ERROR);
+    SpecializeShader(shader, "main", 0, nullptr, nullptr);
+    ASSERT_EQ(GetError(), GL_NO_ERROR);
+    GLint compiled = GL_FALSE;
+    GetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
+    char shaderLog[2048] = "";
+    GetShaderInfoLog(shader, sizeof(shaderLog), nullptr, shaderLog);
+    ASSERT_EQ(compiled, GL_TRUE) << shaderLog;
+
+    const GLuint program = CreateProgram();
+    AttachShader(program, shader);
+    // NO glTransformFeedbackVaryings anywhere: the declaration is the module's own.
+    LinkProgram(program);
+    GLint linked = GL_FALSE;
+    GetProgramiv(program, GL_LINK_STATUS, &linked);
+    char programLog[2048] = "";
+    GetProgramInfoLog(program, sizeof(programLog), nullptr, programLog);
+    ASSERT_EQ(linked, GL_TRUE) << programLog;
+
+    GLint varyingCount = -1;
+    GetProgramiv(program, GL_TRANSFORM_FEEDBACK_VARYINGS, &varyingCount);
+    EXPECT_GT(varyingCount, 0) << "the module's xfb decorations declared a capture and none was recorded";
+
+    // The captured name is the built-in the block redeclared. It is found by BuiltIn decoration,
+    // not by string, because a stripped module carries no OpMemberName at all.
+    Bool sawPosition = false;
+    for (GLint i = 0; i < varyingCount; ++i) {
+        char name[128] = "";
+        GLsizei nameLength = 0;
+        GLsizei size = 0;
+        GLenum type = 0;
+        GetTransformFeedbackVarying(program, static_cast<GLuint>(i), sizeof(name), &nameLength, &size, &type, name);
+        if (String(name) == "gl_Position") sawPosition = true;
+    }
+    EXPECT_TRUE(sawPosition) << "gl_Position was declared captured by the module's Offset decoration";
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+
+    DrainProgramTestErrors();
+}
+
+// The other half of the same fix: the decorations must NOT survive into the GLSL the module is
+// translated into. SPIRV-Cross re-emits them as layout(xfb_buffer/xfb_stride/xfb_offset), glslang
+// re-encodes them into the regenerated SPIR-V, and the DirectGLES ESSL hop then refuses them
+// outright ("Need GL_ARB_enhanced_layouts for xfb_stride or xfb_buffer") and drops the stage -
+// a program that links clean and draws nothing. Compiling at all is the observable proof they are
+// gone; the ESSL leg is exercised by the integration scenario.
+TEST_F(ProgramTest, ASpirvModulesXfbDecorationsDoNotSurviveIntoTheTranslatedSource) {
+    DrainProgramTestErrors();
+
+    const GLuint shader = CreateShader(GL_VERTEX_SHADER);
+    ShaderBinary(1, &shader, GL_SHADER_BINARY_FORMAT_SPIR_V, kXfbVertexModule, sizeof(kXfbVertexModule));
+    SpecializeShader(shader, "main", 0, nullptr, nullptr);
+    ASSERT_EQ(GetError(), GL_NO_ERROR);
+
+    GLint compiled = GL_FALSE;
+    GetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
+    char shaderLog[2048] = "";
+    GetShaderInfoLog(shader, sizeof(shaderLog), nullptr, shaderLog);
+    EXPECT_EQ(compiled, GL_TRUE) << shaderLog;
+
+    DrainProgramTestErrors();
 }

@@ -180,10 +180,13 @@ namespace MobileGL::MG_ConfigLoader {
         features.AvoidSamplerMipmapMinFilter =
             QueryEnvFlag("MOBILEGL_AVOID_SAMPLER_MIPMAP_MIN_FILTER");
         features.AvoidExplicitLodBias = QueryEnvFlag("MOBILEGL_AVOID_EXPLICIT_LOD_BIAS");
+        features.EsprytUnlocatedIoBlocks = QueryEnvQuirkOverride("MOBILEGL_ESPRYT_UNLOCATED_IO_BLOCKS");
         features.CoherentAsFlush = QueryEnvFlag("MOBILEGL_COHERENT_AS_FLUSH");
         features.TraceSkipAutodestroy = QueryEnvFlag("MOBILEGL_TRACE_SKIP_AUTODESTROY");
         features.DisableUboRing = QueryEnvFlag("MOBILEGL_DISABLE_UBO_RING");
         features.DisableUnpackRing = QueryEnvFlag("MOBILEGL_DISABLE_UNPACK_RING");
+        features.DisableUploadRing = QueryEnvFlag("MOBILEGL_DISABLE_UPLOAD_RING");
+        features.DisableInvalidateFlush = QueryEnvFlag("MOBILEGL_DISABLE_INVALIDATE_FLUSH");
         features.EsprytForceDepthStencilReadbackEmulation =
             QueryEnvFlag("MOBILEGL_ESPRYT_FORCE_DS_READBACK_EMULATION");
         features.RelaxedSemantics = QueryEnvFlag("MOBILEGL_RELAXED_SEMANTICS");
@@ -199,6 +202,8 @@ namespace MobileGL::MG_ConfigLoader {
         features.ShaderTranslationCache = QueryEnvQuirkOverride("MOBILEGL_SHADER_CACHE");
         features.ViewportArrayEmulation =
             QueryEnvQuirkOverride("MOBILEGL_FORCE_VIEWPORT_ARRAY_EMULATION");
+        features.EsprytWidenPacked16Storage =
+            QueryEnvQuirkOverride("MOBILEGL_WIDEN_PACKED16_STORAGE");
     }
 
     inline void InitBackendType() {

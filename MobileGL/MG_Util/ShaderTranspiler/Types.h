@@ -14,6 +14,20 @@ namespace MobileGL {
     namespace MG_Util {
         namespace ShaderTranspiler {
             inline const char* GLOBAL_UBO_NAME = "MGL_GLOBAL_UBO";
+            // The default-block uniform InjectNumSamplesBuiltinShim declares to stand in for the
+            // gl_NumSamples built-in, which glslang does not put in the symbol table under a
+            // SPIR-V target (Initialize.cpp guards both the desktop and the ES declaration on
+            // `spvVersion.spv == 0`, and MobileGL always targets SPIR-V). The relaxed parse folds
+            // it into GLOBAL_UBO_NAME like any other default-block uniform, which is what lets
+            // BOTH backends pick the value up from the one buffer they already upload; the link
+            // task keeps it out of the GL-visible uniform surface, and the draw path writes the
+            // current draw framebuffer's sample count into it.
+            //
+            // RESERVED, not merely conventional: a shader that declares this name itself keeps
+            // the shim from firing (the injector bails on it), but if it declares the name AND
+            // uses gl_NumSamples the link task will still hide its uniform. That is the same
+            // bargain every mg_-prefixed rewrite in this pipeline strikes.
+            inline const char* NUM_SAMPLES_UNIFORM_NAME = "mg_NumSamples";
             // glslang's Vulkan-relaxed parse rewrites every atomic_uint into a member of a
             // synthesized storage block named "<this>_<GL atomic-counter binding>"
             // (ParseContextBase::growAtomicCounterBlock). That block IS the GL atomic counter
@@ -66,6 +80,53 @@ namespace MobileGL {
             inline constexpr Int MAX_ATOMIC_COUNTER_BUFFERS_PER_STAGE = 8;
             inline constexpr Int MAX_ATOMIC_COUNTERS_PER_STAGE = 8;
 
+            // ---- Tessellation per-stage resource limits ----
+            //
+            // Here for exactly the reason the atomic-counter block above is here. GL 4.6 requires
+            // glGetIntegerv and the matching gl_MaxTess* built-in constant to report the same
+            // number (KHR-GL45.limits.max_tess_* reads the query and then compiles a shader that
+            // writes the built-in into an SSBO and demands equality), and these numbers used to
+            // exist ONLY inside BuildTBuiltInResource - so gl_MaxTessControlInputComponents
+            // compiled fine while glGetIntegerv of the same limit had no case at all and answered
+            // GL_INVALID_ENUM. Never move one of these without the other.
+            //
+            // The values are the GL 4.6 core minimums (table 23.55), which is what a frontend that
+            // synthesizes the tessellation stages onto ES/Vulkan can honestly promise.
+            inline constexpr Int MAX_TESS_CONTROL_INPUT_COMPONENTS = 128;
+            inline constexpr Int MAX_TESS_CONTROL_OUTPUT_COMPONENTS = 128;
+            inline constexpr Int MAX_TESS_CONTROL_TEXTURE_IMAGE_UNITS = 16;
+            inline constexpr Int MAX_TESS_CONTROL_UNIFORM_COMPONENTS = 1024;
+            inline constexpr Int MAX_TESS_CONTROL_TOTAL_OUTPUT_COMPONENTS = 4096;
+            inline constexpr Int MAX_TESS_EVALUATION_INPUT_COMPONENTS = 128;
+            inline constexpr Int MAX_TESS_EVALUATION_OUTPUT_COMPONENTS = 128;
+            inline constexpr Int MAX_TESS_EVALUATION_TEXTURE_IMAGE_UNITS = 16;
+            inline constexpr Int MAX_TESS_EVALUATION_UNIFORM_COMPONENTS = 1024;
+            inline constexpr Int MAX_TESS_PATCH_COMPONENTS = 120;
+
+            // ---- Varying and default-block uniform capacities ----
+            //
+            // The *_VECTORS limits are the *_COMPONENTS ones counted in vec4s, so they are DERIVED
+            // rather than typed independently: GL_MAX_VARYING_COMPONENTS said 64 while
+            // GL_MAX_VARYING_VECTORS said 8, and GL_MAX_VERTEX_UNIFORM_COMPONENTS said 4096 while
+            // GL_MAX_VERTEX_UNIFORM_VECTORS said 128 - two pairs that cannot both describe the
+            // same capacity, and both *_VECTORS answers were below the GL 4.5 core minimum
+            // (15 and 256 respectively). Shared with BuildTBuiltInResource because
+            // gl_MaxVaryingVectors and gl_MaxVertexUniformVectors expand from the same numbers.
+            inline constexpr Int MAX_VARYING_COMPONENTS = 64;
+            inline constexpr Int MAX_VARYING_VECTORS = MAX_VARYING_COMPONENTS / 4;
+            inline constexpr Int MAX_VERTEX_UNIFORM_COMPONENTS = 4096;
+            inline constexpr Int MAX_VERTEX_UNIFORM_VECTORS = MAX_VERTEX_UNIFORM_COMPONENTS / 4;
+
+            // GL 4.6 core table 23.53 sets the GL_MAX_SAMPLES minimum at 4, and MobileGL floors
+            // the backend's answer at it (GL_Getter's GetAdvertisedMaxSamples). gl_MaxSamples has
+            // to expand to the SAME number - it is also what sizes gl_SampleMask[] /
+            // gl_SampleMaskIn[] and what bounds a constant index into them - so the floor lives
+            // here and both sides apply it. NOTE the deliberate asymmetry: only MAX_SAMPLES has a
+            // floor of 4. MAX_INTEGER_SAMPLES, MAX_COLOR_TEXTURE_SAMPLES and
+            // MAX_DEPTH_TEXTURE_SAMPLES have a minimum of ONE in the same table and are reported
+            // as the backend probed them.
+            inline constexpr Int MIN_ADVERTISED_MAX_SAMPLES = 4;
+
             struct EmptyType {};
 
             enum class ShaderCompileBits : Uint {
@@ -84,6 +145,33 @@ namespace MobileGL {
                 const CompileEnv* env = nullptr;
             };
 
+            // The per-device ceilings a shader-declared `layout(binding = N)` is measured
+            // against - one per resource kind, because GL gives each kind its own limit and they
+            // differ by an order of magnitude on real hardware (a Mali-G925 reports 96 combined
+            // texture image units and 21 image units).
+            //
+            // These exist because glslang cannot enforce them for MobileGL. It owns ceilings for
+            // samplers/images and for atomic counters, and both are switched OFF by the parse
+            // configuration MobileGL uses everywhere - `spvVersion.vulkan == 0` gates the first
+            // and `!spvVersion.vulkanRelaxed` the second (ParseHelper.cpp layoutTypeCheck), and
+            // MobileGL always parses with setEnvClient(EShClientVulkan) +
+            // setEnvInputVulkanRulesRelaxed(). For uniform and storage BLOCKS glslang quotes the
+            // spec sentence and then checks nothing at all. Flipping to the OpenGL client to wake
+            // those checks is not an option (it would change the parse the whole relaxed
+            // lowering pipeline is built on) and would not even be correct: glslang measures
+            // IMAGE bindings against the SAMPLER limit and hardcodes that limit at 80, so it
+            // would reject legal bindings 80..95 and keep under-rejecting images.
+            //
+            // Zero or negative means "no ceiling to enforce for this kind" - a backendless
+            // environment, which every unit test and the pre-init preload path run in.
+            struct ResourceBindingLimits {
+                Int MaxSamplerBindings = 0;              // GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS
+                Int MaxImageBindings = 0;                // GL_MAX_IMAGE_UNITS
+                Int MaxUniformBufferBindings = 0;        // GL_MAX_UNIFORM_BUFFER_BINDINGS
+                Int MaxShaderStorageBufferBindings = 0;  // GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS
+                Int MaxAtomicCounterBufferBindings = 0;  // GL_MAX_ATOMIC_COUNTER_BUFFER_BINDINGS
+            };
+
             struct ProgramAttrib {
                 Vector<SharedPtr<glslang::TShader>> shaders;
                 UnorderedMap<String, Uint> explicitVertexInLocations;
@@ -99,6 +187,11 @@ namespace MobileGL {
                 UnorderedMap<String, Uint>* explicitOpaqueUniformBindings = nullptr;
                 std::set<String>* storageBlocksWithoutBinding = nullptr;
                 std::set<String>* uniformBlocksWithoutBinding = nullptr;
+                // IN: the ceilings above. OUT: the first violation the resolver found, in the
+                // same capture window and for the same reason - past mapIO's doMap() every
+                // resource carries an ASSIGNED binding and the question can no longer be asked.
+                ResourceBindingLimits resourceBindingLimits{};
+                String* resourceBindingViolation = nullptr;
             };
 
             struct ProgramBinaryAttrib {

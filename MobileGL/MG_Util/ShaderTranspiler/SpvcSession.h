@@ -56,6 +56,19 @@ namespace MobileGL {
                 }
             };
 
+            // One output a SPIR-V module asked to have captured, as its Xfb decorations describe
+            // it. ARB_gl_spirv makes these decorations the ONLY way a SPIR-V program declares
+            // transform feedback - glTransformFeedbackVaryings has no effect on such a program -
+            // so a module that carries them and an implementation that ignores them capture
+            // nothing at all.
+            struct SpirvXfbCapture {
+                String name;        // the GL interface name: "gl_Position", or "Block.member"
+                Uint32 buffer = 0;  // XfbBuffer on the declaring variable
+                Uint32 offset = 0;  // Offset on the variable or on the member
+                Uint32 stride = 0;  // XfbStride on the declaring variable
+                Uint32 componentCount = 0;  // how many 32-bit components the capture occupies
+            };
+
             enum class SessionUsageBit {
                 Reflection = 1 << 0,
                 Transpile = 1 << 1,
@@ -160,6 +173,43 @@ namespace MobileGL {
                 // A block carrying only ONE of the two is left exactly as it is: those really do
                 // constrain the accesses the shader makes, and the driver is entitled to know.
                 spvc_result RelaxReadWriteExclusiveStorageBuffers();
+                // ---- GL_ARB_gl_spirv: an APPLICATION-supplied module, not one MobileGL emitted ----
+                // Select which OpEntryPoint of `model` this session compiles. A module may carry
+                // several of the same execution model, and glSpecializeShader names the one the
+                // shader object stands for.
+                // Whether the transpile constructor actually built a compiler. Every SPIRV-Cross
+                // handle below is default-null and the C API leaves its out-params untouched on
+                // failure, so a module SPIRV-Cross cannot parse used to leave `ir` null and then
+                // have spvc_context_create_compiler dereference it - a raw null read that
+                // SPVC_BEGIN_SAFE_SCOPE cannot catch. Only glShaderBinary feeds this class bytes
+                // MobileGL did not generate itself, which is why the check earns its keep now.
+                Bool IsTranspileReady() const { return compiler != nullptr && resources != nullptr; }
+                // Read the module's transform-feedback layout out of its Xfb decorations, in
+                // (buffer, offset) order. Empty when the module declares no capture.
+                Vector<SpirvXfbCapture> ReflectTransformFeedbackCaptures() const;
+                // Remove every Xfb decoration the reflection above just read.
+                //
+                // This is not tidying: the decorations must not survive into the GLSL this session
+                // emits. SPIRV-Cross re-emits them as `layout(xfb_buffer = N, xfb_stride = M) out
+                // gl_PerVertex { layout(xfb_offset = K) ... }`, glslang re-encodes that into the
+                // regenerated SPIR-V, and the DirectGLES leg then transpiles THAT to ESSL - where
+                // the same SPIRV-Cross throws "Need GL_ARB_enhanced_layouts for xfb_stride or
+                // xfb_buffer" and the stage silently fails to build, leaving a program that links
+                // clean and draws nothing. Stripping them and re-declaring the capture through
+                // MobileGL's ordinary capture machinery (which both backends already implement)
+                // routes a SPIR-V program down exactly the path a GLSL program takes.
+                void StripTransformFeedbackDecorations();
+                spvc_result SetEntryPoint(const char* name, SpvExecutionModel model);
+                // Bake glSpecializeShader's values into the module's specialization constants.
+                // Every value is a GLuint on the GL side and is reinterpreted according to the
+                // constant's own scalar type, exactly as ARB_gl_spirv specifies ("the value is
+                // interpreted as the type of the specialization constant"). Returns false and
+                // sets `outUnknownConstantId` when an id the caller passed is not a
+                // specialization constant of this module, which the extension makes
+                // GL_INVALID_VALUE.
+                Bool SetSpecializationConstants(const Vector<Uint32>& constantIds,
+                                                const Vector<Uint32>& constantValues,
+                                                Uint32& outUnknownConstantId);
                 spvc_result Compile(const char** result);
                 const SpvcMetadata& GetMetadata() const;
                 const char* GetLastErrorString() const;

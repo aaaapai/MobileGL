@@ -9,6 +9,7 @@
 #include "Loader.h"
 
 #include <Config.h>
+#include <algorithm>
 #include <cmath>
 #include <limits>
 
@@ -178,7 +179,15 @@ namespace MobileGL::MG_Util::BackendLoader {
         caps.MaxFramebufferSamples = ResolveConservativeFramebufferSampleLimit(p.limits);
         caps.MaxIntegerSamples = MaxSampleCountFromFlags(p.limits.sampledImageIntegerSampleCounts);
         caps.MaxSamples = caps.MaxFramebufferSamples;
-        caps.MaxSampleMaskWords = SaturateToInt(p.limits.maxSampleMaskWords);
+        // Clamped to one word, exactly as the GLES loader clamps the driver's value and for the
+        // same reason: MobileGL's sample-mask state IS a single 32-bit word
+        // (RenderState::SampleMaskValue) and SampleMaski_State() raises GL_INVALID_VALUE for any
+        // maskNumber other than 0. dEQP's per-case gluStateReset issues glSampleMaski up to
+        // GL_MAX_SAMPLE_MASK_WORDS, so advertising a device's real 2 would abort the whole glcts
+        // process after every single case - the failure da6f75dbd added the GLES clamp to stop,
+        // reproduced on this backend. One word is the spec minimum and therefore always legal.
+        // It is also what PipelineCreatePayload::sampleMask is sized for.
+        caps.MaxSampleMaskWords = std::min(SaturateToInt(p.limits.maxSampleMaskWords), 1);
         caps.MaxTextureImageUnits = SaturateToInt(p.limits.maxPerStageDescriptorSampledImages);
         caps.MaxVertexTextureImageUnits = SaturateToInt(p.limits.maxPerStageDescriptorSampledImages);
         caps.MaxComputeTextureImageUnits = SaturateToInt(p.limits.maxPerStageDescriptorSampledImages);
@@ -200,6 +209,8 @@ namespace MobileGL::MG_Util::BackendLoader {
         caps.MaxDrawBuffers = SaturateToInt(p.limits.maxFragmentOutputAttachments);
         caps.MaxColorAttachments = SaturateToInt(p.limits.maxColorAttachments);
         caps.MaxClipDistances = SaturateToInt(p.limits.maxClipDistances);
+        caps.MaxCullDistances = SaturateToInt(p.limits.maxCullDistances);
+        caps.MaxCombinedClipAndCullDistances = SaturateToInt(p.limits.maxCombinedClipAndCullDistances);
         caps.MaxViewports = SaturateToInt(p.limits.maxViewports);
         caps.MaxViewportWidth = SaturateToInt(p.limits.maxViewportDimensions[0]);
         caps.MaxViewportHeight = SaturateToInt(p.limits.maxViewportDimensions[1]);
@@ -240,6 +251,7 @@ namespace MobileGL::MG_Util::BackendLoader {
         caps.SupportsFragmentStoresAndAtomics = supportedFeatures.fragmentStoresAndAtomics == VK_TRUE;
         caps.SupportsGeometryShader = supportedFeatures.geometryShader == VK_TRUE;
         caps.SupportsShaderClipDistance = supportedFeatures.shaderClipDistance == VK_TRUE;
+        caps.SupportsShaderCullDistance = supportedFeatures.shaderCullDistance == VK_TRUE;
         caps.MaxShaderStorageBlockSize = static_cast<SizeT>(p.limits.maxStorageBufferRange);
         const Bool supportsShaderSubgroup = vk.vkGetPhysicalDeviceProperties2 &&
                                             HasUsableShaderSubgroupSupport(subgroupProps);
@@ -298,7 +310,15 @@ namespace MobileGL::MG_Util::BackendLoader {
         caps.MaxFramebufferSamples = ResolveConservativeFramebufferSampleLimit(properties.limits);
         caps.MaxIntegerSamples = MaxSampleCountFromFlags(properties.limits.sampledImageIntegerSampleCounts);
         caps.MaxSamples = caps.MaxFramebufferSamples;
-        caps.MaxSampleMaskWords = SaturateToInt(properties.limits.maxSampleMaskWords);
+        // Clamped to one word, exactly as the GLES loader clamps the driver's value and for the
+        // same reason: MobileGL's sample-mask state IS a single 32-bit word
+        // (RenderState::SampleMaskValue) and SampleMaski_State() raises GL_INVALID_VALUE for any
+        // maskNumber other than 0. dEQP's per-case gluStateReset issues glSampleMaski up to
+        // GL_MAX_SAMPLE_MASK_WORDS, so advertising a device's real 2 would abort the whole glcts
+        // process after every single case - the failure da6f75dbd added the GLES clamp to stop,
+        // reproduced on this backend. One word is the spec minimum and therefore always legal.
+        // It is also what PipelineCreatePayload::sampleMask is sized for.
+        caps.MaxSampleMaskWords = std::min(SaturateToInt(properties.limits.maxSampleMaskWords), 1);
         caps.MaxTextureImageUnits = SaturateToInt(properties.limits.maxPerStageDescriptorSampledImages);
         caps.MaxVertexTextureImageUnits = SaturateToInt(properties.limits.maxPerStageDescriptorSampledImages);
         caps.MaxComputeTextureImageUnits = SaturateToInt(properties.limits.maxPerStageDescriptorSampledImages);
@@ -320,6 +340,8 @@ namespace MobileGL::MG_Util::BackendLoader {
         caps.MaxDrawBuffers = SaturateToInt(properties.limits.maxFragmentOutputAttachments);
         caps.MaxColorAttachments = SaturateToInt(properties.limits.maxColorAttachments);
         caps.MaxClipDistances = SaturateToInt(properties.limits.maxClipDistances);
+        caps.MaxCullDistances = SaturateToInt(properties.limits.maxCullDistances);
+        caps.MaxCombinedClipAndCullDistances = SaturateToInt(properties.limits.maxCombinedClipAndCullDistances);
         caps.MaxViewports = SaturateToInt(properties.limits.maxViewports);
         caps.MaxViewportWidth = SaturateToInt(properties.limits.maxViewportDimensions[0]);
         caps.MaxViewportHeight = SaturateToInt(properties.limits.maxViewportDimensions[1]);
@@ -337,6 +359,7 @@ namespace MobileGL::MG_Util::BackendLoader {
         caps.SupportsFragmentStoresAndAtomics = false;
         caps.SupportsGeometryShader = false;
         caps.SupportsShaderClipDistance = false;
+        caps.SupportsShaderCullDistance = false;
         caps.MaxShaderStorageBlockSize = static_cast<SizeT>(properties.limits.maxStorageBufferRange);
         caps.SupportsShaderSubgroup = false;
         caps.SubgroupSize = 0;

@@ -34,8 +34,81 @@ namespace MobileGL::MG_Impl::GLImpl {
         return true;
     }
 
-    static Bool ValidateCurrentProgramForExecution(const char* functionName) {
-        return ValidateProgramForExecution(MG_State::pGLContext->GetProgramForDraw(), functionName);
+    // Takes the ALREADY-RESOLVED draw program rather than looking it up: GLContext::GetProgramForDraw
+    // is not a plain getter (it settles the program's link and SPIR-V jobs so every version a
+    // backend samples during this draw describes the program it is drawing), so the draw funnel
+    // below resolves it exactly once and hands it to both users.
+    static Bool ValidateResolvedProgramForDraw(const SharedPtr<MG_State::GLState::ProgramObject>& currentProgram,
+                                               const char* functionName) {
+        // "If there is no current program object or bound program pipeline object, the results of
+        // a draw are UNDEFINED" - and undefined is not an error (GL 4.6 core 7.3, ES 3.1 7.3).
+        // The draw is dropped, silently, which is one of the shapes "undefined" is allowed to
+        // take; recording INVALID_OPERATION here is not, and es31cSeparateShaderObjsTests'
+        // StateInteraction reads exactly that error back after useProgram(0) + bindProgramPipeline(0).
+        // A DISPATCH is the opposite rule ("INVALID_OPERATION if there is no active program for
+        // the compute shader stage"), which is why this lives on the draw path and not in the
+        // shared ValidateProgramForExecution below.
+        if (!currentProgram) return false;
+        if (!ValidateProgramForExecution(currentProgram, functionName)) return false;
+
+        // GL 4.6 core 7.4.1, the pipeline validation rule every vertex-transferring command
+        // inherits: it is an INVALID_OPERATION when a tessellation control, tessellation
+        // evaluation or geometry stage has an executable but no program supplies an executable
+        // VERTEX shader. A non-separable program cannot reach this - the link rule forbids the
+        // shape - so in practice it catches a program pipeline assembled out of stage programs,
+        // which today draws happily and renders nothing.
+        //
+        // Asked of the EXECUTABLE, like the compute check below: for a pipeline the resolved
+        // program is the graphics composite, whose linked-shader snapshot is built out of exactly
+        // the pipeline's own graphics stage programs (GLContext::GetProgramForDraw), and the only
+        // stage compositing ever invents is a default FRAGMENT shader. A fragment-only pipeline is
+        // deliberately NOT rejected: the rule above names the three pre-rasterization stages, and
+        // nothing else here should start refusing draws GL accepts.
+        //
+        // On the DRAW path only, never in ValidateProgramForExecution itself, so a dispatch -
+        // which shares that helper and legitimately has no vertex stage - is untouched.
+        const Bool hasPreRasterizationStage = currentProgram->HasLinkedShaderStage(ShaderStage::Geometry) ||
+                                              currentProgram->HasLinkedShaderStage(ShaderStage::TessControl) ||
+                                              currentProgram->HasLinkedShaderStage(ShaderStage::TessEval);
+        if (hasPreRasterizationStage && !currentProgram->HasLinkedShaderStage(ShaderStage::Vertex)) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>(
+                    "MG_Impl/GLImpl", functionName,
+                    "The program in use runs a geometry or tessellation stage but has no vertex shader stage."));
+            return false;
+        }
+
+        return true;
+    }
+
+    // gl_NumSamples has no SPIR-V built-in, so the source pipeline lowers it onto a reserved
+    // default-block uniform (see InjectNumSamplesBuiltinShim). This is where that uniform is paid
+    // for: the value is a property of the DRAW FRAMEBUFFER, not of the program, so one program
+    // drawn into a 4x target and then into the default framebuffer must see 4 and then 1 - which
+    // rules out baking it at link time.
+    //
+    // Per draw rather than on framebuffer changes because the pair (program, framebuffer) is what
+    // decides the value and either half can move between draws. It costs a phase-A flag read for
+    // every program that has no shim, and a 4-byte compare for the ones that do: the write only
+    // bumps the UBO content version when the number actually changes, so a run of draws into one
+    // framebuffer re-uploads nothing.
+    static void PublishDrawFramebufferSampleCount(const SharedPtr<MG_State::GLState::ProgramObject>& program) {
+        if (!program || !program->UsesReservedNumSamples()) return;
+        // GL 4.6 core 15.2.2: gl_NumSamples is the number of samples in the framebuffer, or ONE
+        // when the target is not multisampled - where glGetIntegerv(GL_SAMPLES) answers zero.
+        program->WriteReservedNumSamples(static_cast<Int>(std::max<GLint>(ResolveDrawFramebufferSampleCount(), 1)));
+    }
+
+    // The one funnel every drawing command passes through. Order is load-bearing: validate first
+    // (a rejected draw must leave state alone), then publish the sample count - which reads the
+    // DRAW FRAMEBUFFER binding, so it has to run after the caller's framebuffer state is settled
+    // and before the backend consumes the program's UBO content version.
+    static Bool PrepareCurrentProgramForDraw(const char* functionName) {
+        const auto& currentProgram = MG_State::pGLContext->GetProgramForDraw();
+        if (!ValidateResolvedProgramForDraw(currentProgram, functionName)) return false;
+        PublishDrawFramebufferSampleCount(currentProgram);
+        return true;
     }
 
     // A dispatch resolves its program through the DISPATCH accessor: with a pipeline bound
@@ -73,6 +146,20 @@ namespace MobileGL::MG_Impl::GLImpl {
         case GL_TRIANGLES: return static_cast<Uint64>(count / 3);
         case GL_TRIANGLE_STRIP:
         case GL_TRIANGLE_FAN: return count >= 3 ? static_cast<Uint64>(count - 2) : 0;
+        // Adjacency primitives (GL 4.6 core table 10.1). Only a geometry stage can consume
+        // them, and it is the ADJACENT-free primitive count that reaches it: 4 vertices per
+        // line, 6 per triangle, one per step for the strips. Answering 0 here - which is what
+        // the default arm did - made AccountTransformFeedbackPrimitives bail before it had
+        // recorded anything, so an adjacency capture advanced neither the captured-vertex
+        // counter the scattered-capture path is bounded by nor the geometry-capture-draw flag
+        // that routes the transform feedback queries to the driver's own counter.
+        case GL_LINES_ADJACENCY: return static_cast<Uint64>(count / 4);
+        case GL_LINE_STRIP_ADJACENCY: return count >= 4 ? static_cast<Uint64>(count - 3) : 0;
+        case GL_TRIANGLES_ADJACENCY: return static_cast<Uint64>(count / 6);
+        case GL_TRIANGLE_STRIP_ADJACENCY: return count >= 6 ? static_cast<Uint64>((count - 4) / 2) : 0;
+        // GL_PATCHES is deliberately absent: the tessellator's amplification is not knowable
+        // on the CPU, and answering 0 is what defers GL_TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN
+        // to the driver's own counter, which is the only correct source for a patch capture.
         default: return 0;
         }
     }
@@ -99,11 +186,17 @@ namespace MobileGL::MG_Impl::GLImpl {
         case GL_LINES:
         case GL_LINE_STRIP:
         case GL_LINE_LOOP:
+        // An adjacency primitive delivers the same line/triangle to the geometry stage; the
+        // adjacent vertices are context, not part of the primitive.
+        case GL_LINES_ADJACENCY:
+        case GL_LINE_STRIP_ADJACENCY:
             verticesPerPrimitive = 2;
             break;
         case GL_TRIANGLES:
         case GL_TRIANGLE_STRIP:
         case GL_TRIANGLE_FAN:
+        case GL_TRIANGLES_ADJACENCY:
+        case GL_TRIANGLE_STRIP_ADJACENCY:
             verticesPerPrimitive = 3;
             break;
         default:
@@ -308,11 +401,21 @@ namespace MobileGL::MG_Impl::GLImpl {
             case GL_POINTS:
                 compatible = mode == GL_POINTS;
                 break;
+            // The adjacency modes belong here too (GL 4.6 core table 13.1, ES 3.2 table 12.1).
+            // This arm is only reached when the program has NO geometry or tessellation
+            // evaluation stage, and without a geometry stage the adjacent vertices are simply
+            // ignored (GL 4.6 core 10.1) - the primitive assembled IS a plain line or triangle,
+            // so the combination is legal and must capture. Omitting them raised a spurious
+            // GL_INVALID_OPERATION and dropped the draw entirely, leaving the capture buffer
+            // with its pre-draw bytes. The geometry-stage input table above already carries the
+            // same four arms; this is the second table catching up with it.
             case GL_LINES:
-                compatible = mode == GL_LINES || mode == GL_LINE_STRIP || mode == GL_LINE_LOOP;
+                compatible = mode == GL_LINES || mode == GL_LINE_STRIP || mode == GL_LINE_LOOP ||
+                             mode == GL_LINES_ADJACENCY || mode == GL_LINE_STRIP_ADJACENCY;
                 break;
             case GL_TRIANGLES:
-                compatible = mode == GL_TRIANGLES || mode == GL_TRIANGLE_STRIP || mode == GL_TRIANGLE_FAN;
+                compatible = mode == GL_TRIANGLES || mode == GL_TRIANGLE_STRIP || mode == GL_TRIANGLE_FAN ||
+                             mode == GL_TRIANGLES_ADJACENCY || mode == GL_TRIANGLE_STRIP_ADJACENCY;
                 break;
             default:
                 break;
@@ -713,6 +816,37 @@ namespace MobileGL::MG_Impl::GLImpl {
         }
     }
 
+    // GL 4.6 core 11.2.2. The default tessellation levels a program with an evaluation stage and
+    // NO control stage tessellates at; both backends have to synthesize that control stage
+    // themselves (ES 3.2 and Vulkan both require one), and they compile these numbers into it, so
+    // there is no backend entry point to forward to - ES has none at all. INVALID_ENUM on a bad
+    // pname is the only error the spec lists: any float values are accepted, negatives and NaN
+    // included, and it is the tessellator that clamps them.
+    //
+    // This used to be a stub, which is why the two synthesizers hardcoded 1.0.
+    void PatchParameterfv(GLenum pname, const GLfloat* values) {
+        if (pname != GL_PATCH_DEFAULT_OUTER_LEVEL && pname != GL_PATCH_DEFAULT_INNER_LEVEL) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidEnum,
+                MakeUnique<GenericErrorInfo>(
+                    "MG_Impl/GLImpl", __func__,
+                    "pname must be GL_PATCH_DEFAULT_OUTER_LEVEL or GL_PATCH_DEFAULT_INNER_LEVEL."));
+            return;
+        }
+        if (!values) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "values pointer cannot be null"));
+            return;
+        }
+        if (pname == GL_PATCH_DEFAULT_OUTER_LEVEL) {
+            MG_State::pGLContext->SetPatchDefaultOuterLevel(
+                FloatVec4(values[0], values[1], values[2], values[3]));
+        } else {
+            MG_State::pGLContext->SetPatchDefaultInnerLevel(FloatVec2(values[0], values[1]));
+        }
+    }
+
     namespace {
         // GL 4.6 core 7.11.2 (and ARB_shader_image_load_store, which introduced the call): the
         // barrier bitfield is INVALID_VALUE unless every bit is one of the defined ones, with
@@ -751,6 +885,27 @@ namespace MobileGL::MG_Impl::GLImpl {
         memoryBarrier(barriers);
     }
 
+    void TextureBarrier() {
+        // GL 4.5 core 8.26 / GL_ARB_texture_barrier: order every write the fixed-function
+        // framebuffer has already issued ahead of every subsequent texture fetch, so a shader may
+        // read texels of a texture that is also attached to the current framebuffer.
+        //
+        // Both backends serve this through their existing memory-barrier hook rather than a new
+        // entry point of their own: GL_FRAMEBUFFER_BARRIER_BIT is the source half (framebuffer
+        // writes) and GL_TEXTURE_FETCH_BARRIER_BIT the destination half (texture fetches), which
+        // is exactly the dependency ARB_texture_barrier defines - just expressed with the wider
+        // scope glMemoryBarrier gives it. That is a superset of the required ordering, never a
+        // subset, so it cannot under-synchronize.
+        auto memoryBarrier = MG_Backend::gBackendFunctionsTable.GL.MemoryBarrier;
+        if (!memoryBarrier) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "Backend does not support memory barriers."));
+            return;
+        }
+        memoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT | GL_FRAMEBUFFER_BARRIER_BIT);
+    }
+
     void MemoryBarrierByRegion(GLbitfield barriers) {
         if (!ValidateMemoryBarrierBits(__func__, barriers)) return;
         auto memoryBarrierByRegion = MG_Backend::gBackendFunctionsTable.GL.MemoryBarrierByRegion;
@@ -766,14 +921,14 @@ namespace MobileGL::MG_Impl::GLImpl {
 
     void MultiDrawElementsIndirect(GLenum mode, GLenum type, const void* indirect, GLsizei drawcount, GLsizei stride) {
         if (!ValidatePrimitiveModeEnum(__func__, mode)) return;
-        if (!ValidateCurrentProgramForExecution(__func__)) return;
+        if (!PrepareCurrentProgramForDraw(__func__)) return;
         if (!ValidatePrimitiveModeForBackend(__func__, mode)) return;
         MultiDrawElementsIndirect_Backend(mode, type, indirect, drawcount, stride);
     }
 
     void MultiDrawArraysIndirect(GLenum mode, const void* indirect, GLsizei drawcount, GLsizei stride) {
         if (!ValidatePrimitiveModeEnum(__func__, mode)) return;
-        if (!ValidateCurrentProgramForExecution(__func__)) return;
+        if (!PrepareCurrentProgramForDraw(__func__)) return;
         if (!ValidatePrimitiveModeForBackend(__func__, mode)) return;
         MultiDrawArraysIndirect_Backend(mode, indirect, drawcount, stride);
     }
@@ -851,7 +1006,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         // NegativeApiErrorsTest.IndirectParameterDrawsCheckBothBuffers pins the INVALID_VALUE
         // they produce for a call made with no program bound. Same precedence decision, and
         // the same reason, as DispatchComputeIndirect above.
-        if (!ValidateCurrentProgramForExecution(__func__)) return;
+        if (!PrepareCurrentProgramForDraw(__func__)) return;
         auto multiDrawElementsIndirectCount = MG_Backend::gBackendFunctionsTable.GL.MultiDrawElementsIndirectCount;
         if (!multiDrawElementsIndirectCount) {
             MG_State::pGLContext->RecordError(
@@ -872,7 +1027,7 @@ namespace MobileGL::MG_Impl::GLImpl {
             return;
         }
         // See MultiDrawElementsIndirectCount, including why this one goes last.
-        if (!ValidateCurrentProgramForExecution(__func__)) return;
+        if (!PrepareCurrentProgramForDraw(__func__)) return;
         auto multiDrawArraysIndirectCount = MG_Backend::gBackendFunctionsTable.GL.MultiDrawArraysIndirectCount;
         if (!multiDrawArraysIndirectCount) {
             MG_State::pGLContext->RecordError(
@@ -887,7 +1042,7 @@ namespace MobileGL::MG_Impl::GLImpl {
     void DrawRangeElementsBaseVertex(GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type,
                                      const void* indices, GLint basevertex) {
         if (!ValidatePrimitiveModeEnum(__func__, mode)) return;
-        if (!ValidateCurrentProgramForExecution(__func__)) return;
+        if (!PrepareCurrentProgramForDraw(__func__)) return;
         if (!ValidatePrimitiveModeForBackend(__func__, mode)) return;
         if (!ValidateDrawElementsIndexType(__func__, type)) return;
         if (!ValidateNonNegativeDrawArgument(__func__, "count", count)) return;
@@ -897,7 +1052,7 @@ namespace MobileGL::MG_Impl::GLImpl {
 
     void DrawRangeElements(GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type, const void* indices) {
         if (!ValidatePrimitiveModeEnum(__func__, mode)) return;
-        if (!ValidateCurrentProgramForExecution(__func__)) return;
+        if (!PrepareCurrentProgramForDraw(__func__)) return;
         if (!ValidatePrimitiveModeForBackend(__func__, mode)) return;
         DrawRangeElements_Backend(mode, start, end, count, type, indices);
     }
@@ -905,7 +1060,7 @@ namespace MobileGL::MG_Impl::GLImpl {
     void DrawElementsInstancedBaseVertexBaseInstance(GLenum mode, GLsizei count, GLenum type, const void* indices,
                                                      GLsizei instancecount, GLint basevertex, GLuint baseinstance) {
         if (!ValidatePrimitiveModeEnum(__func__, mode)) return;
-        if (!ValidateCurrentProgramForExecution(__func__)) return;
+        if (!PrepareCurrentProgramForDraw(__func__)) return;
         if (!ValidatePrimitiveModeForBackend(__func__, mode)) return;
         DrawElementsInstancedBaseVertexBaseInstance_Backend(mode, count, type, indices, instancecount, basevertex,
                                                             baseinstance);
@@ -914,7 +1069,7 @@ namespace MobileGL::MG_Impl::GLImpl {
     void DrawElementsInstancedBaseVertex(GLenum mode, GLsizei count, GLenum type, const void* indices,
                                          GLsizei instancecount, GLint basevertex) {
         if (!ValidatePrimitiveModeEnum(__func__, mode)) return;
-        if (!ValidateCurrentProgramForExecution(__func__)) return;
+        if (!PrepareCurrentProgramForDraw(__func__)) return;
         if (!ValidatePrimitiveModeForBackend(__func__, mode)) return;
         if (!ValidateDrawElementsIndexType(__func__, type)) return;
         if (!ValidateNonNegativeDrawArgument(__func__, "count", count)) return;
@@ -925,21 +1080,21 @@ namespace MobileGL::MG_Impl::GLImpl {
     void DrawElementsInstancedBaseInstance(GLenum mode, GLsizei count, GLenum type, const void* indices,
                                            GLsizei instancecount, GLuint baseinstance) {
         if (!ValidatePrimitiveModeEnum(__func__, mode)) return;
-        if (!ValidateCurrentProgramForExecution(__func__)) return;
+        if (!PrepareCurrentProgramForDraw(__func__)) return;
         if (!ValidatePrimitiveModeForBackend(__func__, mode)) return;
         DrawElementsInstancedBaseInstance_Backend(mode, count, type, indices, instancecount, baseinstance);
     }
 
     void DrawElementsInstanced(GLenum mode, GLsizei count, GLenum type, const void* indices, GLsizei instancecount) {
         if (!ValidatePrimitiveModeEnum(__func__, mode)) return;
-        if (!ValidateCurrentProgramForExecution(__func__)) return;
+        if (!PrepareCurrentProgramForDraw(__func__)) return;
         if (!ValidatePrimitiveModeForBackend(__func__, mode)) return;
         DrawElementsInstanced_Backend(mode, count, type, indices, instancecount);
     }
 
     void DrawElementsIndirect(GLenum mode, GLenum type, const void* indirect) {
         if (!ValidatePrimitiveModeEnum(__func__, mode)) return;
-        if (!ValidateCurrentProgramForExecution(__func__)) return;
+        if (!PrepareCurrentProgramForDraw(__func__)) return;
         if (!ValidatePrimitiveModeForBackend(__func__, mode)) return;
         if (!ValidateDrawElementsIndexType(__func__, type)) return;
         if (!ValidateIndirectDrawSource(__func__, indirect, kDrawElementsIndirectCommandBytes)) return;
@@ -949,21 +1104,21 @@ namespace MobileGL::MG_Impl::GLImpl {
     void DrawArraysInstancedBaseInstance(GLenum mode, GLint first, GLsizei count, GLsizei instancecount,
                                          GLuint baseinstance) {
         if (!ValidatePrimitiveModeEnum(__func__, mode)) return;
-        if (!ValidateCurrentProgramForExecution(__func__)) return;
+        if (!PrepareCurrentProgramForDraw(__func__)) return;
         if (!ValidatePrimitiveModeForBackend(__func__, mode)) return;
         DrawArraysInstancedBaseInstance_Backend(mode, first, count, instancecount, baseinstance);
     }
 
     void DrawArraysInstanced(GLenum mode, GLint first, GLsizei count, GLsizei instancecount) {
         if (!ValidatePrimitiveModeEnum(__func__, mode)) return;
-        if (!ValidateCurrentProgramForExecution(__func__)) return;
+        if (!PrepareCurrentProgramForDraw(__func__)) return;
         if (!ValidatePrimitiveModeForBackend(__func__, mode)) return;
         DrawArraysInstanced_Backend(mode, first, count, instancecount);
     }
 
     void DrawArraysIndirect(GLenum mode, const void* indirect) {
         if (!ValidatePrimitiveModeEnum(__func__, mode)) return;
-        if (!ValidateCurrentProgramForExecution(__func__)) return;
+        if (!PrepareCurrentProgramForDraw(__func__)) return;
         if (!ValidatePrimitiveModeForBackend(__func__, mode)) return;
         if (!ValidateIndirectDrawSource(__func__, indirect, kDrawArraysIndirectCommandBytes)) return;
         DrawArraysIndirect_Backend(mode, indirect);
@@ -971,7 +1126,7 @@ namespace MobileGL::MG_Impl::GLImpl {
 
     void DrawElementsBaseVertex(GLenum mode, GLsizei count, GLenum type, const void* indices, GLint basevertex) {
         if (!ValidatePrimitiveModeEnum(__func__, mode)) return;
-        if (!ValidateCurrentProgramForExecution(__func__)) return;
+        if (!PrepareCurrentProgramForDraw(__func__)) return;
         if (!ValidatePrimitiveModeForBackend(__func__, mode)) return;
         if (!ValidateDrawElementsIndexType(__func__, type)) return;
         if (!ValidateNonNegativeDrawArgument(__func__, "count", count)) return;
@@ -981,7 +1136,7 @@ namespace MobileGL::MG_Impl::GLImpl {
 
     void DrawArrays(GLenum mode, GLint first, GLsizei count) {
         if (!ValidatePrimitiveModeEnum(__func__, mode)) return;
-        if (!ValidateCurrentProgramForExecution(__func__)) return;
+        if (!PrepareCurrentProgramForDraw(__func__)) return;
         if (!ValidatePrimitiveModeForBackend(__func__, mode)) return;
         AccountTransformFeedbackPrimitives(mode, count);
         DrawArrays_Backend(mode, first, count);
@@ -989,7 +1144,7 @@ namespace MobileGL::MG_Impl::GLImpl {
 
     void MultiDrawArrays(GLenum mode, const GLint* first, const GLsizei* count, GLsizei drawcount) {
         if (!ValidatePrimitiveModeEnum(__func__, mode)) return;
-        if (!ValidateCurrentProgramForExecution(__func__)) return;
+        if (!PrepareCurrentProgramForDraw(__func__)) return;
         if (!ValidatePrimitiveModeForBackend(__func__, mode)) return;
         if (drawcount < 0) {
             MG_State::pGLContext->RecordError(
@@ -1003,7 +1158,7 @@ namespace MobileGL::MG_Impl::GLImpl {
     void MultiDrawElements(GLenum mode, const GLsizei* count, GLenum type, const void* const* indices,
                            GLsizei drawcount) {
         if (!ValidatePrimitiveModeEnum(__func__, mode)) return;
-        if (!ValidateCurrentProgramForExecution(__func__)) return;
+        if (!PrepareCurrentProgramForDraw(__func__)) return;
         if (!ValidatePrimitiveModeForBackend(__func__, mode)) return;
         MultiDrawElements_Backend(mode, count, type, indices, drawcount);
     }
@@ -1011,7 +1166,7 @@ namespace MobileGL::MG_Impl::GLImpl {
     void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei* count, GLenum type, const void* const* indices,
                                      GLsizei drawcount, const GLint* basevertex) {
         if (!ValidatePrimitiveModeEnum(__func__, mode)) return;
-        if (!ValidateCurrentProgramForExecution(__func__)) return;
+        if (!PrepareCurrentProgramForDraw(__func__)) return;
         if (!ValidatePrimitiveModeForBackend(__func__, mode)) return;
         if (!ValidateDrawElementsIndexType(__func__, type)) return;
         if (!ValidateNonNegativeDrawArgument(__func__, "drawcount", drawcount)) return;
@@ -1035,7 +1190,7 @@ namespace MobileGL::MG_Impl::GLImpl {
 
     void DrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices) {
         if (!ValidatePrimitiveModeEnum(__func__, mode)) return;
-        if (!ValidateCurrentProgramForExecution(__func__)) return;
+        if (!PrepareCurrentProgramForDraw(__func__)) return;
         if (!ValidatePrimitiveModeForBackend(__func__, mode)) return;
         AccountTransformFeedbackPrimitives(mode, count);
         DrawElements_Backend(mode, count, type, indices);
@@ -1459,7 +1614,7 @@ namespace MobileGL::MG_Impl::GLImpl {
     // (GL 4.6 core 10.3.7).
     static void DrawTransformFeedbackImpl(const char* functionName, GLenum mode, GLuint id, GLuint stream,
                                           GLsizei instancecount) {
-        if (!ValidateCurrentProgramForExecution(functionName)) return;
+        if (!PrepareCurrentProgramForDraw(functionName)) return;
         if (!ValidatePrimitiveModeForBackend(functionName, mode)) return;
         if (instancecount < 0) {
             MG_State::pGLContext->RecordError(
@@ -1482,8 +1637,13 @@ namespace MobileGL::MG_Impl::GLImpl {
                                              std::to_string(id) + " is not a transform feedback object name."));
             return;
         }
-        // GL_MAX_VERTEX_STREAMS is 1, so stream 0 is the only one that exists.
-        if (stream != 0) {
+        // GL 4.6 core 10.3.7 bounds `stream` by GL_MAX_VERTEX_STREAMS, which this implementation
+        // answers as 1 - so stream 0 is the only one that exists and anything else is
+        // INVALID_VALUE. Read from the getter rather than written as `stream != 0` so the two can
+        // never drift: if vertex-stream support ever lands, this bound moves with the limit.
+        GLint maxVertexStreams = 1;
+        GetIntegerv(GL_MAX_VERTEX_STREAMS, &maxVertexStreams);
+        if (stream >= static_cast<GLuint>(std::max(maxVertexStreams, 1))) {
             MG_State::pGLContext->RecordError(
                 ErrorCode::InvalidValue,
                 MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", functionName,
@@ -1501,6 +1661,7 @@ namespace MobileGL::MG_Impl::GLImpl {
             return;
         }
 
+        // `stream` is provably 0 here (the bound above is 1), so this is stream 0's record.
         const Uint64 vertices = MG_State::pGLContext->GetTransformFeedbackRecordedVertices(id);
         if (vertices == 0) return;
         const auto count = static_cast<GLsizei>(vertices);

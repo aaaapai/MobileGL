@@ -1034,14 +1034,69 @@ namespace {
         if (index < kRecordedDrawBuffers) g_driverIndexedColorMasks[index] = {true, r, g, b, a};
     }
 
+    // What the blend block of SyncRenderState pushed. Enough to answer the two questions the
+    // dual-source cases ask: is blending on for a draw buffer, and which factor enums reached
+    // the driver.
+    struct RecordedBlend {
+        Bool enabled = false;
+        Bool enableSeen = false;
+        Bool factorsSeen = false;
+        GLenum srcRGB = 0, dstRGB = 0, srcAlpha = 0, dstAlpha = 0;
+    };
+    RecordedBlend g_driverBlend[kRecordedDrawBuffers];
+
+    void ResetRecordedBlend() {
+        for (auto& recorded : g_driverBlend) recorded = {};
+    }
+
+    void RecordBlendEnable(Bool enabled) {
+        for (auto& recorded : g_driverBlend) {
+            recorded.enabled = enabled;
+            recorded.enableSeen = true;
+        }
+    }
+
+    void RecordBlendFactors(GLenum srcRGB, GLenum dstRGB, GLenum srcAlpha, GLenum dstAlpha) {
+        for (auto& recorded : g_driverBlend) {
+            recorded.factorsSeen = true;
+            recorded.srcRGB = srcRGB;
+            recorded.dstRGB = dstRGB;
+            recorded.srcAlpha = srcAlpha;
+            recorded.dstAlpha = dstAlpha;
+        }
+    }
+
     void StubViewport(GLint, GLint, GLsizei, GLsizei) {}
     void StubScissor(GLint, GLint, GLsizei, GLsizei) {}
-    void StubEnable(GLenum) {}
-    void StubDisable(GLenum) {}
-    void StubEnablei(GLenum, GLuint) {}
-    void StubDisablei(GLenum, GLuint) {}
-    void StubBlendFuncSeparate(GLenum, GLenum, GLenum, GLenum) {}
-    void StubBlendFuncSeparatei(GLuint, GLenum, GLenum, GLenum, GLenum) {}
+    void StubEnable(GLenum cap) {
+        if (cap == GL_BLEND) RecordBlendEnable(true);
+    }
+    void StubDisable(GLenum cap) {
+        if (cap == GL_BLEND) RecordBlendEnable(false);
+    }
+    void StubEnablei(GLenum cap, GLuint index) {
+        if (cap == GL_BLEND && index < kRecordedDrawBuffers) {
+            g_driverBlend[index].enabled = true;
+            g_driverBlend[index].enableSeen = true;
+        }
+    }
+    void StubDisablei(GLenum cap, GLuint index) {
+        if (cap == GL_BLEND && index < kRecordedDrawBuffers) {
+            g_driverBlend[index].enabled = false;
+            g_driverBlend[index].enableSeen = true;
+        }
+    }
+    void StubBlendFuncSeparate(GLenum srcRGB, GLenum dstRGB, GLenum srcAlpha, GLenum dstAlpha) {
+        RecordBlendFactors(srcRGB, dstRGB, srcAlpha, dstAlpha);
+    }
+    void StubBlendFuncSeparatei(GLuint index, GLenum srcRGB, GLenum dstRGB, GLenum srcAlpha, GLenum dstAlpha) {
+        if (index >= kRecordedDrawBuffers) return;
+        g_driverBlend[index].factorsSeen = true;
+        g_driverBlend[index].srcRGB = srcRGB;
+        g_driverBlend[index].dstRGB = dstRGB;
+        g_driverBlend[index].srcAlpha = srcAlpha;
+        g_driverBlend[index].dstAlpha = dstAlpha;
+    }
     void StubBlendEquationSeparate(GLenum, GLenum) {}
     void StubBlendEquationSeparatei(GLuint, GLenum, GLenum) {}
     void StubBlendColor(GLfloat, GLfloat, GLfloat, GLfloat) {}
@@ -1066,7 +1121,9 @@ namespace {
     // into a driver that this process never made current.
     class ScopedRenderStateDriverStubs {
     public:
-        ScopedRenderStateDriverStubs():
+        // dualSourceBlendSupported models GL_EXT_blend_func_extended on the ES driver, which is
+        // the one capability in here that a real device is commonly WITHOUT.
+        explicit ScopedRenderStateDriverStubs(Bool dualSourceBlendSupported = true):
             m_funcs(MG_Backend::DirectGLES::g_GLESFuncs), m_caps(MG_Backend::DirectGLES::g_GLESCapabilities) {
             auto& gl = MG_Backend::DirectGLES::g_GLESFuncs;
             gl = MG_External::GLESFunctionsTable{};
@@ -1102,9 +1159,10 @@ namespace {
             caps.SupportsIndexedColorMask = true;
             caps.SupportsSrgbWriteControl = false;
             caps.SupportsPolygonMode = false;
-            caps.SupportsDualSourceBlend = true;
+            caps.SupportsDualSourceBlend = dualSourceBlendSupported;
 
             ResetRecordedColorMasks();
+            ResetRecordedBlend();
             // The viewport and scissor blocks fall back to querying the surface size when the
             // frontend's rectangle is degenerate, and there is no surface in this process.
             MG_Impl::GLImpl::Viewport(0, 0, 4, 4);
@@ -1119,6 +1177,11 @@ namespace {
             // The shadow now describes pushes that went to the stubs, not to any driver.
             MG_Backend::DirectGLES::RenderStateImpl::InvalidateSyncedRenderState();
             MG_Impl::GLImpl::ColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+            // Blend state is per-CONTEXT and the context outlives the fixture, so a case that
+            // enabled blending or asked for an exotic factor has to put it back or every later
+            // case in this binary inherits it.
+            MG_Impl::GLImpl::Disable(GL_BLEND);
+            MG_Impl::GLImpl::BlendFunc(GL_ONE, GL_ZERO);
         }
 
     private:
@@ -1251,4 +1314,332 @@ TEST_F(FramebufferTest, ApplicationAlphaMaskOffIsStillHonouredOnANativeDrawBuffe
     EXPECT_EQ(g_driverIndexedColorMasks[2].b, GL_FALSE);
     EXPECT_EQ(g_driverIndexedColorMasks[2].a, GL_TRUE) << "a native buffer keeps its alpha writes";
     EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
+// --- Dual-source blending without GL_EXT_blend_func_extended ------------------------------------
+//
+// GL_SRC1_* blend factors are core GL since 3.3, GLES core has nothing equivalent, and the ES
+// driver may or may not carry GL_EXT_blend_func_extended. When it does, the factors translate and
+// blend properly - the positive case below. When it does not, the blend block used to
+// THROW_EXCEPTION, which is a plain `throw` (MG_Util/Types.h) with no catch anywhere in MG_Impl or
+// MG_Backend, so it unwound out through the C GL ABI and killed the process over one unsupported
+// blend factor. It now DECLINES: the draw buffer is pushed with blending off and neutral One/Zero
+// factors, and the loss is logged once.
+//
+// Both halves are asserted at the seam that matters - what the ES driver is actually handed -
+// because a GL_SRC1_* enum reaching a driver without the extension is the other failure mode: the
+// driver answers GL_INVALID_ENUM, keeps whatever factors were set before, and mis-blends silently.
+
+TEST_F(FramebufferTest, DualSourceBlendFactorsReachTheDriverWhenTheExtensionIsThere) {
+    ScopedRenderStateDriverStubs driver(/*dualSourceBlendSupported=*/true);
+
+    MG_Impl::GLImpl::Enable(GL_BLEND);
+    MG_Impl::GLImpl::BlendFunc(GL_SRC1_COLOR, GL_ONE_MINUS_SRC1_COLOR);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR) << "GL_SRC1_* is core since 3.3; glBlendFunc must take it";
+    ResetRecordedBlend();
+    MG_Backend::DirectGLES::RenderStateImpl::SyncRenderState(/*forColorClear=*/false);
+
+    ASSERT_TRUE(g_driverBlend[0].factorsSeen);
+    EXPECT_TRUE(g_driverBlend[0].enabled) << "nothing may decline a blend the driver can do";
+    EXPECT_EQ(g_driverBlend[0].srcRGB, static_cast<GLenum>(GL_SRC1_COLOR));
+    EXPECT_EQ(g_driverBlend[0].dstRGB, static_cast<GLenum>(GL_ONE_MINUS_SRC1_COLOR));
+    EXPECT_EQ(g_driverBlend[0].srcAlpha, static_cast<GLenum>(GL_SRC1_COLOR));
+    EXPECT_EQ(g_driverBlend[0].dstAlpha, static_cast<GLenum>(GL_ONE_MINUS_SRC1_COLOR));
+}
+
+TEST_F(FramebufferTest, DualSourceBlendIsDeclinedRatherThanThrownWhenTheExtensionIsMissing) {
+    ScopedRenderStateDriverStubs driver(/*dualSourceBlendSupported=*/false);
+
+    MG_Impl::GLImpl::Enable(GL_BLEND);
+    MG_Impl::GLImpl::BlendFunc(GL_SRC1_ALPHA, GL_ONE_MINUS_SRC1_ALPHA);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR)
+        << "the FRONTEND accepts the factor whatever the driver can do - the decline is a backend decision";
+    ResetRecordedBlend();
+
+    // The whole point: this used to be `throw std::runtime_error` straight through the GL ABI.
+    ASSERT_NO_THROW(MG_Backend::DirectGLES::RenderStateImpl::SyncRenderState(/*forColorClear=*/false));
+
+    ASSERT_TRUE(g_driverBlend[0].enableSeen) << "the blend enable still has to be pushed";
+    EXPECT_FALSE(g_driverBlend[0].enabled) << "a blend the driver cannot do is declined, not attempted";
+    for (Uint i = 0; i < kRecordedDrawBuffers; ++i) {
+        EXPECT_NE(g_driverBlend[i].srcRGB, static_cast<GLenum>(GL_SRC1_ALPHA))
+            << "draw buffer " << i << ": no GL_SRC1_* enum may reach a driver without the extension";
+        EXPECT_NE(g_driverBlend[i].dstRGB, static_cast<GLenum>(GL_ONE_MINUS_SRC1_ALPHA)) << "draw buffer " << i;
+        EXPECT_NE(g_driverBlend[i].srcAlpha, static_cast<GLenum>(GL_SRC1_ALPHA)) << "draw buffer " << i;
+        EXPECT_NE(g_driverBlend[i].dstAlpha, static_cast<GLenum>(GL_ONE_MINUS_SRC1_ALPHA)) << "draw buffer " << i;
+    }
+
+    // The decline is scoped to the offending factor, not to blending as a whole: an ordinary
+    // blend on the same driver still goes through, and the SAME sync that declined the first one
+    // is what has to push it.
+    MG_Impl::GLImpl::BlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    ResetRecordedBlend();
+    MG_Backend::DirectGLES::RenderStateImpl::SyncRenderState(/*forColorClear=*/false);
+    ASSERT_TRUE(g_driverBlend[0].factorsSeen);
+    EXPECT_TRUE(g_driverBlend[0].enabled);
+    EXPECT_EQ(g_driverBlend[0].srcRGB, static_cast<GLenum>(GL_SRC_ALPHA));
+    EXPECT_EQ(g_driverBlend[0].dstRGB, static_cast<GLenum>(GL_ONE_MINUS_SRC_ALPHA));
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
+// The half the first version of the decline missed: the FACTOR push is not gated on Enabled, so
+// GL_BLEND being OFF does not keep a GL_SRC1_* enum away from a driver that cannot parse it. This
+// is the sequence - `glDisable(GL_BLEND); glBlendFunc(GL_SRC1_ALPHA, ...)` then any draw or clear -
+// and it needs no dual-source shader at all, which is why it survived both the enabled-path unit
+// case above and the integration scenario (that one skips on exactly the extension-less lanes this
+// concerns, because its probe needs a dual-source program to render).
+//
+// What a leaked enum costs: the driver answers GL_INVALID_ENUM and keeps its previous factors, so
+// the error sits in the ES context's own queue for the next internal `glGetError() == GL_NO_ERROR`
+// probe to read as its own failure, and this backend's shadow records factors the context rejected.
+TEST_F(FramebufferTest, DualSourceFactorsAreDeclinedEvenWithBlendingDisabled) {
+    ScopedRenderStateDriverStubs driver(/*dualSourceBlendSupported=*/false);
+
+    MG_Impl::GLImpl::Disable(GL_BLEND);
+    MG_Impl::GLImpl::BlendFunc(GL_SRC1_ALPHA, GL_ONE_MINUS_SRC1_ALPHA);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+    ResetRecordedBlend();
+
+    ASSERT_NO_THROW(MG_Backend::DirectGLES::RenderStateImpl::SyncRenderState(/*forColorClear=*/false));
+
+    for (Uint i = 0; i < kRecordedDrawBuffers; ++i) {
+        EXPECT_FALSE(g_driverBlend[i].enabled) << "draw buffer " << i << ": blending was never enabled";
+        EXPECT_NE(g_driverBlend[i].srcRGB, static_cast<GLenum>(GL_SRC1_ALPHA))
+            << "draw buffer " << i
+            << ": a GL_SRC1_* enum must not reach a driver without the extension even with GL_BLEND off";
+        EXPECT_NE(g_driverBlend[i].dstRGB, static_cast<GLenum>(GL_ONE_MINUS_SRC1_ALPHA)) << "draw buffer " << i;
+        EXPECT_NE(g_driverBlend[i].srcAlpha, static_cast<GLenum>(GL_SRC1_ALPHA)) << "draw buffer " << i;
+        EXPECT_NE(g_driverBlend[i].dstAlpha, static_cast<GLenum>(GL_ONE_MINUS_SRC1_ALPHA)) << "draw buffer " << i;
+    }
+
+    // A clear reaches the same block by the same route (SyncRenderState(forColorClear=true)), and
+    // the flag only steers the alpha-widen colour mask, so it must not reopen this either.
+    MG_Impl::GLImpl::BlendFunc(GL_SRC1_COLOR, GL_ONE_MINUS_SRC1_COLOR);
+    ResetRecordedBlend();
+    ASSERT_NO_THROW(MG_Backend::DirectGLES::RenderStateImpl::SyncRenderState(/*forColorClear=*/true));
+    for (Uint i = 0; i < kRecordedDrawBuffers; ++i) {
+        EXPECT_NE(g_driverBlend[i].srcRGB, static_cast<GLenum>(GL_SRC1_COLOR)) << "draw buffer " << i;
+        EXPECT_NE(g_driverBlend[i].dstRGB, static_cast<GLenum>(GL_ONE_MINUS_SRC1_COLOR)) << "draw buffer " << i;
+    }
+
+    // And the shadow records what was PUSHED, not what the frontend holds - otherwise the next
+    // switch to an ordinary factor diffs against state the ES context never received.
+    MG_Impl::GLImpl::Enable(GL_BLEND);
+    MG_Impl::GLImpl::BlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    ResetRecordedBlend();
+    MG_Backend::DirectGLES::RenderStateImpl::SyncRenderState(/*forColorClear=*/false);
+    ASSERT_TRUE(g_driverBlend[0].factorsSeen);
+    EXPECT_TRUE(g_driverBlend[0].enabled) << "the enable has to be pushed - the shadow said 'off' because it was";
+    EXPECT_EQ(g_driverBlend[0].srcRGB, static_cast<GLenum>(GL_SRC_ALPHA));
+    EXPECT_EQ(g_driverBlend[0].dstRGB, static_cast<GLenum>(GL_ONE_MINUS_SRC_ALPHA));
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
+// The capable driver is unaffected by the ungating: GL_BLEND off with SRC1 factors set is a state
+// an application may legitimately hold, and the factors still have to reach a driver that parses
+// them - otherwise the next glEnable(GL_BLEND) would blend against neutralised state.
+TEST_F(FramebufferTest, DualSourceFactorsWithBlendingDisabledStillReachACapableDriver) {
+    ScopedRenderStateDriverStubs driver(/*dualSourceBlendSupported=*/true);
+
+    MG_Impl::GLImpl::Disable(GL_BLEND);
+    MG_Impl::GLImpl::BlendFunc(GL_SRC1_ALPHA, GL_ONE_MINUS_SRC1_ALPHA);
+    ResetRecordedBlend();
+    MG_Backend::DirectGLES::RenderStateImpl::SyncRenderState(/*forColorClear=*/false);
+
+    ASSERT_TRUE(g_driverBlend[0].factorsSeen);
+    EXPECT_FALSE(g_driverBlend[0].enabled);
+    EXPECT_EQ(g_driverBlend[0].srcRGB, static_cast<GLenum>(GL_SRC1_ALPHA));
+    EXPECT_EQ(g_driverBlend[0].dstRGB, static_cast<GLenum>(GL_ONE_MINUS_SRC1_ALPHA));
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
+// --- glFramebufferTexture error conditions (GL 4.6 core 9.2.8) ---------------------------------
+//
+// Four of them were missing from the bound-target path while its DSA sibling
+// (glNamedFramebufferTexture) implemented all four, which is what KHR-GL4x.geometry_shader.
+// layered_fbo.fb_texture_* fails on. Two of them - the attachment-range check and the
+// default-framebuffer rejection - newly REFUSE calls that used to succeed, so they are pinned
+// here rather than left to the conformance suite.
+
+TEST_F(FramebufferTest, FramebufferTextureRejectsTheDefaultFramebuffer) {
+    GLuint texture = 0;
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_2D, 1, &texture);
+    MG_Impl::GLImpl::TextureStorage2D(texture, 1, GL_RGBA8, 64, 32);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    // MobileGL models framebuffer 0 as a real FramebufferObject, so the null test that used to
+    // stand in for this could never fire and the attach silently "succeeded".
+    MG_Impl::GLImpl::BindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+    MG_Impl::GLImpl::FramebufferTexture(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, texture, 0);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_INVALID_OPERATION);
+    DrainPendingGlErrors();
+}
+
+TEST_F(FramebufferTest, FramebufferTextureRejectsAColourAttachmentPastTheLimit) {
+    GLuint framebuffer = 0;
+    GLuint texture = 0;
+    MG_Impl::GLImpl::CreateFramebuffers(1, &framebuffer);
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_2D, 1, &texture);
+    MG_Impl::GLImpl::TextureStorage2D(texture, 1, GL_RGBA8, 64, 32);
+    MG_Impl::GLImpl::BindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    // The same limit ValidateColorAttachmentInRange reads, so the test cannot disagree with the
+    // implementation about where the boundary is.
+    const GLint limit = MG_Backend::pActiveBackendObject
+                            ? static_cast<GLint>(
+                                  MG_Backend::pActiveBackendObject->GetDynamicParameters().MaxColorAttachments)
+                            : static_cast<GLint>(MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS);
+    ASSERT_GT(limit, 0);
+    ASSERT_LT(limit, 32) << "the test needs a colour attachment enum past the limit to exist";
+
+    MG_Impl::GLImpl::FramebufferTexture(GL_DRAW_FRAMEBUFFER,
+                                        static_cast<GLenum>(GL_COLOR_ATTACHMENT0 + limit), texture, 0);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_INVALID_OPERATION);
+    DrainPendingGlErrors();
+
+    // The last legal one still attaches, so the boundary is off-by-none.
+    MG_Impl::GLImpl::FramebufferTexture(GL_DRAW_FRAMEBUFFER,
+                                        static_cast<GLenum>(GL_COLOR_ATTACHMENT0 + limit - 1), texture, 0);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
+TEST_F(FramebufferTest, FramebufferTextureReportsInvalidValueForANameThatWasNeverGenerated) {
+    GLuint framebuffer = 0;
+    MG_Impl::GLImpl::CreateFramebuffers(1, &framebuffer);
+    MG_Impl::GLImpl::BindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    // INVALID_VALUE, not INVALID_OPERATION: the entry point used to resolve the texture object
+    // first and report the miss with the wrong code, pre-empting ValidateTextureName.
+    const GLuint neverGenerated = std::numeric_limits<GLuint>::max();
+    ASSERT_FALSE(MG_State::pGLContext->ValidateTextureName(neverGenerated));
+    MG_Impl::GLImpl::FramebufferTexture(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, neverGenerated, 0);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_INVALID_VALUE);
+    DrainPendingGlErrors();
+}
+
+TEST_F(FramebufferTest, FramebufferTextureRejectsALevelTheTextureDoesNotHave) {
+    GLuint framebuffer = 0;
+    GLuint texture = 0;
+    MG_Impl::GLImpl::CreateFramebuffers(1, &framebuffer);
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_2D, 1, &texture);
+    // Two levels of immutable storage: level 1 is legal, level 2 is not.
+    MG_Impl::GLImpl::TextureStorage2D(texture, 2, GL_RGBA8, 64, 32);
+    MG_Impl::GLImpl::BindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    MG_Impl::GLImpl::FramebufferTexture(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, texture, 1);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR) << "the last level the texture has is legal";
+
+    MG_Impl::GLImpl::FramebufferTexture(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, texture, 2);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_INVALID_VALUE);
+    DrainPendingGlErrors();
+
+    MG_Impl::GLImpl::FramebufferTexture(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, texture, -1);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_INVALID_VALUE);
+    DrainPendingGlErrors();
+}
+
+// The four conditions above are stated once in GL 4.6 core 9.2.8 for the WHOLE family, and
+// glFramebufferTexture2D / 3D / TextureLayer reach the attachment through their own code rather
+// than through the shared helper - so each of them has to be asked separately or one entry point
+// answers differently from its aliases. glFramebufferTexture2D is the most-used of the five, and
+// the default-framebuffer case is the damaging one: the attach used to succeed and replace
+// framebuffer 0's colour attachment, which nothing ever puts back.
+
+TEST_F(FramebufferTest, FramebufferTexture2DRejectsTheDefaultFramebufferAndBadAttachments) {
+    GLuint texture = 0;
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_2D, 1, &texture);
+    MG_Impl::GLImpl::TextureStorage2D(texture, 2, GL_RGBA8, 64, 32);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    const auto defaultFramebuffer = MG_State::pGLContext->GetFramebufferObject(0);
+    ASSERT_NE(defaultFramebuffer, nullptr);
+    const auto& colorBefore = defaultFramebuffer->GetAttachment(FramebufferAttachmentType::Color0);
+    const Bool hadTextureBefore = colorBefore.IsTexture();
+
+    MG_Impl::GLImpl::BindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+    MG_Impl::GLImpl::FramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_INVALID_OPERATION);
+    DrainPendingGlErrors();
+    // ...and, more to the point, the default framebuffer still describes the surface.
+    const auto& colorAfter = defaultFramebuffer->GetAttachment(FramebufferAttachmentType::Color0);
+    EXPECT_EQ(colorAfter.IsTexture(), hadTextureBefore);
+    if (colorAfter.IsTexture() && hadTextureBefore) {
+        EXPECT_NE(colorAfter.GetTexture()->GetExternalIndex(), texture)
+            << "the refused attach must not have replaced framebuffer 0's colour attachment";
+    }
+
+    GLuint framebuffer = 0;
+    MG_Impl::GLImpl::CreateFramebuffers(1, &framebuffer);
+    MG_Impl::GLImpl::BindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    const GLint limit = MG_Backend::pActiveBackendObject
+                            ? static_cast<GLint>(
+                                  MG_Backend::pActiveBackendObject->GetDynamicParameters().MaxColorAttachments)
+                            : static_cast<GLint>(MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS);
+    MG_Impl::GLImpl::FramebufferTexture2D(GL_DRAW_FRAMEBUFFER,
+                                          static_cast<GLenum>(GL_COLOR_ATTACHMENT0 + limit), GL_TEXTURE_2D,
+                                          texture, 0);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_INVALID_OPERATION);
+    DrainPendingGlErrors();
+
+    MG_Impl::GLImpl::FramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 2);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_INVALID_VALUE) << "the texture has two levels, not three";
+    DrainPendingGlErrors();
+
+    MG_Impl::GLImpl::FramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, -1);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_INVALID_VALUE);
+    DrainPendingGlErrors();
+
+    // The legal call still works, so the boundary is off-by-none.
+    MG_Impl::GLImpl::FramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 1);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
+TEST_F(FramebufferTest, FramebufferTextureLayerRejectsTheDefaultFramebufferAndBadLevels) {
+    GLuint texture = 0;
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_2D_ARRAY, 1, &texture);
+    MG_Impl::GLImpl::TextureStorage3D(texture, 2, GL_RGBA8, 16, 16, 4);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    // The attach path used to bypass every one of these while the DETACH path (texture == 0) went
+    // through the fixed helper, so one entry point answered two different ways.
+    MG_Impl::GLImpl::BindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+    MG_Impl::GLImpl::FramebufferTextureLayer(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, texture, 0, 0);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_INVALID_OPERATION);
+    DrainPendingGlErrors();
+
+    GLuint framebuffer = 0;
+    MG_Impl::GLImpl::CreateFramebuffers(1, &framebuffer);
+    MG_Impl::GLImpl::BindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    MG_Impl::GLImpl::FramebufferTextureLayer(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, texture, 2, 0);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_INVALID_VALUE);
+    DrainPendingGlErrors();
+
+    MG_Impl::GLImpl::FramebufferTextureLayer(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, texture, 1, 0);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
+// The DSA sibling is the entry point the bound-target family was aligned WITH, so an out-of-range
+// immutable level has to be rejected there too - otherwise the alignment created a fresh
+// asymmetry in the opposite direction.
+TEST_F(FramebufferTest, NamedFramebufferTextureRejectsALevelTheTextureDoesNotHave) {
+    GLuint framebuffer = 0;
+    GLuint texture = 0;
+    MG_Impl::GLImpl::CreateFramebuffers(1, &framebuffer);
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_2D, 1, &texture);
+    MG_Impl::GLImpl::TextureStorage2D(texture, 2, GL_RGBA8, 64, 32);
+    ASSERT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    MG_Impl::GLImpl::NamedFramebufferTexture(framebuffer, GL_COLOR_ATTACHMENT0, texture, 1);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    MG_Impl::GLImpl::NamedFramebufferTexture(framebuffer, GL_COLOR_ATTACHMENT0, texture, 2);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_INVALID_VALUE);
+    DrainPendingGlErrors();
 }
