@@ -16,10 +16,29 @@
 #include <MG_Util/ShaderTranspiler/TranslationCache.h>
 #include <MG_Util/ShaderTranspiler/Types.h>
 
+#include <atomic>
 #include <cstring>
 
 namespace MobileGL::MG_State::GLState {
-    void ProgramSpirvTask::DeferLog(String line) { diagnostics.logLines.push_back(Move(line)); }
+    namespace {
+        // The MGLOG_*_ONCE latch, moved to the SOURCE of a deferred line. It cannot live at
+        // the replay: Async::ApplyDeferredDiagnostics is ONE site shared by every job in the
+        // tree, so a latch there would silence unrelated lines. And it has to exist: a shader
+        // pack hands the same refusal to program after program, and a per-program WARN on a
+        // path like that is exactly the repeated production logging the house rule forbids.
+        // First occurrence at WARN - the one a bug report needs - every later one back at
+        // DEBUG, which shipped builds compile out.
+        Int FirstTimeWarnLevel(std::atomic_flag& latch) {
+            return latch.test_and_set(std::memory_order_relaxed) ? MOBILEGL_LOG_LEVEL_DEBUG
+                                                                 : MOBILEGL_LOG_LEVEL_WARN;
+        }
+        std::atomic_flag g_pointSizeDeclineReported;
+        std::atomic_flag g_pointSizeOptimizerFailureReported;
+    } // namespace
+
+    void ProgramSpirvTask::DeferLog(String line, const Int level) {
+        diagnostics.logLines.push_back({level, Move(line)});
+    }
 
     void ProgramSpirvTask::SubmitAfter(const SharedPtr<ProgramLinkTask>& phaseA) {
         MOBILEGL_ASSERT(phaseA != nullptr, "ProgramSpirvTask::SubmitAfter: the phase-A node is missing");
@@ -128,8 +147,15 @@ namespace MobileGL::MG_State::GLState {
         // with (ProgramLinkTask::BuildSpirvCacheKey reads the same env) or a memo written under
         // one answer could be handed back under the other.
         const Bool nativeFloat64 = m_phaseA->in.env != nullptr && m_phaseA->in.env->ConsumesFloat64Natively();
+        // The point-size demotion verdicts, read from the SAME snapshot for the same reason
+        // - and the same bits BuildSpirvCacheKey put in the L1 key, so a memo written under
+        // one answer can never be handed back under the other.
+        const Bool demoteTessellationPointSize =
+            m_phaseA->in.env != nullptr && m_phaseA->in.env->DemotesTessellationPointSize();
+        const Bool demoteGeometryPointSize =
+            m_phaseA->in.env != nullptr && m_phaseA->in.env->DemotesGeometryPointSize();
         GenerateSpirv(handoff, externalIndex, deferOutputValidationForDirectVulkan, enableSpirvValidation,
-                      nativeFloat64);
+                      nativeFloat64, demoteTessellationPointSize, demoteGeometryPointSize);
         // GlslangToSpv was the only consumer of the parsed ASTs; everything after this point
         // works on the SPIR-V and on the TProgram's own self-contained reflection pool. Drop
         // them here rather than at the end of the body, which is ~87% of this node's runtime
@@ -188,7 +214,9 @@ namespace MobileGL::MG_State::GLState {
 
     void ProgramSpirvTask::GenerateSpirv(const ProgramLinkTask::SpirvHandoff& handoff, const Uint externalIndex,
                                          const Bool deferOutputValidationForDirectVulkan,
-                                         const Bool enableSpirvValidation, const Bool nativeFloat64) {
+                                         const Bool enableSpirvValidation, const Bool nativeFloat64,
+                                         const Bool demoteTessellationPointSize,
+                                         const Bool demoteGeometryPointSize) {
         /* As we passed first stage compilation/linking,
          * we'll assume all the operations here should
          * pass. We may be able to employ some optimizations
@@ -267,6 +295,50 @@ namespace MobileGL::MG_State::GLState {
             }
         }
         artifacts.spirvStatus = allOptimized;
+
+        // The point-size demotion, program-wide and after the sanitize chain, so it works
+        // on the final shared bytes both backends consume and nothing downstream can trim
+        // the carriers it declares. Only the env half of the verdict lives here (and in the
+        // L1 key); whether the program actually declares the capability is probed inside,
+        // so the common case on an affected device - a program that never touches point
+        // size in those stages - pays one module parse per stage and no rewrite.
+        artifacts.pointSizeDemoted = false;
+        if (allOptimized && (demoteTessellationPointSize || demoteGeometryPointSize)) {
+            // Read off the HANDOFF's own derived bit, not off `handoff.reflection`: that
+            // field is the routing slice phase A fills with eight named members, and
+            // xfbVaryings is not one of them - reading it there answered "no capture ever
+            // asks for gl_PointSize" on every production link, which left a read-only
+            // capture stage without the carrier its capture binds to.
+            const Bool captureRequestsPointSize = handoff.captureRequestsPointSize;
+            ShaderCompiler::PointSizeDemotionOutcome outcome;
+            if (!ShaderCompiler::DemoteTessellationGeometryPointSizeForProgram(
+                    artifacts.generatedSpirv, handoff.shaderTypes, demoteTessellationPointSize,
+                    demoteGeometryPointSize, captureRequestsPointSize, outcome,
+                    !deferOutputValidationForDirectVulkan, enableSpirvValidation)) {
+                // Optimizer failure: modules untouched, so the capability is still declared
+                // and the backends' existing refusals stay in charge - honest, just slower.
+                DeferLog(std::format("ProgramObject {}: point-size demotion failed in the optimizer; the "
+                                     "program keeps its built-in and the device's declines apply",
+                                     externalIndex),
+                         FirstTimeWarnLevel(g_pointSizeOptimizerFailureReported));
+            } else if (outcome.demoted) {
+                artifacts.pointSizeDemoted = true;
+                DeferLog(std::format("ProgramObject {}: gl_PointSize demoted to an ordinary varying across "
+                                     "the tessellation/geometry chain (value preserved for capture and "
+                                     "gl_in reads; rasterized size falls back to 1.0)",
+                                     externalIndex));
+            } else if (!outcome.declineDetail.empty()) {
+                // THE MOST VALUABLE LINE THIS FEATURE PRODUCES: which module shape the pass
+                // refused, and therefore why an affected device is still about to lose the
+                // program. Nothing else records it - `declineDetail` has no other runtime
+                // surface - so at the deferred channel's DEBUG default it was formatted and
+                // then dropped by every INFO build, i.e. every device and every CI artifact.
+                DeferLog(std::format("ProgramObject {}: point-size demotion declined ({}); the program "
+                                     "keeps its built-in and the device's declines apply",
+                                     externalIndex, outcome.declineDetail),
+                         FirstTimeWarnLevel(g_pointSizeDeclineReported));
+            }
+        }
     }
 
     void ProgramSpirvTask::BuildGlobalUboRouting(const ProgramLinkTask::SpirvHandoff& handoff,

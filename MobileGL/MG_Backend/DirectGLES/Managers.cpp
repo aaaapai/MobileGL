@@ -783,6 +783,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 resource.storageInitialized = true;
                 resource.pendingRespecify = false;
                 resource.pendingRanges.clear();
+                resource.pendingResidentWrites.clear();
                 resource.syncedChangeSerial = bufferObject.GetChangeSerial();
                 // A GROWN store keeps its indexed bindings, and BindBufferBaseCached skips a
                 // rebind whenever the shadow already records this id at that index - so on a
@@ -827,6 +828,12 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 if (!g_GLESFuncs.glCopyBufferSubData) return false;
                 return RingAvailable(g_uploadRing);
             }
+
+            // A partial range below this goes through the staging ring instead of a
+            // range-invalidating map: the map's page-substitution fast path needs a
+            // sizeable (page-coverable) range to engage, and below it the driver
+            // falls back to waiting out the WAR hazard on the CPU.
+            constexpr SizeT kInvalidateRangeMinBytes = 128u * 1024u;
 
             // Push every queued range of `resource` from the shadow into the backend
             // store, without ever letting a driver resolve the WAR hazard against
@@ -879,11 +886,27 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     const SizeT start = std::min(range.start, end);
                     const SizeT size = end - start;
                     if (size == 0) continue;
-                    if (mapUsable) {
+                    // The invalidating map's fast path is SHAPE-dependent on this Mali
+                    // driver: a whole-buffer invalidation renames the store outright,
+                    // and a large range gets fresh pages - but a small unaligned range
+                    // of a busy store makes the map WAIT (osup_sync_object_wait, ~9%
+                    // of a Minecraft 26.3 replay). So: whole buffer -> orphan-map;
+                    // large range -> range-invalidating map; small range -> the staged
+                    // ring copy, whose worst case (a whole-destination ghost) is only
+                    // ever the small destination itself.
+                    //
+                    // The map covers EXACTLY the queued range: only those bytes are the
+                    // shadow's to rewrite. Widening to page bounds looked free and was
+                    // not - the widened bytes clobbered GPU-written data (an SSBO
+                    // counter beside the app's SubData) with the stale shadow.
+                    const Bool wholeBuffer = start == 0 && end == limit && limit == resource.storageSize;
+                    if (mapUsable && (wholeBuffer || size >= kInvalidateRangeMinBytes)) {
                         BindBufferId(TempBufferTarget, resource.id);
+                        const GLbitfield access =
+                            GL_MAP_WRITE_BIT |
+                            (wholeBuffer ? GL_MAP_INVALIDATE_BUFFER_BIT : GL_MAP_INVALIDATE_RANGE_BIT);
                         void* dst = g_GLESFuncs.glMapBufferRange(TempBufferTarget, (GLintptr)start,
-                                                                 (GLsizeiptr)size,
-                                                                 GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_RANGE_BIT);
+                                                                 (GLsizeiptr)size, access);
                         if (dst) {
                             Memcpy(dst, bufferObject.MappedData() + start, size);
                             g_GLESFuncs.glUnmapBuffer(TempBufferTarget);
@@ -900,6 +923,49 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                                         (GLintptr)ringOffset, (GLintptr)start, (GLsizeiptr)size);
                     } else {
                         UploadRangeNow(resource, bufferObject, start, end);
+                    }
+                }
+            }
+
+            // Land the app bytes queued for an ADOPTED store on the GPU timeline: staged
+            // into the upload ring and delivered by glCopyBufferSubData. The destination
+            // is the IMMUTABLE persistent store, which the driver can neither rename nor
+            // ghost, so the copy is plain job ordering - after every in-flight reader,
+            // before the next consumer - which is exactly glBufferSubData's contract.
+            // (The in-place host write these bytes replaced tore the frames still
+            // reading the old vertex data: one-frame wrong geometry during fast camera
+            // movement.) Fallback: direct glBufferSubData - the adopted store carries
+            // DYNAMIC_STORAGE, and immutability again forbids the whole-store ghost.
+            void DrainResidentWritesNow(GLESBufferResource& resource, BufferObject& bufferObject) {
+#ifdef TRACY_ENABLE
+                ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
+                Vector<GLESBufferResource::PendingResidentWrite> writes;
+                {
+                    const std::lock_guard<std::mutex> lock(resource.pendingMutex);
+                    if (resource.pendingResidentWrites.empty()) return;
+                    writes = std::move(resource.pendingResidentWrites);
+                    resource.pendingResidentWrites.clear();
+                }
+                const SizeT limit = resource.storageSize;
+                const Bool ringUsable = UploadRingUsableNow();
+                for (const auto& write : writes) {
+                    if (write.offset >= limit) continue;
+                    const SizeT size = std::min(write.bytes.size(), limit - write.offset);
+                    if (size == 0) continue;
+                    SizeT ringOffset = 0;
+                    if (ringUsable && size <= kUploadRingMaxBytes &&
+                        RingAllocate(g_uploadRing, size, ringOffset)) {
+                        Memcpy(g_uploadRing.store.mappedPtr + ringOffset, write.bytes.data(), size);
+                        BindBufferId(GL_COPY_READ_BUFFER, g_uploadRing.store.id);
+                        BindBufferId(GL_COPY_WRITE_BUFFER, resource.id);
+                        g_GLESFuncs.glCopyBufferSubData(GL_COPY_READ_BUFFER, GL_COPY_WRITE_BUFFER,
+                                                        (GLintptr)ringOffset, (GLintptr)write.offset,
+                                                        (GLsizeiptr)size);
+                    } else {
+                        BindBufferId(TempBufferTarget, resource.id);
+                        g_GLESFuncs.glBufferSubData(TempBufferTarget, (GLintptr)write.offset, (GLsizeiptr)size,
+                                                    write.bytes.data());
                     }
                 }
             }
@@ -989,6 +1055,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 {
                     const std::lock_guard<std::mutex> lock(resource->pendingMutex);
                     resource->pendingRanges.clear();
+                    resource->pendingResidentWrites.clear();
                 }
                 resource->syncedChangeSerial = bufferObject.GetChangeSerial();
                 return ptr;
@@ -1026,12 +1093,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     resource->storageSize = 0;
                     resource->pendingRespecify = true;
                     resource->pendingRanges.clear();
+                    resource->pendingResidentWrites.clear();
                     return;
                 }
                 if (!CanTouchGLNow() || resource->id == 0 ||
                     resource->contextGeneration != g_bufferContextGeneration) {
                     resource->pendingRespecify = true;
                     resource->pendingRanges.clear();
+                    resource->pendingResidentWrites.clear();
                     return;
                 }
                 if (bufferObject.GetSize() == 0) {
@@ -1039,6 +1108,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     resource->storageSize = 0;
                     resource->pendingRespecify = false;
                     resource->pendingRanges.clear();
+                    resource->pendingResidentWrites.clear();
                     return;
                 }
                 RespecifyStorageNow(*resource, bufferObject);
@@ -1055,23 +1125,41 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     resource->pendingRanges.Add({offset, offset + size});
                     return;
                 }
+                // An adopted zero-copy persistent store already HAS the bytes (the
+                // frontend wrote them through the coherent mapping); a driver upload
+                // here would be a self-copy that re-synchronizes what coherent mapping
+                // made free.
+                if (resource->persistentMapped && resource->persistentPtr) {
+                    resource->syncedChangeSerial = bufferObject.GetChangeSerial();
+                    return;
+                }
                 // An immediate glBufferSubData resolves the WAR hazard against frames
                 // still referencing this store on the CPU on some drivers - Mali parks
                 // the thread in osup_sync_object_wait until every referencing job
                 // retires, which serialized Minecraft 26.3's per-frame UBO/chunk-mesh
                 // update streams into ~1 fps. Queue the range instead (the shadow
                 // already holds the bytes) and let draw-time sync push the merged
-                // ranges through the staging ring. The zero-copy persistent store
-                // keeps the legacy immediate upload: draw-time sync never flushes
-                // ranges for it, and its mapping publishes writes by itself.
-                if ((resource->persistentMapped && resource->persistentPtr) ||
-                    MG_Config::Features.EsprytDisableUploadRing) {
+                // ranges through the staging ring.
+                if (MG_Config::Features.EsprytDisableUploadRing) {
                     UploadRangeNow(*resource, bufferObject, offset, offset + size);
                     resource->syncedChangeSerial = bufferObject.GetChangeSerial();
                     return;
                 }
                 const std::lock_guard<std::mutex> lock(resource->pendingMutex);
                 resource->pendingRanges.Add({offset, offset + size});
+            }
+
+            // App bytes for an ADOPTED store: queue them untouched-by-the-mapping; the
+            // draw-time sync (or a readback) lands them GPU-ordered through
+            // DrainResidentWritesNow. No GL here, so the op is thread-agnostic.
+            void Ops_ResidentSubData(BufferObject& bufferObject, SizeT offset, DataPtr data) {
+                auto* resource = ResourceOf(bufferObject);
+                if (!resource || data.size == 0) return;
+                const std::lock_guard<std::mutex> lock(resource->pendingMutex);
+                auto& write = resource->pendingResidentWrites.emplace_back();
+                write.offset = offset;
+                const auto* bytes = static_cast<const Uint8*>(data.data);
+                write.bytes.assign(bytes, bytes + data.size);
             }
 
             void Ops_FlushMappedRange(BufferObject& bufferObject, Range1D range,
@@ -1087,13 +1175,23 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     return;
                 }
 
-                // Same WAR-hazard rule as Ops_SubData: an immediate upload (mapped or
-                // glBufferSubData) can park the thread on Mali until the frames still
-                // referencing this store retire. Queue the range for the staged-copy
-                // flush at draw-time sync; only the zero-copy persistent store and the
-                // negative-control kill switch keep the immediate paths below.
-                if (!(resource->persistentMapped && resource->persistentPtr) &&
-                    !MG_Config::Features.EsprytDisableUploadRing) {
+                // An adopted zero-copy persistent store already HAS the bytes: the
+                // frontend shadow IS the coherent mapping the app (or UploadSubData)
+                // wrote into, so publishing is free. The self-copy that used to run
+                // here mapped a buffer this backend keeps persistently mapped (an
+                // INVALID_OPERATION whose fallback was a WAR-stalling
+                // glBufferSubData).
+                if (resource->persistentMapped && resource->persistentPtr) {
+                    resource->syncedChangeSerial = bufferObject.GetChangeSerial();
+                    return;
+                }
+
+                // Same WAR-hazard rule as Ops_SubData: an immediate synchronized upload
+                // (mapped or glBufferSubData) can park the thread on Mali until the
+                // frames still referencing this store retire. Queue the range for the
+                // staged flush at draw-time sync; the negative-control kill switch
+                // keeps the immediate paths below.
+                if (!MG_Config::Features.EsprytDisableUploadRing) {
                     const std::lock_guard<std::mutex> lock(resource->pendingMutex);
                     resource->pendingRanges.Add(range);
                     return;
@@ -1137,8 +1235,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 if (!resource || resource->id == 0 || !resource->storageInitialized) return;
                 if (!CanTouchGLNow() || resource->contextGeneration != g_bufferContextGeneration) return;
                 if (resource->persistentMapped) {
-                    // Host writes to a persistent map must not race shader writes already queued
-                    // on this context. There is no backend copy to read back in this case.
+                    // Queued resident SubData bytes land first (GPU-ordered), then the
+                    // finish makes them - and any shader writes already queued on this
+                    // context - visible through the coherent mapping the reads use.
+                    // There is no backend copy to read back in this case.
+                    DrainResidentWritesNow(*resource, bufferObject);
                     if (g_GLESFuncs.glFinish) g_GLESFuncs.glFinish();
                     return;
                 }
@@ -1204,6 +1305,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 Ops_SubData(bufferObject, offset, size);
                 BumpBufferMutationEpoch();
             }
+            void Ops_ResidentSubDataTracked(BufferObject& bufferObject, SizeT offset, DataPtr data) {
+                Ops_ResidentSubData(bufferObject, offset, data);
+                BumpBufferMutationEpoch();
+            }
             void Ops_FlushMappedRangeTracked(BufferObject& bufferObject, Range1D range,
                                              Flags<BufferMappingAccessBit> appAccess) {
                 Ops_FlushMappedRange(bufferObject, range, appAccess);
@@ -1228,6 +1333,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             const BufferBackendOps g_glesBufferBackendOps = {
                 .Respecify = Ops_RespecifyTracked,
                 .SubData = Ops_SubDataTracked,
+                .ResidentSubData = Ops_ResidentSubDataTracked,
                 .FlushMappedRange = Ops_FlushMappedRangeTracked,
                 .OnDestroy = Ops_OnDestroyTracked,
                 .AcquirePersistentMap = Ops_AcquirePersistentMapTracked,
@@ -1329,7 +1435,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
             if (resource->id == 0) return false;
             // Zero-copy coherent persistent store: EnsureBufferResource's own early-out —
             // the app writes straight into the mapped GPU storage, nothing to sync.
-            if (resource->persistentMapped) return resource->persistentPtr != nullptr;
+            // Except queued resident SubData bytes, which land through the sync path
+            // (same unlocked emptiness probe as pendingRanges below).
+            if (resource->persistentMapped) {
+                return resource->persistentPtr != nullptr && resource->pendingResidentWrites.empty();
+            }
             // A live non-zero-copy map may owe a per-draw SyncPersistentMappedRange push
             // (persistent maps mutate the shadow without bumping the change serial).
             if (frontend->IsMapped()) return false;
@@ -1361,6 +1471,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 resource->storageSize = 0;
                 resource->pendingRespecify = true;
                 resource->pendingRanges.clear();
+                    resource->pendingResidentWrites.clear();
                 resource->contextGeneration = g_bufferContextGeneration;
                 // The persistent map (and its pointer) died with the old context; the
                 // frontend re-acquires a fresh one on its next map.
@@ -1390,6 +1501,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             // persistently mapped immutable store, so there is nothing to (re)upload at
             // draw time. This is where the per-draw whole-buffer glBufferSubData used to run.
             if (resource->persistentMapped && resource->persistentPtr && resource->id != 0) {
+                DrainResidentWritesNow(*resource, *bufferObject);
                 return resource;
             }
 
@@ -1411,6 +1523,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     {
                         const std::lock_guard<std::mutex> lock(resource->pendingMutex);
                         resource->pendingRanges.clear();
+                    resource->pendingResidentWrites.clear();
                     }
                     resource->syncedChangeSerial = bufferObject->GetChangeSerial();
                 } else {
@@ -2628,7 +2741,17 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     }
                 }
             }
-            if (m_contextGeneration == g_backendContextGeneration && g_GLESFuncs.glDeleteTextures) {
+            // TEMP-EXP (leak texture deletes): /sdcard/MG/exp_leak_texture_deletes.
+            // Discriminator for the mali-mem-purge hiccup theory: never hand the
+            // driver a texture free, so the purge daemon has nothing to reclaim.
+            static const Bool s_expLeakTextureDeletes = [] {
+                FILE* f = std::fopen("/sdcard/MG/exp_leak_texture_deletes", "rb");
+                if (!f) return false;
+                std::fclose(f);
+                return true;
+            }();
+            if (m_contextGeneration == g_backendContextGeneration && g_GLESFuncs.glDeleteTextures &&
+                !s_expLeakTextureDeletes) {
                 g_GLESFuncs.glDeleteTextures(1, &m_backendTextureId);
                 if (m_bufferImageSplitViewId != 0) {
                     g_GLESFuncs.glDeleteTextures(1, &m_bufferImageSplitViewId);
@@ -7219,6 +7342,15 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 m_backendProgramUsable = false;
                 return;
             }
+            if (stateProgramObject->PointSizeDemoted()) {
+                // THE ARMING SIGNAL, INFO on purpose and latched: the integration lane that
+                // pins MOBILEGL_POINT_SIZE_DEMOTION=1 asserts on exactly this line, because
+                // every rendering assertion stays green on a healthy driver whether the
+                // demotion ran or was silently disarmed. See PointSizeDemotionScenario.
+                MGLOG_I_ONCE("DirectGLES is building programs whose tessellation/geometry gl_PointSize was "
+                             "demoted to an ordinary varying, because this driver cannot host the built-in "
+                             "in those stages.");
+            }
             MGLOG_D("Attaching %zu shaders to program %u", linkedStages.size(), m_backendProgramId);
             for (const auto& ref : stateProgramObject->GetLinkedShaderSnapshot()) {
                 if (!ref.shader) continue;
@@ -7889,6 +8021,22 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 // for; it has the variable that replaced it. Everything else - including a
                 // member of a block that was left alone - keeps the application's spelling.
                 // Storage first, pointers after: xfbNames holds pointers into these strings.
+                //
+                // Same rule for a demoted gl_PointSize: the capture stage's ESSL no longer
+                // spells the built-in at all - the value lives in the carrier the demotion
+                // named - so the driver-side request has to follow it there. Only when the
+                // capture stage IS a demoted one (geometry, else evaluation): a program whose
+                // capture stage is the vertex shader keeps the built-in and its spelling,
+                // whatever happened to a control stage behind it.
+                Bool captureStageDemoted = false;
+                if (stateProgramObject->PointSizeDemoted()) {
+                    for (const ShaderStage linkedStage : linkedStages) {
+                        if (linkedStage == ShaderStage::TessEval || linkedStage == ShaderStage::Geometry) {
+                            captureStageDemoted = true;
+                            break;
+                        }
+                    }
+                }
                 Vector<String> rewrittenXfbNames(xfbVaryings.size());
                 for (SizeT nameIndex = 0; nameIndex < xfbVaryings.size(); ++nameIndex) {
                     String flatName;
@@ -7896,6 +8044,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
                         MG_Util::ShaderTranspiler::ShaderCompiler::RewriteXfbCaptureNameForFlattenedBlock(
                             xfbVaryings[nameIndex].name, flattenedXfbBlockNames, flatName)) {
                         rewrittenXfbNames[nameIndex] = std::move(flatName);
+                    } else if (captureStageDemoted && xfbVaryings[nameIndex].name == "gl_PointSize") {
+                        rewrittenXfbNames[nameIndex] =
+                            MG_Util::ShaderTranspiler::ShaderCompiler::POINT_SIZE_CAPTURE_CARRIER_NAME;
                     } else {
                         rewrittenXfbNames[nameIndex] = xfbVaryings[nameIndex].name;
                     }

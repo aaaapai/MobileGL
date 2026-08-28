@@ -152,6 +152,19 @@ namespace MobileGL::MG_Config {
         // lavapipe carry a located block correctly and would otherwise never run this code -
         // and ForceOff is the negative control. See StripIoBlockLocationsPass.
         QuirkOverride EsprytUnlocatedIoBlocks = QuirkOverride::Auto;
+        // MOBILEGL_POINT_SIZE_DEMOTION: demote gl_PointSize out of tessellation/geometry
+        // stages into an ordinary varying (ShaderCompiler::
+        // DemoteTessellationGeometryPointSizeForProgram) instead of declining such programs
+        // on a device that advertises neither EXT/OES_tessellation_point_size /
+        // geometry_point_size (DirectGLES) nor shaderTessellationAndGeometryPointSize
+        // (DirectVulkan). Auto arms it exactly where the detection says the capability is
+        // absent, which is the right setting everywhere. ForceOn exists so the demotion can
+        // be exercised on a healthy driver - llvmpipe and lavapipe host the built-in
+        // natively and would otherwise never run this code, which is what the pinned
+        // integration lane uses - and ForceOff restores the plain declines (escape hatch /
+        // negative control). Cross-backend by design: the demotion runs in the shared
+        // phase-B chain, so one switch covers both. See DemotePointSizePass.
+        QuirkOverride PointSizeDemotion = QuirkOverride::Auto;
         // MOBILEGL_COHERENT_AS_FLUSH: app-compat for engines (e.g. Flywheel) that write
         // GPU-read data through persistent GL_MAP_FLUSH_EXPLICIT_BIT maps they never
         // flush. Persistent FLUSH_EXPLICIT map requests are rewritten to coherent
@@ -184,6 +197,15 @@ namespace MobileGL::MG_Config {
         // on Mali both the immediate glBufferSubData and a staged copy into a busy
         // mutable store ghost the whole destination on the CPU.
         Bool EsprytDisableInvalidateFlush = false;
+        // MOBILEGL_DISABLE_LARGE_BUFFER_ADOPTION: keep mesh-arena-sized buffer stores
+        // (>= 16MiB) on the CPU-shadow model instead of backing them with the backend's
+        // persistently+coherently mapped storage at definition time (negative control /
+        // escape hatch). Frontend-scoped: it engages only where the active backend
+        // provides AcquirePersistentMap. With adoption on, an app SubData into a busy
+        // 128MB arena is a plain memcpy into GPU-visible memory; every driver-mediated
+        // route for the same write stalls the thread or ghost-copies the whole arena on
+        // this class of Mali driver, and the arena stops costing its size again in RAM.
+        Bool DisableLargeBufferAdoption = false;
         // MOBILEGL_ESPRYT_FORCE_DS_READBACK_EMULATION: make DirectGLES skip the native ES
         // depth/stencil reads and always go through the shader-sampling emulation. Core GL
         // ES has no depth or stencil readback, but some drivers accept it anyway (Mesa does,
@@ -278,6 +300,22 @@ namespace MobileGL::MG_Config {
         // negative control that replays the corruption. Costs 2x the memory of the affected
         // formats where it engages, which is why Auto is probe-gated rather than always-on.
         QuirkOverride EsprytWidenPacked16Storage = QuirkOverride::Auto;
+        // MOBILEGL_MAGMA_PRIMGEN_QUERY_REROUTE: DirectVulkan's GL_PRIMITIVES_GENERATED
+        // reroute for draws made while transform feedback is INACTIVE. The stream query
+        // (VK_QUERY_TYPE_TRANSFORM_FEEDBACK_STREAM_EXT primitivesNeeded) is defined to count
+        // them, but a Mali driver - and Mesa lavapipe - answers 0 unless a capture span is
+        // open, which is exactly the shape the CTS uses to measure the tessellator, so ~29
+        // tessellation tests per tree size a capture buffer from the 0 and die on the
+        // zero-length map. Auto defers to a device probe at renderer bring-up
+        // (SelfTest::RunPrimitivesGeneratedNoXfbProbe), which measures two substitutes on
+        // the same capture-less draws and arms the best proven one: the dedicated
+        // VK_EXT_primitives_generated_query (exact semantics by definition; lavapipe passes
+        // it, rasterizer discard included), else a clipping-invocations pipeline-statistics
+        // pool (see the verdict vocabulary for its rasterizer-discard split). ForceOn pins
+        // the reroute structurally wherever a pool can exist (the arming-observable lane,
+        // immune to the probe's verdict moving), and ForceOff is the negative control that
+        // replays the driver's silence.
+        QuirkOverride MagmaPrimGenQueryReroute = QuirkOverride::Auto;
     };
     extern FeaturesTable Features;
 } // namespace MobileGL::MG_Config

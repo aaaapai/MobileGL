@@ -101,8 +101,10 @@ add_executable(MobileGLIntegrationTest
     Scenarios/VertexAttribBindingScenario.cpp
     Scenarios/XfbCaptureBufferReuseScenario.cpp
     Scenarios/XfbPrimitiveQueryScenario.cpp
+    Scenarios/PrimitivesGeneratedNoXfbScenario.cpp
     Scenarios/XfbRepeatedCaptureScenario.cpp
     Scenarios/TessellationXfbCaptureScenario.cpp
+    Scenarios/PointSizeDemotionScenario.cpp
     Scenarios/VertexArrayEnableDisableScenario.cpp
     Scenarios/CopyImageLevelRangeScenario.cpp
     Scenarios/CopyImageLayeredScenario.cpp
@@ -113,6 +115,7 @@ add_executable(MobileGLIntegrationTest
     Scenarios/LayeredAttachmentShapeScenario.cpp
     Scenarios/LayeredTextureReadbackScenario.cpp
     Scenarios/AtomicCounterScenario.cpp
+    Scenarios/LargeArenaAdoptionScenario.cpp
     Scenarios/SsboArrayDynamicIndexScenario.cpp
     Scenarios/StorageBufferRegrowScenario.cpp
     Scenarios/SpirvShaderBinaryScenario.cpp
@@ -365,6 +368,25 @@ mgl_itest_join_environment(MGL_ITEST_GLES_UNLOCATED_IO_BLOCKS_ENVIRONMENT
     ${MGL_ITEST_COMMON_ENV})
 mgl_itest_join_environment(MGL_ITEST_GLES_WIDENED_PACKED16_ENVIRONMENT
     "MOBILEGL_BACKEND_TYPE=DirectGLES" "MOBILEGL_ESPRYT_WIDEN_PACKED16_STORAGE=1" ${MGL_ITEST_COMMON_ENV})
+# Same shape as the UnlocatedIoBlocks entry: the log path is where the reroute's latched
+# MGLOG_I lands, and the arming case only trusts the bytes written after it started.
+mgl_itest_join_environment(MGL_ITEST_VULKAN_PRIMGEN_REROUTE_ENVIRONMENT
+    "MOBILEGL_BACKEND_TYPE=DirectVulkan" "MOBILEGL_MAGMA_PRIMGEN_QUERY_REROUTE=1"
+    "MOBILEGL_LOG_FILE_PATH=${CMAKE_CURRENT_BINARY_DIR}/primgen-query-reroute.log"
+    ${MGL_ITEST_VULKAN_ENV})
+# The point-size demotion pinned on, per backend, with a per-lane log file for the arming
+# assertion - the same MOBILEGL_LOG_FILE_PATH reasoning as the UnlocatedIoBlocks lane above.
+# Two lanes because the demotion runs in the SHARED phase-B chain and each backend then
+# consumes it differently (Espryt respells the driver-side capture request, Magma binds the
+# SPIR-V Xfb decorations to the carrier).
+mgl_itest_join_environment(MGL_ITEST_GLES_POINT_SIZE_DEMOTION_ENVIRONMENT
+    "MOBILEGL_BACKEND_TYPE=DirectGLES" "MOBILEGL_POINT_SIZE_DEMOTION=1"
+    "MOBILEGL_LOG_FILE_PATH=${CMAKE_CURRENT_BINARY_DIR}/point-size-demotion-gles.log"
+    ${MGL_ITEST_COMMON_ENV})
+mgl_itest_join_environment(MGL_ITEST_VULKAN_POINT_SIZE_DEMOTION_ENVIRONMENT
+    "MOBILEGL_BACKEND_TYPE=DirectVulkan" "MOBILEGL_POINT_SIZE_DEMOTION=1"
+    "MOBILEGL_LOG_FILE_PATH=${CMAKE_CURRENT_BINARY_DIR}/point-size-demotion-vulkan.log"
+    ${MGL_ITEST_VULKAN_ENV})
 
 # TIMEOUT on every entry: a GPU test that wedges must fail the run, not hang it.
 set(MGL_ITEST_TIMEOUT 120)
@@ -545,6 +567,25 @@ gtest_discover_tests(MobileGLIntegrationTest
         ENVIRONMENT "${MGL_ITEST_GLES_NO_VIEWPORT_EMULATION_ENVIRONMENT}"
 )
 
+# PrimitivesGeneratedNoXfbScenario again, with the GL_PRIMITIVES_GENERATED statistics
+# reroute PINNED ON. The ambient DirectVulkan registration runs the same cases under the
+# bring-up probe's Auto verdict, so between the two entries both accounting paths answer
+# the same GL questions and must produce the same numbers - the "two pools must agree"
+# gate this machine can hold that the affected device cannot. The pinned entry is also
+# the only one whose arming case runs: it asserts the renderer's latched MGLOG_I, so a
+# silently-disarmed reroute (an inverted override mapping, a lost gate) fails here
+# instead of leaving every equality case vacuously green. DirectVulkan only - the flag
+# steers nothing on DirectGLES.
+gtest_discover_tests(MobileGLIntegrationTest
+    TEST_PREFIX "DirectVulkan.PrimGenReroute."
+    TEST_FILTER "PrimitivesGeneratedNoXfbScenario.*"
+    DISCOVERY_TIMEOUT 30
+    PROPERTIES
+        LABELS integration-gpu
+        TIMEOUT ${MGL_ITEST_TIMEOUT}
+        ENVIRONMENT "${MGL_ITEST_VULKAN_PRIMGEN_REROUTE_ENVIRONMENT}"
+)
+
 # The packed16 copy scenarios again, with the 8-bit storage widening PINNED ON. The ambient
 # registrations above cover the narrow storage - on every CI driver the widening's POST
 # probe finds no field-order mirror, so Auto keeps the native 16-bit path - which means the
@@ -561,4 +602,31 @@ gtest_discover_tests(MobileGLIntegrationTest
         LABELS integration-gpu
         TIMEOUT ${MGL_ITEST_TIMEOUT}
         ENVIRONMENT "${MGL_ITEST_GLES_WIDENED_PACKED16_ENVIRONMENT}"
+)
+
+# PointSizeDemotionScenario with the demotion PINNED ON, per backend, for the reason every
+# pinned lane above exists: llvmpipe and lavapipe both HOST gl_PointSize in tessellation and
+# geometry stages, so the ambient registrations run these captures through the built-in and
+# the demotion - the path every affected Mali device actually takes - would execute nowhere.
+# The ambient runs stay the negative control: same scenario, same CPU-computed bytes, native
+# path. Both backends, because the demotion is shared phase-B work with two different
+# consumers (the ESSL capture respelling vs the SPIR-V Xfb carrier binding).
+gtest_discover_tests(MobileGLIntegrationTest
+    TEST_PREFIX "DirectGLES.PointSizeDemotion."
+    TEST_FILTER "PointSizeDemotionScenario.*"
+    DISCOVERY_TIMEOUT 30
+    PROPERTIES
+        LABELS integration-gpu
+        TIMEOUT ${MGL_ITEST_TIMEOUT}
+        ENVIRONMENT "${MGL_ITEST_GLES_POINT_SIZE_DEMOTION_ENVIRONMENT}"
+)
+
+gtest_discover_tests(MobileGLIntegrationTest
+    TEST_PREFIX "DirectVulkan.PointSizeDemotion."
+    TEST_FILTER "PointSizeDemotionScenario.*"
+    DISCOVERY_TIMEOUT 30
+    PROPERTIES
+        LABELS integration-gpu
+        TIMEOUT ${MGL_ITEST_TIMEOUT}
+        ENVIRONMENT "${MGL_ITEST_VULKAN_POINT_SIZE_DEMOTION_ENVIRONMENT}"
 )

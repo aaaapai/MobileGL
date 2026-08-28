@@ -80,6 +80,17 @@ namespace MobileGL {
             void (*Respecify)(BufferObject& bufferObject) = nullptr;
             // Contents update of [offset, offset + size) from the shadow.
             void (*SubData)(BufferObject& bufferObject, SizeT offset, SizeT size) = nullptr;
+            // Contents update of an ADOPTED (GPU-resident) store. `data` holds the app's
+            // bytes; the frontend has NOT touched the resident mapping. GL orders a
+            // glBufferSubData after already-submitted GPU reads of the store, and an
+            // in-place host write into the coherent mapping tears the frames still
+            // reading the old bytes (Minecraft patches LIVE chunk sections this way -
+            // the tear shows as one-frame wrong geometry/UVs during fast movement). The
+            // backend lands the bytes on the GPU timeline instead: after in-flight
+            // readers, before the next consumer. The frontend marks the buffer
+            // gpu-write-pending so reads reconcile through ReadbackFromGpu. Backends
+            // without this op keep the legacy ordered in-place host write.
+            void (*ResidentSubData)(BufferObject& bufferObject, SizeT offset, DataPtr data) = nullptr;
             // Write-map flush (glUnmapBuffer / glFlushMappedBufferRange). Carries the
             // app's real mapping flags so the backend can honour INVALIDATE_* /
             // UNSYNCHRONIZED semantics per call instead of merging them.
@@ -211,6 +222,10 @@ namespace MobileGL {
             // Sizes the store for a (re)definition, renewing an adopted GPU-resident
             // mapping across it. See the definition for why the renewal is not optional.
             void RedefineStorage(SizeT size);
+            // Backend-initiated coherent adoption for mesh-arena-sized stores; see the
+            // definition for the driver behavior that makes every other write route to
+            // a busy large mutable store a frame-scale stall.
+            void TryAdoptLargeStorage();
             void NotifyRespecify();
             void NotifySubData(SizeT offset, SizeT size);
             void NotifyFlushMappedRange(Range1D range, Flags<BufferMappingAccessBit> appAccess);
