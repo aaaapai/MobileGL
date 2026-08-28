@@ -299,31 +299,38 @@ namespace MobileGL::MG_Util::SelfTest {
     const ImageCoherencyResidualMeasurement& ImageWriteReadCoherencyResidual(
         const MG_External::GLESFunctionsTable& gl);
 
-    // Copies one known GL_UNSIGNED_SHORT_5_5_5_1 word out of a GL_RGB5_A1 2D array's mip
-    // level 1 into a plain 2D image with glCopyImageSubData and reads the landed texel back.
-    // Returns true only when the level-1 copy delivers the word's 5_5_5_1 <-> 1_5_5_5_REV
-    // field-order mirror while the identical level-0 copy delivers the word itself.
+    // Copies one known GL_UNSIGNED_SHORT_5_5_5_1 word out of both mip levels of a GL_RGB5_A1
+    // 2D array into plain 2D images with glCopyImageSubData and reads the landed texels back
+    // - for SEVERAL ALLOCATION RECIPES of the same array. Returns true only when a copy from
+    // any level of any recipe delivers the word's 5_5_5_1 <-> 1_5_5_5_REV field-order mirror
+    // while the controls below hold.
     //
-    // The affected Mali stores 16-bit packed texels (RGB565 / RGB5_A1 / RGBA4) at a non-zero
-    // mip level of a 2D array in the *_REV field order every other image does NOT use.
-    // Uploads and readbacks decode that layout consistently, so nothing but a raw texel-block
-    // move can see it - which is exactly what glCopyImageSubData is defined to be, and why
-    // the whole KHR-GL4x.copy_image rgb5/rgb5_a1/rgba4 x *2d_array* matrix fails there while
-    // every other suite touching these formats passes. The textures reproduce the failing
-    // shape verbatim - THREE-level chains on both endpoints (30/15/7 x12 for the array,
-    // 7/3/1 for the plain 2D image), exactly the CTS's FUNCTIONAL_TEST_N_LEVELS = 3
-    // allocation - because a 14x14 base's level 1 measured clean on the same driver, so
-    // every deviation from the measured shape risks landing on the clean side of whatever
-    // allocation threshold picks the driver's layout, and a probe miss here is not a red
-    // test: it is the widening silently staying inert with all 18 bodies still failing.
+    // The affected Mali stores SOME 16-bit packed allocations (RGB565 / RGB5_A1 / RGBA4) with
+    // their fields packed from the other end of the word. The mirrored layout is an
+    // ALLOCATION property, not a mip-level one - the failing device's 30x30x12 array is born
+    // mirrored at level 0 and level 1 alike, which is what vetoed the first deployment's
+    // "level 0 is the clean control" design - and it is not fixed for the allocation's
+    // lifetime either: FBO-ATTACHING the array transitions it to the plain layout, content
+    // preserved, which is why a probe that direct-reads its array before copying relayouts
+    // its own subject and measures a texture the application's copies never see (the second
+    // deployment's miss), and why the CTS's "source not modified" checks always passed. The
+    // probe builds the CTS's failing shape (three-level chains both endpoints: 30/15/7 x12
+    // array, 7/3/1 plain, FUNCTIONAL_TEST_N_LEVELS = 3) with several allocation recipes,
+    // copies FIRST, in situ, and a mirror delivered from any level of any recipe is the
+    // finding. Uploads and readbacks decode each image's layout of the moment consistently,
+    // so nothing but a raw texel-block move can see the divergence - which is exactly what
+    // glCopyImageSubData is defined to be, and why the whole KHR-GL4x.copy_image
+    // rgb5/rgb5_a1/rgba4 x *2d_array* matrix fails there while every other suite touching
+    // these formats passes.
     //
-    // THE CONTROL is the identical copy out of mip level 0, which is clean on the affected
-    // driver too: it proves copy_image works between these images at all and that the
-    // upload/readback round trip is exact, so a driver that cannot host the shape reaches no
-    // verdict instead of being reported as this. The subject must also match the mirror
-    // PREDICTION, not merely differ from the expectation - a copy that delivered anything
-    // else is a different defect and reaches no verdict either. Restores every piece of GL
-    // state it touches.
+    // CONTROLS. The machinery: an identical copy between two SAME-shape plain-2D images,
+    // which share a layout whatever it is, so it must deliver the word on any driver that can
+    // run copy_image on these formats - a driver that cannot reaches no verdict instead of
+    // being reported as this. And per recipe, AFTER its subject copies, the array's own round
+    // trip: a direct FBO readback of its level 1 must answer the word, or the UPLOAD is what
+    // corrupts - a different defect. The subjects must also match the mirror PREDICTION, not
+    // merely differ from the word - a copy that delivered anything else is a different defect
+    // and reaches no verdict either. Restores every piece of GL state it touches.
     Bool ProbeCopyImageMirrorsPacked16FieldOrder(const MG_External::GLESFunctionsTable& gl);
 
     // ProbeCopyImageMirrorsPacked16FieldOrder(), evaluated at most once per process. The

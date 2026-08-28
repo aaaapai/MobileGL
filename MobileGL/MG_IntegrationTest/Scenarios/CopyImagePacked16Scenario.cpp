@@ -12,25 +12,26 @@
 // that survived every earlier wave: the three internal formats MobileGL can keep as 16-bit
 // packed ES storage - GL_RGB5 (stored GL_RGB565), GL_RGB5_A1, GL_RGBA4 - crossed with the
 // target pairs that put a GL_TEXTURE_2D_ARRAY's MIP LEVEL 1 on one side of the copy. On the
-// affected Mali the driver's physical field order for such a level is the *_REV mirror of
-// every other image's, and glCopyImageSubData - a raw texel-block move - lands the fields
+// affected Mali the mirrored *_REV field order is a property of WHOLE ALLOCATIONS (shape-
+// and context-dependent; the failing 30x30x12 arrays carry it at every level, the small
+// arrays of the suite's passing iterations do not), and glCopyImageSubData - a raw
+// texel-block move - between a mirrored allocation and a plain one lands the fields
 // reversed: src word 0x0047 arrives as 0x8C20 (its 5_5_5_1 -> 1_5_5_5_REV re-encoding),
 // 0x0007 as 0x3800, byte-exact on every failing body. Uploads and readbacks of the same
-// level are clean (the driver decodes its own layout consistently), which is why only the
+// image are clean (the driver decodes its own layout consistently), which is why only the
 // copy path ever crossed the two layouts and why the CTS's "source image was not modified"
 // checks always passed.
 //
 // The array is 30x30x12 with THREE levels and the flat endpoint is 7x7 with three levels
 // (7/3/1) because that is the allocation the failures pin - the CTS builds every functional
-// texture with FUNCTIONAL_TEST_N_LEVELS = 3 (makeTextureComplete(0, 2)) - and the same
-// suite's level-0 copies and a 14x14 base's level 1 measured clean on the same driver, so
-// any deviation from the measured shape (a smaller array, a shorter chain) might sit on the
-// clean side of whatever allocation threshold picks the driver's layout.
+// texture with FUNCTIONAL_TEST_N_LEVELS = 3 (makeTextureComplete(0, 2)) - and any deviation
+// from the measured shape might sit on the clean side of whatever allocation heuristic picks
+// the driver's layout.
 //
 // The repair under test is the packed16 storage widening
 // (PixelFormatNormalizeOptionBit::WidenPacked16Norm): where the POST probe
 // (SelfTest::CopyImageMirrorsPacked16FieldOrder) measures the mirror - or
-// MOBILEGL_WIDEN_PACKED16_STORAGE forces it - the three formats are stored as
+// MOBILEGL_ESPRYT_WIDEN_PACKED16_STORAGE forces it - the three formats are stored as
 // GL_RGB8/GL_RGBA8, leaving no 16-bit packed image for a copy to disagree about. The client
 // word still round-trips exactly: the canonical shadow is already UNorm8, and an n-bit field
 // encodes to UNorm8 and back losslessly for every n <= 8.
@@ -39,7 +40,7 @@
 //   * the ambient registrations take the narrow path on a clean driver (llvmpipe has no
 //     mirror, so Auto keeps the native 16-bit storage - the pre-existing behaviour stays
 //     covered);
-//   * the DirectGLES.WidenedPacked16. registration pins MOBILEGL_WIDEN_PACKED16_STORAGE=1,
+//   * the DirectGLES.WidenedPacked16. registration pins MOBILEGL_ESPRYT_WIDEN_PACKED16_STORAGE=1,
 //     which is the storage every affected device will actually run - without it the repair
 //     is unfalsifiable off-device, because no CI driver has the bug that arms it.
 // The Mali mirror itself CANNOT be reproduced here; only the on-device CTS run can show the
