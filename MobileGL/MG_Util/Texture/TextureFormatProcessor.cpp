@@ -552,6 +552,10 @@ namespace MobileGL::MG_Util::TextureFormatProcessor {
                 *outFormat = GL_DEPTH_STENCIL;
                 break;
 
+            case GL_STENCIL_INDEX8:
+                *outFormat = GL_STENCIL_INDEX;
+                break;
+
             default:
                 MGLOG_E_ONCE("NormalizePixelFormat: outFormat: unhandled internalFormat: %s",
                         MG_Util::ConvertGLEnumToString(internalFormat).c_str());
@@ -774,6 +778,10 @@ namespace MobileGL::MG_Util::TextureFormatProcessor {
             case GL_DEPTH24_STENCIL8:
             case GL_DEPTH_STENCIL:
                 *outType = GL_UNSIGNED_INT_24_8;
+                break;
+
+            case GL_STENCIL_INDEX8:
+                *outType = GL_UNSIGNED_BYTE;
                 break;
 
             default:
