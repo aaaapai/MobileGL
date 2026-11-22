@@ -14,6 +14,9 @@ from pathlib import Path
 
 
 TRACE_CASES_JSON = Path(__file__).with_name("trace_cases.json")
+
+# The top-level keys of the manifest. An unknown one is refused, as an unknown case key is.
+KNOWN_MANIFEST_KEYS = frozenset({"defaults", "cases", "android_smoke"})
 CI_BACKENDS = ("DirectGLES", "DirectVulkan")
 
 # Every key a case or the defaults block may carry. An UNKNOWN key is a hard error rather than a
@@ -127,7 +130,26 @@ def load_trace_case_manifest(path=TRACE_CASES_JSON):
         merged["split"] = split
         validate_backend_overrides(merged)
         cases.append(merged)
-    return {"defaults": defaults, "cases": cases}
+    unknown_top = sorted(set(manifest) - KNOWN_MANIFEST_KEYS)
+    if unknown_top:
+        raise ValueError(f"unknown top-level key(s) in the manifest: {', '.join(unknown_top)}")
+    # "android_smoke" names the cases the emulator replays on the monolith and spawn lanes
+    # when those lanes are reduced. A name that is not a CI case would shrink the subset with
+    # no red, so it is refused here.
+    smoke = manifest.get("android_smoke", [])
+    if not isinstance(smoke, list) or not all(isinstance(name, str) for name in smoke):
+        raise ValueError("android_smoke must be a list of case names")
+    if len(set(smoke)) != len(smoke):
+        raise ValueError("android_smoke repeats a case name")
+    ci_names = {case["name"] for case in cases if case.get("ci", True)}
+    not_ci = [name for name in smoke if name not in ci_names]
+    if not_ci:
+        raise ValueError(f"android_smoke names case(s) that are not CI cases: {', '.join(not_ci)}")
+    return {"defaults": defaults, "cases": cases, "android_smoke": smoke}
+
+
+def android_smoke_names(path=TRACE_CASES_JSON):
+    return load_trace_case_manifest(path)["android_smoke"]
 
 
 def validate_backend_overrides(case):
@@ -400,11 +422,21 @@ def github_apk_matrix(cases):
     }
 
 
-def github_transport_matrix(cases, *, apk=False):
+# The Android lanes of the transport matrix. "full" replays every case on every transport.
+# "inproc-full" replays every case on inproc, the transport the launcher ships, and only the
+# manifest's android_smoke cases on monolith and spawn: the Linux retrace jobs replay every
+# case on all three transports, so those two emulator lanes keep the cases that prove the
+# Android side of each arm.
+ANDROID_LANES = ("full", "inproc-full")
+
+
+def github_transport_matrix(cases, *, apk=False, android_smoke=None):
     """Run the entire original matrix as control and as acceptance, once per transport.
 
     The transports use the same D/P artifact and each case's existing backend
     list. The legacy split:true subset does not limit this main acceptance matrix.
+    With `android_smoke`, an APK matrix keeps every case on inproc and only the named
+    cases on monolith and spawn.
     Nested APK case/backend metadata is deliberately left untouched.
 
     THE SPAWN LANE IS APK-ONLY, and that is a statement about where the evidence is missing
@@ -423,12 +455,19 @@ def github_transport_matrix(cases, *, apk=False):
     build = github_apk_matrix if apk else github_test_matrix
     if not cases:
         raise ValueError("transport matrix needs at least one trace case")
+    reduced = cases
+    if android_smoke is not None:
+        if not apk:
+            raise ValueError("only the APK transport matrix has reduced lanes")
+        reduced = [case for case in cases if case["name"] in android_smoke]
+        if not reduced:
+            raise ValueError("the reduced Android lanes are empty: no case is in android_smoke")
     lanes = [
-        (cases, "monolith-control", "monolith"),
+        (reduced, "monolith-control", "monolith"),
         (cases, "inproc-acceptance", "inproc"),
     ]
     if apk:
-        lanes.append((cases, "spawn-acceptance", "spawn"))
+        lanes.append((reduced, "spawn-acceptance", "spawn"))
     return {"include": [
         {**row, "lane": lane, "transport": transport}
         for selected, lane, transport in lanes
@@ -481,6 +520,29 @@ def self_test_transport_matrices():
         print(f"transport matrix {'APK' if apk else 'Linux'}: {len(controls)} unchanged controls, "
               f"{len(acceptance)} inproc acceptance entries, {len(spawned)} spawn acceptance "
               f"entries; exact metadata and negative controls OK")
+    # The reduced Android lanes are the full matrix less the monolith and spawn rows of the
+    # cases outside android_smoke: nothing else is dropped, changed or added.
+    smoke = android_smoke_names()
+    assert smoke, "android_smoke is empty, so the reduced monolith and spawn lanes would be too"
+    full = github_transport_matrix(cases, apk=True)["include"]
+    reduced = github_transport_matrix(cases, apk=True, android_smoke=smoke)["include"]
+    kept = [row for row in full if row["transport"] == "inproc" or row["case"]["name"] in smoke]
+    assert reduced == kept, "the reduced Android lanes are not the full matrix filtered"
+    for transport in ("monolith", "spawn"):
+        names = {row["case"]["name"] for row in reduced if row["transport"] == transport}
+        assert names == set(smoke), f"the reduced {transport} lane is not the smoke cases: {names}"
+    full_inproc = [row for row in full if row["transport"] == "inproc"]
+    assert [row for row in reduced if row["transport"] == "inproc"] == full_inproc, \
+        "the inproc lane was reduced"
+    for bad in ({"apk": False, "android_smoke": smoke},
+                {"apk": True, "android_smoke": ["no-such-case"]}):
+        try:
+            github_transport_matrix(cases, **bad)
+        except ValueError:
+            continue
+        raise AssertionError(f"github_transport_matrix accepted {bad}")
+    print(f"transport matrix APK reduced: {len(reduced)} of {len(full)} rows; inproc keeps all "
+          f"{len(full_inproc)}, monolith and spawn keep the {len(smoke)} smoke cases")
 
 
 def self_test_split_matrix(cases=None):
@@ -516,6 +578,318 @@ def self_test_split_matrix(cases=None):
         "the full split matrix must come back empty, for the workflow's named error"
     print(f"split matrix: {len(full)} rows, {len(spawn_only)} with inproc dropped ({len(kept)} OpenRA inproc "
           f"kept); all {len(dropped)} dropped inproc rows are inproc-acceptance rows")
+
+
+# --- Shards: several cases of one cell replayed by one CI job ---------------------------------
+#
+# A cell is everything a per-case matrix row carries except its case: the backend, and the lane
+# and transport where the matrix has them. A shard row keeps the cell's keys unchanged and adds
+# the cases it replays, so the job that runs it reads the same fields a per-case leg reads.
+# Every shard matrix is built from the per-case matrix it replaces and is refused unless its
+# rows, taken apart again, are exactly that matrix.
+
+TRACE_DURATION_HINTS_JSON = Path(__file__).with_name("trace_duration_hints.json")
+
+# Shards per cell on Linux, the one tunable of that layout. A cell with little to replay gets
+# fewer: a shard costs about half a minute of setup, so it is not split below
+# MIN_SHARD_SECONDS of replay.
+DEFAULT_SHARDS_PER_CELL = 4
+MIN_SHARD_SECONDS = 90
+
+# Replay seconds one emulator shard aims for, the one tunable of the Android layout. A cell is
+# split into as many shards as that takes.
+DEFAULT_ANDROID_SHARD_SECONDS = 580
+
+# The hint a row without a transport uses. The verify lane has timings of its own.
+HINT_KIND_MONOLITH = "monolith"
+HINT_KIND_VERIFY = "verify"
+
+# A shard's case names reach a shell command line, so the characters are restricted.
+SHARD_SAFE_NAME = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+
+
+def load_duration_hints(platform, path=TRACE_DURATION_HINTS_JSON):
+    """{case: {backend: {kind: seconds}}} for "linux" or "android"; empty when there is none."""
+    path = Path(path)
+    if not path.is_file():
+        return {}
+    with path.open("r", encoding="utf-8") as file:
+        table = json.load(file).get(platform, {}).get("seconds", {})
+    for case, backends in table.items():
+        for backend, kinds in backends.items():
+            for kind, seconds in kinds.items():
+                if isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or seconds <= 0:
+                    raise ValueError(f"duration hint for {case} {backend} {kind} must be a positive "
+                                     f"number: {seconds!r}")
+    return table
+
+
+def median(values):
+    ordered = sorted(values)
+    if not ordered:
+        return None
+    middle = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[middle]
+    return (ordered[middle - 1] + ordered[middle]) / 2
+
+
+def hint_seconds(hints, case, backend, kind):
+    """The hinted replay time of one row, or the median of its backend and kind, or of everything."""
+    try:
+        return hints[case][backend][kind]
+    except KeyError:
+        pass
+    same_cell = [kinds[kind] for backends in hints.values()
+                 for name, kinds in backends.items() if name == backend and kind in kinds]
+    everything = [seconds for backends in hints.values() for kinds in backends.values()
+                  for seconds in kinds.values()]
+    return median(same_cell) or median(everything) or 30
+
+
+def row_case_name(row):
+    case = row["case"]
+    return case["name"] if isinstance(case, dict) else case
+
+
+def row_backend_name(row):
+    backend = row["backend"]
+    return backend["name"] if isinstance(backend, dict) else backend
+
+
+def row_cell(row):
+    return {key: value for key, value in row.items() if key != "case"}
+
+
+def canonical(value):
+    return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+
+def shard_rows_as_cases(shard_rows):
+    """Take shard rows apart into the per-case rows they stand for."""
+    added = ("shard", "shards", "names", "cases", "seconds")
+    rows = []
+    for shard in shard_rows:
+        cell = {key: value for key, value in shard.items() if key not in added}
+        for case in shard.get("cases", shard["names"]):
+            rows.append({**cell, "case": case})
+    return rows
+
+
+def check_shard_union(rows, shard_rows):
+    """Refuse a shard matrix that is not exactly the per-case matrix `rows`, regrouped."""
+    expected = sorted(canonical(row) for row in rows)
+    actual = sorted(canonical(row) for row in shard_rows_as_cases(shard_rows))
+    if expected != actual:
+        missing = sorted(set(expected) - set(actual))
+        extra = sorted(set(actual) - set(expected))
+        raise ValueError(
+            f"the shard matrix is not the per-case matrix regrouped: {len(expected)} per-case rows, "
+            f"{len(actual)} rows in the shards; missing {missing[:3]}, unexpected {extra[:3]}")
+    if len(set(expected)) != len(expected):
+        raise ValueError("the per-case matrix repeats a row, so a shard would replay it twice")
+    cells = {}
+    for shard in shard_rows:
+        if not shard["names"]:
+            raise ValueError(f"empty shard: {shard}")
+        if "cases" in shard and [case["name"] for case in shard["cases"]] != shard["names"]:
+            raise ValueError(f"a shard's names and cases disagree: {shard['names']}")
+        cell = canonical({key: value for key, value in shard.items()
+                          if key not in ("shard", "shards", "names", "cases", "seconds")})
+        cells.setdefault(cell, []).append((shard["shard"], shard["shards"]))
+    for cell, numbers in cells.items():
+        count = len(numbers)
+        if sorted(numbers) != [(index, count) for index in range(1, count + 1)]:
+            raise ValueError(f"shards of {cell} are not numbered 1..{count} of {count}: {numbers}")
+
+
+def shard_matrix(rows, hints, *, default_kind=HINT_KIND_MONOLITH, shards=None, shard_seconds=None):
+    """Regroup a per-case matrix into shards of one cell each.
+
+    Exactly one of `shards` (shards per cell, capped so that none holds less than
+    MIN_SHARD_SECONDS of hinted replay) and `shard_seconds` (hinted replay per shard) sets the
+    layout. Cases go longest first into the shard with the least hinted time so far, which is
+    deterministic and keeps the shards of a cell even; inside a shard they run in matrix order.
+    """
+    if (shards is None) == (shard_seconds is None):
+        raise ValueError("give exactly one of shards and shard_seconds")
+    if shards is not None and shards < 1:
+        raise ValueError(f"shards per cell must be at least 1: {shards}")
+    if shard_seconds is not None and shard_seconds < 1:
+        raise ValueError(f"seconds per shard must be at least 1: {shard_seconds}")
+    cells = {}
+    for index, row in enumerate(rows):
+        name = row_case_name(row)
+        if not name or not set(name) <= SHARD_SAFE_NAME:
+            raise ValueError(f"case name {name!r} cannot be passed on a command line; allowed "
+                             f"characters are letters, digits, '.', '_' and '-'")
+        seconds = hint_seconds(hints, name, row_backend_name(row),
+                               row.get("transport", default_kind))
+        cells.setdefault(canonical(row_cell(row)), []).append((index, row, seconds))
+    out = []
+    for members in cells.values():
+        total = sum(seconds for _, _, seconds in members)
+        if shards is not None:
+            count = min(shards, int(total // MIN_SHARD_SECONDS))
+        else:
+            count = -(-int(total) // shard_seconds)
+        count = max(1, min(count, len(members)))
+        bins = [[] for _ in range(count)]
+        loads = [0] * count
+        for member in sorted(members, key=lambda item: (-item[2], item[0])):
+            target = loads.index(min(loads))
+            bins[target].append(member)
+            loads[target] += member[2]
+        for number, members_of_shard in enumerate(bins, start=1):
+            members_of_shard.sort(key=lambda item: item[0])
+            shard = {**row_cell(members_of_shard[0][1]), "shard": number, "shards": count,
+                     "names": [row_case_name(row) for _, row, _ in members_of_shard]}
+            if isinstance(members_of_shard[0][1]["case"], dict):
+                shard["cases"] = [row["case"] for _, row, _ in members_of_shard]
+            shard["seconds"] = round(sum(seconds for _, _, seconds in members_of_shard))
+            out.append(shard)
+    check_shard_union(rows, out)
+    return {"include": out}
+
+
+def per_case_matrix(format_name, cases, *, transports=SPLIT_TRANSPORTS, keep_inproc=(),
+                    android_smoke=None):
+    """The per-case matrix a shard format regroups, and the hint kind of its transport-less rows."""
+    if format_name == "github-test-shard-matrix":
+        return github_test_matrix(cases), HINT_KIND_MONOLITH
+    if format_name == "github-test-transport-shard-matrix":
+        return github_transport_matrix(cases), HINT_KIND_MONOLITH
+    if format_name == "github-verify-shard-matrix":
+        return github_verify_matrix(cases), HINT_KIND_VERIFY
+    if format_name == "github-split-shard-matrix":
+        return github_split_matrix(cases, transports, keep_inproc), HINT_KIND_MONOLITH
+    if format_name == "github-apk-shard-matrix":
+        return github_apk_matrix(cases), HINT_KIND_MONOLITH
+    if format_name == "github-apk-transport-shard-matrix":
+        return (github_transport_matrix(cases, apk=True, android_smoke=android_smoke),
+                HINT_KIND_MONOLITH)
+    raise ValueError(f"not a shard format: {format_name}")
+
+
+LINUX_SHARD_FORMATS = (
+    "github-test-shard-matrix",
+    "github-test-transport-shard-matrix",
+    "github-verify-shard-matrix",
+    "github-split-shard-matrix",
+)
+ANDROID_SHARD_FORMATS = (
+    "github-apk-shard-matrix",
+    "github-apk-transport-shard-matrix",
+)
+
+
+def github_shard_matrix(format_name, cases, *, shards=DEFAULT_SHARDS_PER_CELL,
+                        shard_seconds=DEFAULT_ANDROID_SHARD_SECONDS,
+                        transports=SPLIT_TRANSPORTS, keep_inproc=(), hints_path=TRACE_DURATION_HINTS_JSON,
+                        android_smoke=None):
+    """A shard format: the Linux ones lay out by shards per cell, the Android ones by seconds."""
+    matrix, default_kind = per_case_matrix(format_name, cases, transports=transports,
+                                           keep_inproc=keep_inproc, android_smoke=android_smoke)
+    if format_name in ANDROID_SHARD_FORMATS:
+        return shard_matrix(matrix["include"], load_duration_hints("android", hints_path),
+                            default_kind=default_kind, shard_seconds=shard_seconds)
+    return shard_matrix(matrix["include"], load_duration_hints("linux", hints_path),
+                        default_kind=default_kind, shards=shards)
+
+
+def self_test_shard_matrices():
+    """Every shard format replays exactly the rows of the per-case matrix it replaces."""
+    cases = ci_trace_cases(load_trace_cases())
+    narrowed = {"transports": ("spawn",), "keep_inproc": ("OpenRA",)}
+    layouts = [(name, {}, {"shards": count}) for name in LINUX_SHARD_FORMATS for count in (1, 4, 100)]
+    layouts += [("github-split-shard-matrix", narrowed, {"shards": count}) for count in (1, 4, 100)]
+    layouts += [(name, {}, {"shard_seconds": seconds}) for name in ANDROID_SHARD_FORMATS
+                for seconds in (60, DEFAULT_ANDROID_SHARD_SECONDS, 10 ** 9)]
+    layouts += [("github-apk-transport-shard-matrix", {"android_smoke": android_smoke_names()},
+                 {"shard_seconds": seconds}) for seconds in (60, DEFAULT_ANDROID_SHARD_SECONDS, 10 ** 9)]
+    for name, selection, layout in layouts:
+        matrix, _ = per_case_matrix(name, cases, **selection)
+        rows = matrix["include"]
+        built = github_shard_matrix(name, cases, **selection, **layout)["include"]
+        again = github_shard_matrix(name, cases, **selection, **layout)["include"]
+        assert built == again, f"{name} {layout}: the layout is not deterministic"
+        # Compared here as well as inside shard_matrix, with nothing shared but the JSON form.
+        replayed = sorted(
+            canonical({**{key: value for key, value in shard.items()
+                          if key not in ("shard", "shards", "names", "cases", "seconds")},
+                       "case": case})
+            for shard in built for case in shard.get("cases", shard["names"]))
+        assert replayed == sorted(canonical(row) for row in rows), \
+            f"{name} {layout}: the shards do not replay the per-case matrix"
+        assert sum(len(shard["names"]) for shard in built) == len(rows)
+        cells = {canonical(row_cell(row)) for row in rows}
+        assert len({canonical({key: value for key, value in shard.items()
+                               if key not in ("shard", "shards", "names", "cases", "seconds")})
+                    for shard in built}) == len(cells), f"{name} {layout}: a shard spans two cells"
+        if layout.get("shards") == 1 or layout.get("shard_seconds") == 10 ** 9:
+            assert len(built) == len(cells), f"{name} {layout}: expected one shard per cell"
+        seconds = [shard["seconds"] for shard in built]
+        shown = {key: (f"{len(value)} smoke cases" if key == "android_smoke" else value)
+                 for key, value in selection.items()}
+        print(f"shard matrix {name} {shown or ''} {layout}: {len(rows)} rows in {len(built)} "
+              f"shards over {len(cells)} cells, {min(seconds)}-{max(seconds)} s hinted per shard")
+        # The check itself must be able to fail: a dropped, a repeated and a moved case.
+        if len(built) >= 2 and any(len(shard["names"]) >= 2 for shard in built):
+            index = next(i for i, shard in enumerate(built) if len(shard["names"]) >= 2)
+            for label, damage in (("dropped", lambda names: names[1:]),
+                                  ("repeated", lambda names: names + names[:1])):
+                broken = [dict(shard) for shard in built]
+                broken[index]["names"] = damage(list(broken[index]["names"]))
+                if "cases" in broken[index]:
+                    broken[index]["cases"] = damage(list(broken[index]["cases"]))
+                try:
+                    check_shard_union(rows, broken)
+                except ValueError:
+                    pass
+                else:
+                    raise AssertionError(f"{name} {layout}: a {label} case passed the union check")
+            other = next((i for i, shard in enumerate(built)
+                          if row_backend_name(shard) != row_backend_name(built[index])), None)
+            if other is not None:
+                broken = [dict(shard) for shard in built]
+                for key in ("names", "cases"):
+                    if key in broken[index]:
+                        moved = list(broken[index][key])
+                        broken[other][key] = list(broken[other][key]) + moved[:1]
+                        broken[index][key] = moved[1:]
+                try:
+                    check_shard_union(rows, broken)
+                except ValueError:
+                    pass
+                else:
+                    raise AssertionError(f"{name} {layout}: a case moved to another backend's "
+                                         f"shard passed the union check")
+    # Hints only weigh the packing. With none at all, and with a case no hint names, the rows
+    # replayed are the same.
+    rows = github_transport_matrix(cases)["include"]
+    for hints in ({}, {"no-such-case": {"DirectGLES": {"monolith": 5}}}):
+        check_shard_union(rows, shard_matrix(rows, hints, shards=4)["include"])
+    assert hint_seconds({}, "x", "DirectGLES", "monolith") == 30
+    assert hint_seconds({"a": {"DirectGLES": {"monolith": 10}}, "b": {"DirectGLES": {"monolith": 20}},
+                         "c": {"DirectVulkan": {"monolith": 90}}}, "x", "DirectGLES", "monolith") == 15
+    for bad in ({"shards": 0}, {"shard_seconds": 0}, {}, {"shards": 4, "shard_seconds": 60}):
+        try:
+            shard_matrix(rows, {}, **bad)
+        except ValueError:
+            continue
+        raise AssertionError(f"shard_matrix accepted {bad}")
+    try:
+        shard_matrix([{"backend": "DirectGLES", "case": "bad name; rm"}], {}, shards=1)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("a case name with shell characters was accepted")
+    # The verify lane's corrupted-snapshot control replays OpenRA on DirectGLES, so that row has
+    # to be in the verify matrix for the control to have a shard to run in.
+    verify_rows = github_verify_matrix(cases)["include"]
+    assert {"backend": "DirectGLES", "case": "OpenRA"} in verify_rows, \
+        "the verify matrix has no OpenRA DirectGLES row, so its negative control would not run"
+    print("shard matrices: union, numbering, determinism and negative controls OK")
 
 
 def cmake_quote(value):
@@ -570,15 +944,27 @@ def parse_args():
     parser.add_argument("--self-test-transport-matrices", action="store_true")
     parser.add_argument("--self-test-split-matrix", action="store_true",
                         help="prove the spawn-only split matrix drops only inproc-acceptance rows")
+    parser.add_argument("--self-test-shard-matrices", action="store_true",
+                        help="prove every shard matrix replays exactly its per-case matrix")
     parser.add_argument("--fixture-root", default="tools/trace_replay/fixtures")
     parser.add_argument("--transports", default=",".join(SPLIT_TRANSPORTS),
                         help="github-split-matrix: the comma-separated split transports to emit")
     parser.add_argument("--keep-inproc", default="",
                         help="github-split-matrix: comma-separated split cases whose inproc rows stay")
+    parser.add_argument("--shards", type=int, default=DEFAULT_SHARDS_PER_CELL,
+                        help="Linux shard formats: shards per (lane, transport, backend) cell")
+    parser.add_argument("--shard-seconds", type=int, default=DEFAULT_ANDROID_SHARD_SECONDS,
+                        help="Android shard formats: hinted replay seconds one shard aims for")
+    parser.add_argument("--android-lanes", choices=ANDROID_LANES, default="full",
+                        help="APK transport formats: inproc-full keeps every case on inproc and "
+                             "the manifest's android_smoke cases on monolith and spawn")
+    parser.add_argument("--duration-hints", default=str(TRACE_DURATION_HINTS_JSON),
+                        help="shard formats: the JSON of replay seconds the packing weighs cases by")
     parser.add_argument(
         "--format",
         choices=(
             "names",
+            "android-smoke-names",
             "github-test-matrix",
             "github-test-transport-matrix",
             "github-verify-matrix",
@@ -586,7 +972,10 @@ def parse_args():
             "github-apk",
             "github-apk-matrix",
             "github-apk-transport-matrix",
+            *LINUX_SHARD_FORMATS,
+            *ANDROID_SHARD_FORMATS,
             "fixture-files",
+            "fixture-manifest",
             "cmake",
         ),
         default="names",
@@ -602,11 +991,17 @@ def main():
     if args.self_test_split_matrix:
         self_test_split_matrix()
         return 0
+    if args.self_test_shard_matrices:
+        self_test_shard_matrices()
+        return 0
     cases = load_trace_cases()
     if args.ci:
         cases = ci_trace_cases(cases)
+    android_smoke = android_smoke_names() if args.android_lanes == "inproc-full" else None
     if args.format == "names":
         print(json.dumps([case["name"] for case in cases], separators=(",", ":")))
+    elif args.format == "android-smoke-names":
+        print(",".join(android_smoke_names()))
     elif args.format == "github-test-matrix":
         print(json.dumps(github_test_matrix(cases), separators=(",", ":")))
     elif args.format == "github-test-transport-matrix":
@@ -622,7 +1017,22 @@ def main():
     elif args.format == "github-apk-matrix":
         print(json.dumps(github_apk_matrix(cases), separators=(",", ":")))
     elif args.format == "github-apk-transport-matrix":
-        print(json.dumps(github_transport_matrix(cases, apk=True), separators=(",", ":")))
+        print(json.dumps(github_transport_matrix(cases, apk=True, android_smoke=android_smoke),
+                         separators=(",", ":")))
+    elif args.format in LINUX_SHARD_FORMATS + ANDROID_SHARD_FORMATS:
+        transports = tuple(t for t in args.transports.split(",") if t)
+        keep = tuple(c for c in args.keep_inproc.split(",") if c)
+        print(json.dumps(
+            github_shard_matrix(args.format, cases, shards=args.shards,
+                                shard_seconds=args.shard_seconds, transports=transports,
+                                keep_inproc=keep, hints_path=args.duration_hints,
+                                android_smoke=android_smoke),
+            separators=(",", ":")))
+    elif args.format == "fixture-manifest":
+        # One "<case><TAB><file>" line per fixture file, for the fixture bundle script.
+        for case in cases:
+            for file in fixture_files(case, args.fixture_root):
+                print(f"{case['name']}\t{file}")
     elif args.format == "fixture-files":
         if not args.case_name:
             print("--case is required for --format fixture-files", file=sys.stderr)

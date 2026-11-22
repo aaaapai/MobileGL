@@ -25,12 +25,17 @@ variant="${1:?usage: configure_build.sh <primary|split> <build dir>}"
 build_dir="${2:?usage: configure_build.sh <primary|split> <build dir>}"
 shift 2
 
+# ENABLE_PCH is glslang's option, on by default. ccache cannot cache a compile that uses a
+# precompiled header, so with it on every glslang translation unit is compiled again in every
+# run. It is in the common part so that both lines stay the same configuration for
+# build_fingerprint.py.
 common=(
   -S . -B "${build_dir}" -G Ninja
   -DCMAKE_C_COMPILER="${MOBILEGL_CI_CC}"
   -DCMAKE_CXX_COMPILER="${MOBILEGL_CI_CXX}"
   -DCMAKE_C_COMPILER_LAUNCHER=ccache
   -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+  -DENABLE_PCH=OFF
 )
 
 case "${variant}" in
@@ -74,4 +79,8 @@ case "${variant}" in
     ;;
 esac
 
+# The command line goes to the job log, so the log shows which options a build was made with.
+printf 'configure_build.sh:'
+printf ' %q' cmake "${common[@]}" "${flags[@]}" "$@"
+echo
 cmake "${common[@]}" "${flags[@]}" "$@"

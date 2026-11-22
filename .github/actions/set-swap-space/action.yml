@@ -1,0 +1,15 @@
+name: Set swap space
+description: Replace the runner's swap with a swap file of the given size
+inputs:
+  swap-size-gb:
+    description: Size of the swap file in GiB
+    required: true
+runs:
+  using: composite
+  steps:
+    # scripts/ci/set_swap_space.sh says which swap it replaces, where the file goes and when it
+    # is sized down; it prints the swap state and free space before and after.
+    - shell: bash
+      env:
+        SWAP_SIZE_GB: ${{ inputs.swap-size-gb }}
+      run: bash "${GITHUB_ACTION_PATH}/../../../scripts/ci/set_swap_space.sh"

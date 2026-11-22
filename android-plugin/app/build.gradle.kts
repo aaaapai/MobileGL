@@ -80,7 +80,7 @@ val releaseSigningReady = signingStoreFile.exists()
 val debuggableRelease = (findProperty("mobilegl.debuggableRelease") ?: "false").toString().toBoolean()
 
 val mobileGlVersionMajor = 26
-val mobileGlVersionMinor = 10
+val mobileGlVersionMinor = 11
 val mobileGlGitShortHash = runGit("rev-parse", "--short=7", "HEAD") ?: "nogit"
 val mobileGlMonthlyRevision = runGit(
     "rev-list",
@@ -140,7 +140,7 @@ android {
         minSdk = androidApi
         targetSdk = 34
         versionCode = mobileGlVersionMajor * 1_000_000 + mobileGlVersionMinor * 10_000 + mobileGlMonthlyRevision
-        versionName = "%d.%02d.%s".format(mobileGlVersionMajor, mobileGlVersionMinor, mobileGlGitShortHash)
+        versionName = "%d.%02d-alpha.1".format(mobileGlVersionMajor, mobileGlVersionMinor)
         resValue("string", "config", pluginRendererConfig)
 
         manifestPlaceholders.putAll(legacyManifest {
