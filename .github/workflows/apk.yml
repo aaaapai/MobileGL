@@ -2,39 +2,6 @@ name: MobileGL APK
 run-name: ${{ (github.event_name == 'workflow_dispatch' && (github.ref_type == 'tag' || github.ref == 'refs/heads/main')) && format('Release validation ({0})', github.ref) || '' }}
 
 on:
-  push:
-    branches:
-      - dev
-      - Feat/Backend-Direct-GLES
-      - Feat/Backend-Direct-Vulkan
-      # TEMPORARY, remove before merging the MGPipe work into dev: the disaggregation
-      # branch runs the full lane on every push so a phase's landing is not gated on
-      # someone remembering to dispatch the workflow by hand.
-      - feat/disaggregated
-      - codex/fix-github-ci
-      - cleanup
-    # A push that only touches these paths changes nothing this workflow builds or replays. The
-    # Test workflow keeps running for docs: it hosts the doc citation lint. The Android build
-    # compiles none of the unit, integration or benchmark trees, with one exception that keeps
-    # MobileGL/MG_Benchmark from being listed whole: MG_Util/SelfTest/DriverBenchJni.cpp
-    # includes MG_Benchmark/Driver/DriverBenchCases.inc.
-    paths-ignore:
-      - 'docs/**'
-      - '**/*.md'
-      - 'MobileGL/MG_Test/**'
-      - 'MobileGL/MG_IntegrationTest/**'
-      - 'MobileGL/MG_Benchmark/CMakeLists.txt'
-      - 'MobileGL/MG_Benchmark/SanityBench.cpp'
-      - 'MobileGL/MG_Benchmark/Buffer/**'
-      - 'MobileGL/MG_Benchmark/Container/**'
-      - 'MobileGL/MG_Benchmark/Program/**'
-      - 'MobileGL/MG_Benchmark/ShaderCache/**'
-      - 'MobileGL/MG_Benchmark/Transpile/**'
-      - 'tools/cts/**'
-      - 'tools/device_bench/**'
-      - '.github/workflows/test.yml'
-      - '.github/workflows/hygiene.yml'
-      - '.github/actions/setup-test-runner/**'
   workflow_dispatch:
     inputs:
       android_full_matrix:
