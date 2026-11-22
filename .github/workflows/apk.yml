@@ -1,22 +1,6 @@
 name: MobileGL APK
 
 on:
-  push:
-    branches:
-      - dev
-      - Feat/Backend-Direct-GLES
-      - Feat/Backend-Direct-Vulkan
-      # TEMPORARY, remove before merging the MGPipe work into dev: the disaggregation
-      # branch runs the full lane on every push so a phase's landing is not gated on
-      # someone remembering to dispatch the workflow by hand.
-      - feat/disaggregated
-      - codex/fix-github-ci
-      - cleanup
-    # A docs-only push builds nothing this workflow tests (231 emulator legs per run). The Test
-    # workflow keeps running for docs: it hosts the doc citation lint.
-    paths-ignore:
-      - 'docs/**'
-      - '**/*.md'
   workflow_dispatch:
 
 env:
