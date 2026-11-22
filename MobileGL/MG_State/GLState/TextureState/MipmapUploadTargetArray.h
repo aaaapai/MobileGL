@@ -84,10 +84,14 @@ namespace MobileGL {
                     return m_storage[targetIndex].GetDirtyRegion(level);
                 }
 
-                SizeT GetDirtyRects(Uint targetIndex, Uint level, MipmapDirtyRegion* outRects,
-                                    SizeT maxRects) const {
+                SizeT GetDirtyRects(Uint targetIndex, Uint level, MipmapDirtyRegion* outRects, SizeT maxRects) const {
                     MOBILEGL_ASSERT(targetIndex < TargetCount, "GetDirtyRects: target invalid");
                     return m_storage[targetIndex].GetDirtyRects(level, outRects, maxRects);
+                }
+
+                void GetDirtyFootprint(Uint targetIndex, Uint level, Vector<MipmapDirtyRegion>& outRects) const {
+                    MOBILEGL_ASSERT(targetIndex < TargetCount, "GetDirtyFootprint: target invalid");
+                    m_storage[targetIndex].GetDirtyFootprint(level, outRects);
                 }
 
                 void SetCompressedImage(Uint targetIndex, Uint level, GLenum internalFormat, const void* data,

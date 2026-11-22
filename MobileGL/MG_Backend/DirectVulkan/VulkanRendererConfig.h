@@ -1,4 +1,4 @@
-// MobileGL - MobileGL/MG_Backend/DirectVulkan/Renderer/VulkanRendererConfig.h
+// MobileGL - MobileGL/MG_Backend/DirectVulkan/VulkanRendererConfig.h
 // Copyright (c) 2025-2026 MobileGL-Dev
 // Licensed under the GNU Lesser General Public License v3.0:
 //   https://www.gnu.org/licenses/gpl-3.0.txt
@@ -22,6 +22,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Uint64 CacheVersion = MG_Config::CacheVersion;
         Uint32 SurfaceWidth = 1;
         Uint32 SurfaceHeight = 1;
+        // The app's eglSwapInterval; empty until it asks. Window renderers only - see
+        // VulkanRenderer::SetSwapInterval.
+        Optional<Int> SwapInterval;
         Bool DisablePipelineCache = false;
 #if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG
         Bool EnableValidationLayers = true;

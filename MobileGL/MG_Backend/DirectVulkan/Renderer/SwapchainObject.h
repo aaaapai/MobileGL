@@ -9,6 +9,7 @@
 #pragma once
 
 #include <Includes.h>
+#include <MG_Util/Damage/Damage.h>
 #include "../VkIncludes.h"
 
 namespace MobileGL::MG_Backend::DirectVulkan {
@@ -19,20 +20,31 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             Vector<VkSurfaceFormatKHR> surfaceFormats;
             Vector<VkPresentModeKHR> presentModes;
 
-            Bool IsComplete() const {
-                return !surfaceFormats.empty() && !presentModes.empty();
-            }
+            Bool IsComplete() const { return !surfaceFormats.empty() && !presentModes.empty(); }
         };
 
         static SwapchainCapabilities GetSwapchainCapabilities(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface);
         static VkSurfaceFormatKHR ChooseSwapchainSurfaceFormat(const Vector<VkSurfaceFormatKHR>& availableFormats);
-        static VkPresentModeKHR ChooseSwapchainPresentMode(const Vector<VkPresentModeKHR>& availablePresentModes);
+        // swapInterval is the app's eglSwapInterval, empty until it asks (s_desiredPresentModes
+        // ranks the modes then). 0 wants IMMEDIATE, else MAILBOX, else FIFO; >= 1 wants FIFO,
+        // which cannot skip vblanks, so 2 and up pace like 1; a negative interval (adaptive
+        // vsync) wants FIFO_RELAXED, else FIFO.
+        static VkPresentModeKHR ChooseSwapchainPresentMode(const Vector<VkPresentModeKHR>& availablePresentModes,
+                                                           Optional<Int> swapInterval = Nullopt);
+        static const char* GetPresentModeName(VkPresentModeKHR presentMode);
 
         void Create(VkDevice device, VkPhysicalDevice physicalDevice, VkSurfaceKHR surface, Uint32 graphicsQueueFamily,
-                    Uint32 presentQueueFamily, Uint32 minImageCountHint, VkExtent2D desiredExtent);
+                    Uint32 presentQueueFamily, Uint32 minImageCountHint, Uint32 extraImageCount,
+                    VkExtent2D desiredExtent, Optional<Int> swapInterval);
         void Shutdown(VkDevice device);
+        // Tells the frontend (or, under a transport, the client) the default framebuffer's size
+        // and formats. Create does this; a renderer switching between surfaces repeats it.
+        void PublishDefaultFramebufferInfo() const;
 
         VkSwapchainKHR GetHandle() const { return m_swapchain; }
+        VkPresentModeKHR GetPresentMode() const { return m_presentMode; }
+        // The surface's present modes as queried when this swapchain was created.
+        const Vector<VkPresentModeKHR>& GetSupportedPresentModes() const { return m_supportedPresentModes; }
         const VkSurfaceFormatKHR& GetSurfaceFormat() const { return m_surfaceFormat; }
         VkExtent2D GetExtent() const { return m_extent; }
         // Surface-space extent (before the pre-rotation quarter-turn swap) this swapchain was
@@ -54,9 +66,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         // EGL content-validity tracking for the default framebuffer. A color
         // buffer's content is undefined once its image has been presented
-        // (EGL_BUFFER_DESTROYED swap behaviour, the implementation default),
+        // (EGL_BUFFER_DESTROYED swap behavior, the implementation default),
         // and every ancillary (depth/stencil) buffer's content is undefined
-        // after ANY swap regardless of swap behaviour (EGL 1.5 §3.10.1). The
+        // after ANY swap regardless of swap behavior (EGL 1.5 §3.10.1). The
         // render-pass manager turns an undefined attachment's tile load into
         // LOAD_OP_DONT_CARE. Flags start false (a fresh swapchain image holds
         // garbage) and a render pass storing into an attachment sets it back
@@ -67,18 +79,29 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void SetDepthStencilContentDefined(Uint32 index, Bool defined);
         void SetAllDepthStencilContentUndefined();
 
+        // EGL_EXT_buffer_age over this chain's images. Ages start unknown with the chain (Create).
+        // Until a client asks for an age (NoteBufferAgeAsked) a presented image's content is
+        // treated as undefined, as before; once one has, a presented image keeps it - its age is
+        // counted and its content stays defined, so the next frame loads it.
+        void NoteBufferAgeAsked() { m_bufferAgeAsked = true; }
+        Bool BufferAgeAsked() const { return m_bufferAgeAsked; }
+        Int32 BufferAgeOf(Uint32 index) const { return m_ages.AgeOf(index); }
+        // Image `index` was presented.
+        void OnImagePresented(Uint32 index) { m_ages.OnPresented(index, m_bufferAgeAsked); }
+        // A swapped frame reached no image: every age is unknown.
+        void OnFrameDropped() { m_ages.OnFrameDropped(); }
+
     private:
         void CreateImageViews(VkDevice device);
         void CreateDepthStencilResources(VkDevice device, VkPhysicalDevice physicalDevice);
         void DestroyDepthStencilResources(VkDevice device);
-        static constexpr VkPresentModeKHR s_desiredPresentModes[] {
-            VK_PRESENT_MODE_MAILBOX_KHR,
-            VK_PRESENT_MODE_IMMEDIATE_KHR,
-            VK_PRESENT_MODE_FIFO_RELAXED_KHR,
-            VK_PRESENT_MODE_FIFO_KHR
-        };
+        static constexpr VkPresentModeKHR s_desiredPresentModes[]{
+            VK_PRESENT_MODE_MAILBOX_KHR, VK_PRESENT_MODE_IMMEDIATE_KHR, VK_PRESENT_MODE_FIFO_RELAXED_KHR,
+            VK_PRESENT_MODE_FIFO_KHR};
 
         VkSwapchainKHR m_swapchain = VK_NULL_HANDLE;
+        VkPresentModeKHR m_presentMode = VK_PRESENT_MODE_FIFO_KHR;
+        Vector<VkPresentModeKHR> m_supportedPresentModes;
         VkSurfaceFormatKHR m_surfaceFormat{};
         VkExtent2D m_extent{};
         VkExtent2D m_surfaceExtent{};
@@ -94,5 +117,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Vector<VkImageLayout> m_depthStencilImageLayouts;
         Vector<Bool> m_imageContentDefined;
         Vector<Bool> m_depthStencilContentDefined;
+        MG_Util::Damage::SwapchainAgeTracker m_ages;
+        // Kept across a rebuild: it is the application's habit, not the chain's.
+        Bool m_bufferAgeAsked = false;
     };
 } // namespace MobileGL::MG_Backend::DirectVulkan

@@ -18,7 +18,7 @@
 // KHR-GLxx.clip_distance.functional. glIsEnabled lied about it too - it returned GL_FALSE
 // immediately after a successful glEnable.
 //
-// The assertions are behavioural, not query-shaped, because a query-only test passes against a
+// The assertions are behavioral, not query-shaped, because a query-only test passes against a
 // backend that stores the bit and never forwards it. Each case draws one full-viewport triangle
 // whose clip distance is positive on one side of the viewport and negative on the other, then
 // checks BOTH sides: the kept side proves the draw happened at all, and the clipped side is the
@@ -26,16 +26,15 @@
 // identical distances and the enable turned off must leave both sides painted, which is what
 // says the pixels below are being removed by clipping and not by something else.
 //
-// HONEST LIMIT OF THIS FILE IN CI. Of the four cases, only EnableIsObservableThroughIsEnabled is
-// falsifiable on the software rasterizers every automated lane runs on. llvmpipe and lavapipe
-// clip by EVERY declared gl_ClipDistance regardless of the enables, so
-// AnEnabledClipDistanceRemovesTheNegativeHalf goes green there against the broken tree as well,
-// and the two cases that need real per-distance semantics skip (see
-// DriverHonoursPerDistanceEnables). What actually pins the behaviour is Adreno, through
-// KHR-GLxx.clip_distance.functional - whose "without dynamic redeclaration" variants declare all
-// gl_MaxClipDistances slots and enable only the first N, i.e. exactly the subset semantics these
-// skipped cases assert. Read a green CI run here as "the state survives the frontend", not as
-// "clipping is correct"; the second claim is a device claim.
+// WHAT CI CAN AND CANNOT FALSIFY. llvmpipe's ES driver clips by EVERY written gl_ClipDistance
+// regardless of the enables, which the DirectGLES loader's native clip probe catches - so on
+// that lane Espryt EMULATES clip distances (EmulateClipDistancePass: varyings, a fragment
+// discard and a per-draw enables uniform), and the per-distance cases below run and pass
+// there. That is the emulation every Mali device takes. lavapipe hosts shaderClipDistance, so
+// Magma clips natively; Vulkan has no per-distance enable state, so Magma applies GL_CLIP_DISTANCEi in
+// the producing stage (BackendCaps::MasksNativeClipDistances) and the per-distance cases run
+// green there too. The native ES path - Adreno, which honors GL_CLIP_DISTANCEi_EXT - is pinned on
+// the device, through KHR-GLxx.clip_distance.functional.
 //
 // Every case disables all eight distances on entry rather than assuming they start off:
 // XfbAfterClipDistanceScenario deliberately leaves one enabled for the rest of the process, and
@@ -85,11 +84,31 @@ out vec4 fragColor;
 void main() { fragColor = vec4(0.0, 1.0, 0.0, 1.0); }
 )";
 
+        // The field report's shape (Mali-G615 / Espryt, where GL_MAX_CLIP_DISTANCES used to be 0
+        // and this did not even compile): a #version 330 core stage writing all eight distances
+        // from uniform planes, implicitly sized by use.
+        const char* const kEightPlaneVertexSource = R"(#version 330 core
+uniform vec4 u_ClipPlane[8];
+void main() {
+    vec2 positions[3] = vec2[3](vec2(-1.0, -1.0), vec2(3.0, -1.0), vec2(-1.0, 3.0));
+    vec4 eyePos = vec4(positions[gl_VertexID], 0.0, 1.0);
+    gl_Position = eyePos;
+    gl_ClipDistance[0] = dot(u_ClipPlane[0], eyePos);
+    gl_ClipDistance[1] = dot(u_ClipPlane[1], eyePos);
+    gl_ClipDistance[2] = dot(u_ClipPlane[2], eyePos);
+    gl_ClipDistance[3] = dot(u_ClipPlane[3], eyePos);
+    gl_ClipDistance[4] = dot(u_ClipPlane[4], eyePos);
+    gl_ClipDistance[5] = dot(u_ClipPlane[5], eyePos);
+    gl_ClipDistance[6] = dot(u_ClipPlane[6], eyePos);
+    gl_ClipDistance[7] = dot(u_ClipPlane[7], eyePos);
+}
+)";
+
         class ClipDistanceScenario : public ScenarioTest {
         protected:
-            GLuint BuildProgram() {
+            GLuint BuildProgram(const char* vertexSource = kVertexSource) {
                 const GLuint vs = glCreateShader(GL_VERTEX_SHADER);
-                glShaderSource(vs, 1, &kVertexSource, nullptr);
+                glShaderSource(vs, 1, &vertexSource, nullptr);
                 glCompileShader(vs);
                 GLint compiled = 0;
                 glGetShaderiv(vs, GL_COMPILE_STATUS, &compiled);
@@ -139,13 +158,9 @@ void main() { fragColor = vec4(0.0, 1.0, 0.0, 1.0); }
                 glDrawArrays(GL_TRIANGLES, 0, 3);
             }
 
-            static bool IsGreen(const unsigned char* px) {
-                return px[0] < 64 && px[1] > 192;
-            }
+            static bool IsGreen(const unsigned char* px) { return px[0] < 64 && px[1] > 192; }
 
-            static bool IsRed(const unsigned char* px) {
-                return px[0] > 192 && px[1] < 64;
-            }
+            static bool IsRed(const unsigned char* px) { return px[0] > 192 && px[1] < 64; }
 
             void PixelAt(int x, int y, unsigned char* out) const {
                 glReadPixels(x, y, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, out);
@@ -175,19 +190,21 @@ void main() { fragColor = vec4(0.0, 1.0, 0.0, 1.0); }
             // state, i.e. when a written-but-disabled gl_ClipDistance leaves its fragments
             // alone. Not every stack does, and the difference is not MobileGL's to hide:
             //
-            //   - Adreno's ES driver honours GL_CLIP_DISTANCE0_EXT..7_EXT, which is what makes
+            //   - Adreno's ES driver honors GL_CLIP_DISTANCE0_EXT..7_EXT, which is what makes
             //     KHR-GLxx.clip_distance.functional pass on the device once the enables are
             //     forwarded at all.
             //   - Vulkan has no such state: every clip distance a shader declares is active,
             //     always. DirectVulkan therefore clips by a disabled distance.
-            //   - Mesa's llvmpipe ES driver behaves like Vulkan here.
+            //   - llvmpipe's ES driver behaves like Vulkan here.
             //
-            // Emulating GL's semantics on those two would mean forcing the disabled slots to a
-            // non-negative value inside the shader, which makes the enable mask part of the
-            // pipeline key - a feature, not a fix, and deliberately not attempted here. The
-            // cases that need the real semantics gate on this probe and say so when they skip,
-            // rather than being deleted or silently weakened.
-            bool DriverHonoursPerDistanceEnables(GLuint program, GLuint vao) const {
+            // EmulateClipDistancePass gives those semantics to every backend that EMULATES clip
+            // distances (the disabled slots are forced to +1 from a per-draw uniform, so nothing
+            // joins the pipeline key), and the DirectGLES loader arms that emulation on a driver
+            // whose native clip distances ignore the enables. Magma's native path applies them in
+            // the producing stage (MasksNativeClipDistances). The cases that need the real
+            // semantics still gate on this probe and say so if a stack ever skips, rather than
+            // being deleted or silently weakened.
+            bool DriverHonorsPerDistanceEnables(GLuint program, GLuint vao) const {
                 for (int i = 0; i < 8; ++i) {
                     glDisable(static_cast<GLenum>(GL_CLIP_DISTANCE0 + i));
                 }
@@ -275,8 +292,9 @@ void main() { fragColor = vec4(0.0, 1.0, 0.0, 1.0); }
         PixelAt(width / 4, height / 2, left);
         EXPECT_EQ(FirstGLError(), 0u);
 
-        EXPECT_TRUE(IsGreen(right)) << "the kept half is not painted (" << int(right[0]) << "," << int(right[1])
-                                    << "," << int(right[2]) << ") - the draw itself did not happen, so the clipped "
+        EXPECT_TRUE(IsGreen(right)) << "the kept half is not painted (" << int(right[0]) << "," << int(right[1]) << ","
+                                    << int(right[2])
+                                    << ") - the draw itself did not happen, so the clipped "
                                        "half below proves nothing";
         EXPECT_TRUE(IsRed(left)) << "gl_ClipDistance[0] is negative on the left half and GL_CLIP_DISTANCE0 is "
                                     "enabled, so those fragments must be clipped away; found ("
@@ -326,17 +344,17 @@ void main() { fragColor = vec4(0.0, 1.0, 0.0, 1.0); }
         EXPECT_EQ(FirstGLError(), 0u);
 
         EXPECT_TRUE(IsGreen(right)) << "with every clip distance disabled the whole triangle must survive";
-        const bool driverHonoursEnables = IsGreen(left);
+        const bool driverHonorsEnables = IsGreen(left);
 
         glUseProgram(0);
         glBindVertexArray(0);
         glDeleteProgram(program);
         glDeleteVertexArrays(1, &vao);
         gl.EndFrame();
-        if (!driverHonoursEnables) {
+        if (!driverHonorsEnables) {
             GTEST_SKIP() << "renderer " << gl.RendererString()
                          << " clips by a DISABLED gl_ClipDistance - it does not implement per-distance enable state "
-                            "(see DriverHonoursPerDistanceEnables). Emulating GL's semantics there needs shader-side "
+                            "(see DriverHonorsPerDistanceEnables). Emulating GL's semantics there needs shader-side "
                             "masking keyed on the enable mask, which is a separate feature";
         }
     }
@@ -366,7 +384,7 @@ void main() { fragColor = vec4(0.0, 1.0, 0.0, 1.0); }
         glDisable(GL_SCISSOR_TEST);
         glDisable(GL_DEPTH_TEST);
         glDisable(GL_CULL_FACE);
-        if (!DriverHonoursPerDistanceEnables(program, vao)) {
+        if (!DriverHonorsPerDistanceEnables(program, vao)) {
             glUseProgram(0);
             glBindVertexArray(0);
             glDeleteProgram(program);
@@ -399,6 +417,93 @@ void main() { fragColor = vec4(0.0, 1.0, 0.0, 1.0); }
                                            "this fragment must be clipped";
 
         glDisable(GL_CLIP_DISTANCE1);
+        glUseProgram(0);
+        glBindVertexArray(0);
+        glDeleteProgram(program);
+        glDeleteVertexArrays(1, &vao);
+        gl.EndFrame();
+    }
+
+    // GL 3.0+ requires eight clip distances, and the field report was a stack answering zero: a
+    // #version 330 core stage writing gl_ClipDistance[0..7] did not compile. Every backend now
+    // either hosts eight or emulates them (EmulateClipDistancePass), so this case requires eight
+    // and does not skip. Distance 2 clips the left half, the other seven are positive, and all
+    // eight are enabled - which clips identically whether or not the stack honors per-distance
+    // enables. The per-distance half (distance 5 negative on the right but DISABLED) only runs
+    // where the stack honors them, which every emulating backend does by construction.
+    TEST_F(ClipDistanceScenario, EightDistancesFromUniformPlanesClipLikeTheReport) {
+        if (!Ready()) return;
+        GLint maxClipDistances = 0;
+        glGetIntegerv(GL_MAX_CLIP_DISTANCES, &maxClipDistances);
+        ASSERT_GE(maxClipDistances, 8) << "GL 3.0+ requires GL_MAX_CLIP_DISTANCES >= 8";
+        HeadlessGL& gl = Gl();
+        const int width = gl.Width();
+        const int height = gl.Height();
+        ASSERT_GE(width, 8);
+        ASSERT_GE(height, 8);
+
+        GLuint vao = 0;
+        glGenVertexArrays(1, &vao);
+        const GLuint program = BuildProgram(kEightPlaneVertexSource);
+        ASSERT_NE(program, 0u) << "the eight-plane gl_ClipDistance program did not build: " << BuildLog();
+        const GLint planes = glGetUniformLocation(program, "u_ClipPlane");
+        ASSERT_GE(planes, 0);
+
+        BindDefaultFramebuffer();
+        glViewport(0, 0, width, height);
+        glDisable(GL_SCISSOR_TEST);
+        glDisable(GL_DEPTH_TEST);
+        glDisable(GL_CULL_FACE);
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+
+        // w = 1 everywhere, so (0,0,0,1) is a distance of +1 and keeps everything.
+        GLfloat values[8 * 4];
+        for (int i = 0; i < 8; ++i) {
+            values[i * 4 + 0] = 0.0f;
+            values[i * 4 + 1] = 0.0f;
+            values[i * 4 + 2] = 0.0f;
+            values[i * 4 + 3] = 1.0f;
+        }
+        values[2 * 4 + 0] = 1.0f; // distance 2 = x: negative on the left half
+        values[2 * 4 + 3] = 0.0f;
+        values[5 * 4 + 0] = -1.0f; // distance 5 = -x: negative on the right half
+        values[5 * 4 + 3] = 0.0f;
+        glUseProgram(program);
+        glUniform4fv(planes, 8, values);
+
+        DisableEveryClipDistance();
+        for (int i = 0; i < 8; ++i) {
+            if (i != 5) glEnable(static_cast<GLenum>(GL_CLIP_DISTANCE0 + i));
+        }
+        // First with distance 5 enabled too: both halves clipped, by different distances.
+        glEnable(static_cast<GLenum>(GL_CLIP_DISTANCE0 + 5));
+        DrawClippedTriangle(program, vao);
+        unsigned char left[4] = {0, 0, 0, 0};
+        unsigned char right[4] = {0, 0, 0, 0};
+        PixelAt(width / 4, height / 2, left);
+        PixelAt(width - 1 - width / 4, height / 2, right);
+        EXPECT_EQ(FirstGLError(), 0u);
+        EXPECT_TRUE(IsRed(left)) << "distance 2 is negative on the left and enabled";
+        EXPECT_TRUE(IsRed(right)) << "distance 5 is negative on the right and enabled";
+
+        // Then distance 5 disabled: on a stack with per-distance enables the right half returns.
+        glDisable(static_cast<GLenum>(GL_CLIP_DISTANCE0 + 5));
+        DrawClippedTriangle(program, vao);
+        PixelAt(width / 4, height / 2, left);
+        PixelAt(width - 1 - width / 4, height / 2, right);
+        EXPECT_EQ(FirstGLError(), 0u);
+        EXPECT_TRUE(IsRed(left)) << "distance 2 is still enabled";
+        const bool rightKept = IsGreen(right);
+
+        DisableEveryClipDistance();
+        const GLuint control = BuildProgram();
+        const bool honorsEnables = control != 0 && DriverHonorsPerDistanceEnables(control, vao);
+        if (control != 0) glDeleteProgram(control);
+        if (honorsEnables) {
+            EXPECT_TRUE(rightKept) << "distance 5 is negative on the right but GL_CLIP_DISTANCE5 is disabled, so the "
+                                      "right half must survive";
+        }
+
         glUseProgram(0);
         glBindVertexArray(0);
         glDeleteProgram(program);

@@ -58,19 +58,21 @@ namespace MobileGL::MG_State::GLState {
     public:
         // ---- inputs, snapshotted on the GL thread in ProgramObject::Link()'s prologue ----
         struct Inputs {
-            Uint externalIndex = 0; // logs only
+            Uint externalIndex = 0;          // logs only
             Vector<LinkShaderInput> shaders; // already stage-sorted
             SharedPtr<const MG_Util::ShaderTranspiler::CompileEnv> env;
             // Startup configuration copied with the task, never read from worker code.
             Bool enableSpirvValidation = false;
+            // GL_PROGRAM_SEPARABLE as this link latches it (GL 4.6 core 7.3).
+            Bool separable = false;
             // The four "takes effect at the next link" request maps. Snapshotted rather than
             // referenced, which is precisely what makes glBindAttribLocation and friends
-            // legal to call over a pending link without cancelling it: the pending link keeps
+            // legal to call over a pending link without canceling it: the pending link keeps
             // linking the inputs it was given.
-            UnorderedMap<String, Uint> explicitAttribLocations; // glBindAttribLocation
+            UnorderedMap<String, Uint> explicitAttribLocations;  // glBindAttribLocation
             UnorderedMap<String, Uint> explicitFragDataLocation; // glBindFragDataLocation
-            UnorderedMap<String, Uint> explicitFragDataIndex; // glBindFragDataLocationIndexed
-            Vector<String> requestedXfbVaryings; // glTransformFeedbackVaryings
+            UnorderedMap<String, Uint> explicitFragDataIndex;    // glBindFragDataLocationIndexed
+            Vector<String> requestedXfbVaryings;                 // glTransformFeedbackVaryings
             GLenum requestedXfbBufferMode = GL_INTERLEAVED_ATTRIBS;
             Int maxFragmentOutputColorNumber = 8; // GL_MAX_DRAW_BUFFERS, stamped in by the entry point
         } in;
@@ -129,6 +131,10 @@ namespace MobileGL::MG_State::GLState {
             // this bit. No new L1 key material: the key already covers
             // `requestedXfbVaryings`, of which this is a function.
             Bool captureRequestsPointSize = false;
+            // The same derived bit for gl_ClipDistance (any element): the clip-distance
+            // emulation declines such a program, since the capture wants the unmasked value at a
+            // varying the emulation never creates. Also a function of `requestedXfbVaryings`.
+            Bool captureRequestsClipDistance = false;
 
             // L1 shader-translation memo key for this program's SPIR-V (see
             // MG_Util/ShaderTranspiler/TranslationCache.h). Built HERE, at the tail of phase
@@ -151,7 +157,7 @@ namespace MobileGL::MG_State::GLState {
             SharedPtr<const ProgramObject::LinkArtifacts> linkArtifactsForCache;
 
             // The one flag phase B tests before doing anything: false means this link never
-            // reached the tail of RunBody (it failed, or was cancelled mid-body).
+            // reached the tail of RunBody (it failed, or was canceled mid-body).
             Bool ready = false;
         } spirvHandoff;
 
@@ -207,6 +213,12 @@ namespace MobileGL::MG_State::GLState {
         // one and overwritten the qualifier. See the definition for why the invented binding is
         // deliberately left in place for the backends' own use.
         void SeedDefaultStorageBlockBindings();
+        // P7 wave 2 package C, OQ-8: builds LinkArtifacts::storageBlocks - DirectVulkan's own
+        // storage-block index space - out of the reflection snapshot the call above produced,
+        // so the backends stop re-deriving it with SPIRV-Reflect on every draw. Runs after
+        // SnapshotGlslangReflection because it reads blockReflection. See the definition for
+        // which order it has to reproduce and why each clause of it is derivable here.
+        void SnapshotStorageBlockIndexSpace();
         Bool ValidateFragmentOutputLocations();
         Bool ResolveTransformFeedbackVaryings();
         void ResolveGsTriangleStripCapture(const glslang::TIntermediate* captureIntermediate);

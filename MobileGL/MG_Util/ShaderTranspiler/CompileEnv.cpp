@@ -7,7 +7,7 @@
 // End of Source File Header
 
 #include "CompileEnv.h"
-#include <MG_Backend/BackendObjects.h>
+#include <MG_Backend/BackendObject.h>
 #include <MG_State/GLState/Core.h>
 
 namespace MobileGL::MG_Util::ShaderTranspiler {
@@ -45,8 +45,7 @@ namespace MobileGL::MG_Util::ShaderTranspiler {
         // changing the fingerprint, which is exactly the memo-hazard property wanted here.
         HashBytes(state, &env.params, sizeof(env.params));
         if (!env.advertisedExtensions.empty()) {
-            HashBytes(state, env.advertisedExtensions.data(),
-                      env.advertisedExtensions.size() * sizeof(GLExtension));
+            HashBytes(state, env.advertisedExtensions.data(), env.advertisedExtensions.size() * sizeof(GLExtension));
         }
         return state;
     }
@@ -61,6 +60,8 @@ namespace MobileGL::MG_Util::ShaderTranspiler {
         HashValue(state, env.params.MaxImageUnits);
         HashValue(state, env.params.MaxDrawBuffers);
         HashValue(state, env.params.MaxVertexImageUniforms);
+        HashValue(state, env.params.MaxTessControlImageUniforms);
+        HashValue(state, env.params.MaxTessEvaluationImageUniforms);
         HashValue(state, env.params.MaxGeometryImageUniforms);
         HashValue(state, env.params.MaxFragmentImageUniforms);
         HashValue(state, env.params.MaxComputeImageUniforms);
@@ -74,6 +75,11 @@ namespace MobileGL::MG_Util::ShaderTranspiler {
         // and expands gl_MaxClipDistances from the same number, so it decides both whether a
         // shader compiles at all and what a module that reads the constant generates.
         HashValue(state, env.params.MaxClipDistances);
+        // Unlike the point-size demotion bits this IS frontend material: when it is set the
+        // source pipeline declares the reserved enables uniform in every pre-rasterization
+        // stage that names gl_ClipDistance, so glslang parses a different source.
+        HashValue(state, env.params.EmulatesClipDistance);
+        HashValue(state, env.params.MasksNativeClipDistances);
         // The cull-distance pair, added when the GL 4.6 API-surface wave made them env-derived:
         // they were bare literals (8/8) in BuildTBuiltInResource while no backend had ever been
         // asked whether it can host a cull distance. Exactly the MaxClipDistances class - glslang
@@ -81,6 +87,16 @@ namespace MobileGL::MG_Util::ShaderTranspiler {
         // gl_MaxCullDistances / gl_MaxCombinedClipAndCullDistances from the same numbers.
         HashValue(state, env.params.MaxCullDistances);
         HashValue(state, env.params.MaxCombinedClipAndCullDistances);
+        // The inputs of ResolveAtomicCounterLimits, which every gl_Max*AtomicCounter* constant
+        // expands from: the per-stage counter-buffer budget is the stage's storage-block budget.
+        HashValue(state, env.params.MaxVertexShaderStorageBlocks);
+        HashValue(state, env.params.MaxTessControlShaderStorageBlocks);
+        HashValue(state, env.params.MaxTessEvaluationShaderStorageBlocks);
+        HashValue(state, env.params.MaxGeometryShaderStorageBlocks);
+        HashValue(state, env.params.MaxFragmentShaderStorageBlocks);
+        HashValue(state, env.params.MaxComputeShaderStorageBlocks);
+        HashValue(state, env.params.MaxCombinedShaderStorageBlocks);
+        HashValue(state, env.params.MaxShaderStorageBufferBindings);
         // The texture-image-unit family, made env-derived in the same wave. They were stock
         // glslang defaults (32/32/80) that disagreed with what glGetIntegerv answered, and
         // gl_MaxTextureImageUnits / gl_MaxVertexTextureImageUnits / gl_MaxCombinedTextureImageUnits

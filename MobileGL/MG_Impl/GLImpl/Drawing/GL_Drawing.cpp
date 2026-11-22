@@ -9,8 +9,17 @@
 #include "GL_Drawing.h"
 #include <Config.h>
 #include <MG_State/GLState/Core.h>
+#include <MG_State/GLState/BufferState/BufferObject.h>
 #include <MG_State/EGLState/Core.h>
 #include <MG_Backend/BackendObjects.h>
+#include <MG_Impl/Pipe/PipeFill.h>
+#include <MG_Impl/Pipe/Verb/GpuWriteSet.h>
+// CONTRACT-P5.md §7 / ID-14: a null check on a GLFunctionsTable slot may not survive into the
+// client under split - it becomes a caps-mirror read. SlotCaps.h carries the rule and the test
+// that decides which of its two spellings a site takes; in a pull build both expand to exactly
+// the check they replaced. P5b t2 converts ONE site in this file - the capture-ownership probe
+// in FixupGsStripCaptureOrder - for the reason CONTRACT-P5B.md §6.5 gives.
+#include <MG_Remote/Client/SlotCaps.h>
 #include "../Getter/GL_Getter.h"
 
 namespace MobileGL::MG_Impl::GLImpl {
@@ -25,9 +34,8 @@ namespace MobileGL::MG_Impl::GLImpl {
 
         if (!currentProgram->GetLinkStatus()) {
             MG_State::pGLContext->RecordError(
-                ErrorCode::InvalidOperation,
-                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", functionName,
-                                             "The current program object is not linked."));
+                ErrorCode::InvalidOperation, MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", functionName,
+                                                                          "The current program object is not linked."));
             return false;
         }
 
@@ -100,14 +108,46 @@ namespace MobileGL::MG_Impl::GLImpl {
         program->WriteReservedNumSamples(static_cast<Int>(std::max<GLint>(ResolveDrawFramebufferSampleCount(), 1)));
     }
 
+    // The GL_CLIP_DISTANCE0..7 enables, for a program whose clip distances are emulated (see
+    // EmulateClipDistancePass): the producing stage selects 1.0 for every disabled distance, so
+    // the mask is a property of the render state at THIS draw, not of the program. Same cost
+    // model as the sample count above.
+    static void PublishClipDistanceEnables(const SharedPtr<MG_State::GLState::ProgramObject>& program) {
+        if (!program || !program->UsesReservedClipDistanceEnables()) return;
+        Uint32 enables = 0;
+        for (Uint i = 0; i < 8; ++i) {
+            const auto cap = static_cast<CapabilityInput>(static_cast<Uint>(CapabilityInput::ClipDistance0) + i);
+            if (MG_State::pGLContext->IsCapabilityEnabled(cap)) enables |= 1u << i;
+        }
+        program->WriteReservedClipDistanceEnables(enables);
+    }
+
     // The one funnel every drawing command passes through. Order is load-bearing: validate first
     // (a rejected draw must leave state alone), then publish the sample count - which reads the
     // DRAW FRAMEBUFFER binding, so it has to run after the caller's framebuffer state is settled
     // and before the backend consumes the program's UBO content version.
     static Bool PrepareCurrentProgramForDraw(const char* functionName) {
+        // GL 4.6 core 11.1.3.11: a draw through a program pipeline that would fail
+        // glValidateProgramPipeline is INVALID_OPERATION. Only when no glUseProgram program
+        // overrides the pipeline, and BEFORE the composite is resolved: the composite takes from
+        // each stage program only the shaders of the stages it is bound to, so a program bound
+        // to fewer stages than it was linked with no longer shows in it.
+        if (!MG_State::pGLContext->GetCurrentProgram() && MG_State::pGLContext->GetBoundProgramPipelineName() != 0) {
+            if (const auto& pipeline = MG_State::pGLContext->GetBoundProgramPipeline()) {
+                const String reason = pipeline->FindValidationError(/*requireAnyStage=*/false);
+                if (!reason.empty()) {
+                    MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidOperation,
+                        MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", functionName,
+                                                     "The bound program pipeline is not valid: " + reason));
+                    return false;
+                }
+            }
+        }
         const auto& currentProgram = MG_State::pGLContext->GetProgramForDraw();
         if (!ValidateResolvedProgramForDraw(currentProgram, functionName)) return false;
         PublishDrawFramebufferSampleCount(currentProgram);
+        PublishClipDistanceEnables(currentProgram);
         return true;
     }
 
@@ -139,13 +179,19 @@ namespace MobileGL::MG_Impl::GLImpl {
     static Uint64 CountPrimitivesForDraw(GLenum mode, GLsizei count) {
         if (count <= 0) return 0;
         switch (mode) {
-        case GL_POINTS: return static_cast<Uint64>(count);
-        case GL_LINES: return static_cast<Uint64>(count / 2);
-        case GL_LINE_STRIP: return count >= 2 ? static_cast<Uint64>(count - 1) : 0;
-        case GL_LINE_LOOP: return count >= 2 ? static_cast<Uint64>(count) : 0;
-        case GL_TRIANGLES: return static_cast<Uint64>(count / 3);
+        case GL_POINTS:
+            return static_cast<Uint64>(count);
+        case GL_LINES:
+            return static_cast<Uint64>(count / 2);
+        case GL_LINE_STRIP:
+            return count >= 2 ? static_cast<Uint64>(count - 1) : 0;
+        case GL_LINE_LOOP:
+            return count >= 2 ? static_cast<Uint64>(count) : 0;
+        case GL_TRIANGLES:
+            return static_cast<Uint64>(count / 3);
         case GL_TRIANGLE_STRIP:
-        case GL_TRIANGLE_FAN: return count >= 3 ? static_cast<Uint64>(count - 2) : 0;
+        case GL_TRIANGLE_FAN:
+            return count >= 3 ? static_cast<Uint64>(count - 2) : 0;
         // Adjacency primitives (GL 4.6 core table 10.1). Only a geometry stage can consume
         // them, and it is the ADJACENT-free primitive count that reaches it: 4 vertices per
         // line, 6 per triangle, one per step for the strips. Answering 0 here - which is what
@@ -153,14 +199,19 @@ namespace MobileGL::MG_Impl::GLImpl {
         // recorded anything, so an adjacency capture advanced neither the captured-vertex
         // counter the scattered-capture path is bounded by nor the geometry-capture-draw flag
         // that routes the transform feedback queries to the driver's own counter.
-        case GL_LINES_ADJACENCY: return static_cast<Uint64>(count / 4);
-        case GL_LINE_STRIP_ADJACENCY: return count >= 4 ? static_cast<Uint64>(count - 3) : 0;
-        case GL_TRIANGLES_ADJACENCY: return static_cast<Uint64>(count / 6);
-        case GL_TRIANGLE_STRIP_ADJACENCY: return count >= 6 ? static_cast<Uint64>((count - 4) / 2) : 0;
+        case GL_LINES_ADJACENCY:
+            return static_cast<Uint64>(count / 4);
+        case GL_LINE_STRIP_ADJACENCY:
+            return count >= 4 ? static_cast<Uint64>(count - 3) : 0;
+        case GL_TRIANGLES_ADJACENCY:
+            return static_cast<Uint64>(count / 6);
+        case GL_TRIANGLE_STRIP_ADJACENCY:
+            return count >= 6 ? static_cast<Uint64>((count - 4) / 2) : 0;
         // GL_PATCHES is deliberately absent: the tessellator's amplification is not knowable
         // on the CPU, and answering 0 is what defers GL_TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN
         // to the driver's own counter, which is the only correct source for a patch capture.
-        default: return 0;
+        default:
+            return 0;
         }
     }
 
@@ -168,7 +219,7 @@ namespace MobileGL::MG_Impl::GLImpl {
     // Draws without a geometry stage write exactly the primitives they assemble,
     // clamped by the capture buffers' remaining capacity (a full buffer stops
     // recording whole primitives, which is what PRIMITIVES_WRITTEN reports).
-    // Geometry amplification is not modelled here.
+    // Geometry amplification is not modeled here.
     static void AccountTransformFeedbackPrimitives(GLenum mode, GLsizei count) {
         if (!MG_State::pGLContext->IsTransformFeedbackActive()) return;
         // A paused span captures nothing, so a draw made while paused contributes to
@@ -216,8 +267,8 @@ namespace MobileGL::MG_Impl::GLImpl {
             for (SizeT i = 0; i < program->GetTransformFeedbackBufferCount(); ++i) {
                 const Uint32 stride = program->GetTransformFeedbackStride(static_cast<Uint32>(i));
                 if (stride == 0) continue;
-                const auto& point = MG_State::pGLContext->GetBufferBindingPoint(BufferTarget::TransformFeedback,
-                                                                                static_cast<Uint>(i));
+                const auto& point =
+                    MG_State::pGLContext->GetBufferBindingPoint(BufferTarget::TransformFeedback, static_cast<Uint>(i));
                 const Range1D range = point.GetRange();
                 const Uint64 bytes = range.end > range.start ? static_cast<Uint64>(range.end - range.start) : 0;
                 capacityVertices = std::min<Uint64>(capacityVertices, bytes / stride);
@@ -291,8 +342,9 @@ namespace MobileGL::MG_Impl::GLImpl {
         if (vao && vao->GetExternalIndex() == 0 && !MG_State::IsRelaxedSemanticsActive()) {
             MG_State::pGLContext->RecordError(
                 ErrorCode::InvalidOperation,
-                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", functionName,
-                                             "Default vertex array object cannot be used for drawing in core profile."));
+                MakeUnique<GenericErrorInfo>(
+                    "MG_Impl/GLImpl", functionName,
+                    "Default vertex array object cannot be used for drawing in core profile."));
             return false;
         }
 
@@ -393,8 +445,8 @@ namespace MobileGL::MG_Impl::GLImpl {
         const Bool feedbackModeIsProgramDriven =
             feedbackProgram && (feedbackProgram->HasLinkedShaderStage(ShaderStage::Geometry) ||
                                 feedbackProgram->HasLinkedShaderStage(ShaderStage::TessEval));
-        if (MG_State::pGLContext->IsTransformFeedbackActive() &&
-            !MG_State::pGLContext->IsTransformFeedbackPaused() && !feedbackModeIsProgramDriven) {
+        if (MG_State::pGLContext->IsTransformFeedbackActive() && !MG_State::pGLContext->IsTransformFeedbackPaused() &&
+            !feedbackModeIsProgramDriven) {
             const GLenum feedbackMode = MG_State::pGLContext->GetTransformFeedbackPrimitiveMode();
             Bool compatible = false;
             switch (feedbackMode) {
@@ -443,10 +495,9 @@ namespace MobileGL::MG_Impl::GLImpl {
     static Bool ValidateIndirectDrawSource(const char* functionName, const void* indirect, SizeT commandBytes) {
         const auto offset = reinterpret_cast<uintptr_t>(indirect);
         if (offset % 4 != 0) {
-            MG_State::pGLContext->RecordError(
-                ErrorCode::InvalidValue,
-                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", functionName,
-                                             "indirect offset must be a multiple of 4."));
+            MG_State::pGLContext->RecordError(ErrorCode::InvalidValue,
+                                              MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", functionName,
+                                                                           "indirect offset must be a multiple of 4."));
             return false;
         }
 
@@ -492,9 +543,8 @@ namespace MobileGL::MG_Impl::GLImpl {
     static Bool ValidateNonNegativeDrawArgument(const char* functionName, const char* argumentName, GLsizei value) {
         if (value >= 0) return true;
         MG_State::pGLContext->RecordError(
-            ErrorCode::InvalidValue,
-            MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", functionName,
-                                         String(argumentName) + " must be non-negative."));
+            ErrorCode::InvalidValue, MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", functionName,
+                                                                  String(argumentName) + " must be non-negative."));
         return false;
     }
 
@@ -527,6 +577,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
         if (ConditionalRenderDiscardsCommand()) return;
+        MGP_FILL(Clear);
         MG_Backend::gBackendFunctionsTable.GL.Clear(mask);
     }
 
@@ -535,6 +586,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
         if (ConditionalRenderDiscardsCommand()) return;
+        MGP_FILL(DrawElements);
         MG_Backend::gBackendFunctionsTable.GL.DrawElements(mode, count, type, indices);
     }
 
@@ -544,6 +596,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
         if (ConditionalRenderDiscardsCommand()) return;
+        MGP_FILL(MultiDrawElements);
         MG_Backend::gBackendFunctionsTable.GL.MultiDrawElements(mode, count, type, indices, drawcount);
     }
 
@@ -553,6 +606,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
         if (ConditionalRenderDiscardsCommand()) return;
+        MGP_FILL(MultiDrawElementsBaseVertex);
         MG_Backend::gBackendFunctionsTable.GL.MultiDrawElementsBaseVertex(mode, count, type, indices, drawcount,
                                                                           basevertex);
     }
@@ -562,6 +616,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
         if (ConditionalRenderDiscardsCommand()) return;
+        MGP_FILL(DrawArrays);
         MG_Backend::gBackendFunctionsTable.GL.DrawArrays(mode, first, count);
     }
 
@@ -570,6 +625,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
         if (ConditionalRenderDiscardsCommand()) return;
+        MGP_FILL(MultiDrawArrays);
         MG_Backend::gBackendFunctionsTable.GL.MultiDrawArrays(mode, first, count, drawcount);
     }
 
@@ -579,6 +635,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
         if (ConditionalRenderDiscardsCommand()) return;
+        MGP_FILL(DrawElementsBaseVertex);
         MG_Backend::gBackendFunctionsTable.GL.DrawElementsBaseVertex(mode, count, type, indices, basevertex);
     }
 
@@ -588,6 +645,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
         if (ConditionalRenderDiscardsCommand()) return;
+        MGP_FILL(MultiDrawElementsIndirect);
         MG_Backend::gBackendFunctionsTable.GL.MultiDrawElementsIndirect(mode, type, indirect, drawcount, stride);
     }
 
@@ -596,6 +654,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
         if (ConditionalRenderDiscardsCommand()) return;
+        MGP_FILL(MultiDrawArraysIndirect);
         MG_Backend::gBackendFunctionsTable.GL.MultiDrawArraysIndirect(mode, indirect, drawcount, stride);
     }
 
@@ -605,6 +664,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
         if (ConditionalRenderDiscardsCommand()) return;
+        MGP_FILL(MultiDrawElementsIndirectCount);
         MG_Backend::gBackendFunctionsTable.GL.MultiDrawElementsIndirectCount(mode, type, indirect, drawcount,
                                                                              maxdrawcount, stride);
     }
@@ -615,6 +675,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
         if (ConditionalRenderDiscardsCommand()) return;
+        MGP_FILL(MultiDrawArraysIndirectCount);
         MG_Backend::gBackendFunctionsTable.GL.MultiDrawArraysIndirectCount(mode, indirect, drawcount, maxdrawcount,
                                                                            stride);
     }
@@ -625,6 +686,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
         if (ConditionalRenderDiscardsCommand()) return;
+        MGP_FILL(DrawRangeElementsBaseVertex);
         MG_Backend::gBackendFunctionsTable.GL.DrawRangeElementsBaseVertex(mode, start, end, count, type, indices,
                                                                           basevertex);
     }
@@ -635,6 +697,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
         if (ConditionalRenderDiscardsCommand()) return;
+        MGP_FILL(DrawRangeElements);
         MG_Backend::gBackendFunctionsTable.GL.DrawRangeElements(mode, start, end, count, type, indices);
     }
 
@@ -645,6 +708,8 @@ namespace MobileGL::MG_Impl::GLImpl {
         ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
         if (ConditionalRenderDiscardsCommand()) return;
+        MGP_SET_BASE_INSTANCE(baseinstance);
+        MGP_FILL(DrawElementsInstancedBaseVertexBaseInstance);
         MG_Backend::gBackendFunctionsTable.GL.DrawElementsInstancedBaseVertexBaseInstance(
             mode, count, type, indices, instancecount, basevertex, baseinstance);
     }
@@ -655,6 +720,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
         if (ConditionalRenderDiscardsCommand()) return;
+        MGP_FILL(DrawElementsInstancedBaseVertex);
         MG_Backend::gBackendFunctionsTable.GL.DrawElementsInstancedBaseVertex(mode, count, type, indices, instancecount,
                                                                               basevertex);
     }
@@ -665,6 +731,8 @@ namespace MobileGL::MG_Impl::GLImpl {
         ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
         if (ConditionalRenderDiscardsCommand()) return;
+        MGP_SET_BASE_INSTANCE(baseinstance);
+        MGP_FILL(DrawElementsInstancedBaseInstance);
         MG_Backend::gBackendFunctionsTable.GL.DrawElementsInstancedBaseInstance(mode, count, type, indices,
                                                                                 instancecount, baseinstance);
     }
@@ -675,6 +743,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
         if (ConditionalRenderDiscardsCommand()) return;
+        MGP_FILL(DrawElementsInstanced);
         MG_Backend::gBackendFunctionsTable.GL.DrawElementsInstanced(mode, count, type, indices, instancecount);
     }
 
@@ -683,6 +752,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
         if (ConditionalRenderDiscardsCommand()) return;
+        MGP_FILL(DrawElementsIndirect);
         MG_Backend::gBackendFunctionsTable.GL.DrawElementsIndirect(mode, type, indirect);
     }
     void DrawArraysInstancedBaseInstance_Backend(GLenum mode, GLint first, GLsizei count, GLsizei instancecount,
@@ -691,6 +761,8 @@ namespace MobileGL::MG_Impl::GLImpl {
         ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
         if (ConditionalRenderDiscardsCommand()) return;
+        MGP_SET_BASE_INSTANCE(baseinstance);
+        MGP_FILL(DrawArraysInstancedBaseInstance);
         MG_Backend::gBackendFunctionsTable.GL.DrawArraysInstancedBaseInstance(mode, first, count, instancecount,
                                                                               baseinstance);
     }
@@ -700,6 +772,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
         if (ConditionalRenderDiscardsCommand()) return;
+        MGP_FILL(DrawArraysInstanced);
         MG_Backend::gBackendFunctionsTable.GL.DrawArraysInstanced(mode, first, count, instancecount);
     }
 
@@ -708,6 +781,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
         if (ConditionalRenderDiscardsCommand()) return;
+        MGP_FILL(DrawArraysIndirect);
         MG_Backend::gBackendFunctionsTable.GL.DrawArraysIndirect(mode, indirect);
     }
 
@@ -739,6 +813,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         // GL 4.3 added both dispatches to the conditional-render set (GL 4.6 core 10.9), which is
         // exactly what KHR-GL43.compute_shader.conditional-dispatching checks.
         if (ConditionalRenderDiscardsCommand()) return;
+        MGP_FILL(DispatchCompute);
         dispatchCompute(numGroupsX, numGroupsY, numGroupsZ);
     }
 
@@ -791,6 +866,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         }
         if (!ValidateCurrentProgramForCompute(__func__)) return;
         if (ConditionalRenderDiscardsCommand()) return;
+        MGP_FILL(DispatchComputeIndirect);
         dispatchComputeIndirect(indirect);
     }
 
@@ -805,13 +881,13 @@ namespace MobileGL::MG_Impl::GLImpl {
         GetIntegerv(GL_MAX_PATCH_VERTICES, &maxPatchVertices);
         if (value <= 0 || value > maxPatchVertices) {
             MG_State::pGLContext->RecordError(
-                ErrorCode::InvalidValue,
-                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
-                                             "value must be in [1, GL_MAX_PATCH_VERTICES]."));
+                ErrorCode::InvalidValue, MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                                      "value must be in [1, GL_MAX_PATCH_VERTICES]."));
             return;
         }
         MG_State::pGLContext->SetPatchVertices(static_cast<Uint>(value));
         if (const auto patchParameteri = MG_Backend::gBackendFunctionsTable.GL.PatchParameteri) {
+            MGP_FILL(PatchParameteri);
             patchParameteri(pname, value);
         }
     }
@@ -840,8 +916,7 @@ namespace MobileGL::MG_Impl::GLImpl {
             return;
         }
         if (pname == GL_PATCH_DEFAULT_OUTER_LEVEL) {
-            MG_State::pGLContext->SetPatchDefaultOuterLevel(
-                FloatVec4(values[0], values[1], values[2], values[3]));
+            MG_State::pGLContext->SetPatchDefaultOuterLevel(FloatVec4(values[0], values[1], values[2], values[3]));
         } else {
             MG_State::pGLContext->SetPatchDefaultInnerLevel(FloatVec2(values[0], values[1]));
         }
@@ -882,7 +957,17 @@ namespace MobileGL::MG_Impl::GLImpl {
                 MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "Backend does not support memory barriers."));
             return;
         }
+        MGP_FILL(MemoryBarrier);
         memoryBarrier(barriers);
+        // CLIENT_MAPPED_BUFFER_BARRIER_BIT asks for the shader writes issued so far to reach
+        // the client's persistent maps (GL 4.6 core 7.13). A persistent READ map hands out the
+        // frontend shadow, which only an explicit pull refreshes, and an application may read
+        // it after any command that waited for the GPU (a glGetTexImage, say) rather than after
+        // a fence - so pull here, while the writes are known to be ordered ahead of the read.
+        // Only buffers with a GPU write outstanding pay for it.
+        if ((barriers & GL_CLIENT_MAPPED_BUFFER_BARRIER_BIT) != 0) {
+            MG_State::GLState::SyncPersistentReadMapsFromGpu();
+        }
     }
 
     void TextureBarrier() {
@@ -903,6 +988,7 @@ namespace MobileGL::MG_Impl::GLImpl {
                 MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "Backend does not support memory barriers."));
             return;
         }
+        MGP_FILL(MemoryBarrier);
         memoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT | GL_FRAMEBUFFER_BARRIER_BIT);
     }
 
@@ -916,6 +1002,7 @@ namespace MobileGL::MG_Impl::GLImpl {
                                              "Backend does not support regional memory barriers."));
             return;
         }
+        MGP_FILL(MemoryBarrierByRegion);
         memoryBarrierByRegion(barriers);
     }
 
@@ -942,8 +1029,8 @@ namespace MobileGL::MG_Impl::GLImpl {
     //     lies past its end                                                 INVALID_OPERATION
     //   * maxdrawcount commands from `indirect` run past the end of the
     //     buffer bound to DRAW_INDIRECT_BUFFER                              INVALID_OPERATION
-    static Bool ValidateIndirectCountDraw(GLintptr indirect, GLintptr drawcount, GLsizei maxdrawcount,
-                                          GLsizei stride, SizeT commandSize, const char* funcName) {
+    static Bool ValidateIndirectCountDraw(GLintptr indirect, GLintptr drawcount, GLsizei maxdrawcount, GLsizei stride,
+                                          SizeT commandSize, const char* funcName) {
         if (drawcount < 0 || (drawcount % 4) != 0) {
             MG_State::pGLContext->RecordError(
                 ErrorCode::InvalidValue,
@@ -953,8 +1040,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         }
         const auto& parameterBuffer =
             MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::Parameter).GetBoundObject();
-        if (!parameterBuffer ||
-            static_cast<SizeT>(drawcount) + sizeof(Uint32) > parameterBuffer->GetSize()) {
+        if (!parameterBuffer || static_cast<SizeT>(drawcount) + sizeof(Uint32) > parameterBuffer->GetSize()) {
             MG_State::pGLContext->RecordError(
                 ErrorCode::InvalidOperation,
                 MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", funcName,
@@ -974,9 +1060,9 @@ namespace MobileGL::MG_Impl::GLImpl {
             MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::DrawIndirect).GetBoundObject();
         // A zero maxdrawcount sources nothing, so it cannot run past anything.
         const SizeT requiredBytes =
-            maxdrawcount == 0 ? 0
-                              : static_cast<SizeT>(indirect) +
-                                    static_cast<SizeT>(maxdrawcount - 1) * effectiveStride + commandSize;
+            maxdrawcount == 0
+                ? 0
+                : static_cast<SizeT>(indirect) + static_cast<SizeT>(maxdrawcount - 1) * effectiveStride + commandSize;
         if (!indirectBuffer || requiredBytes > indirectBuffer->GetSize()) {
             MG_State::pGLContext->RecordError(
                 ErrorCode::InvalidOperation,
@@ -1018,8 +1104,8 @@ namespace MobileGL::MG_Impl::GLImpl {
         MultiDrawElementsIndirectCount_Backend(mode, type, indirect, drawcount, maxdrawcount, stride);
     }
 
-    void MultiDrawArraysIndirectCount(GLenum mode, const void* indirect, GLintptr drawcount,
-                                      GLsizei maxdrawcount, GLsizei stride) {
+    void MultiDrawArraysIndirectCount(GLenum mode, const void* indirect, GLintptr drawcount, GLsizei maxdrawcount,
+                                      GLsizei stride) {
         // Argument validation before the backend-availability check: see DispatchComputeIndirect.
         // DrawArraysIndirectCommand: count, instanceCount, first, baseInstance.
         if (!ValidateIndirectCountDraw(reinterpret_cast<GLintptr>(indirect), drawcount, maxdrawcount, stride,
@@ -1214,9 +1300,8 @@ namespace MobileGL::MG_Impl::GLImpl {
         if (!program || !program->GetLinkStatus() || program->GetTransformFeedbackVaryingCount() == 0) {
             MG_State::pGLContext->RecordError(
                 ErrorCode::InvalidOperation,
-                MakeUnique<GenericErrorInfo>(
-                    "MG_Impl/GLImpl", __func__,
-                    "No program with transform feedback varyings is active."));
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "No program with transform feedback varyings is active."));
             return;
         }
         // Every capture buffer slot the program's mode uses must have a buffer bound. A slot
@@ -1225,19 +1310,20 @@ namespace MobileGL::MG_Impl::GLImpl {
         const SizeT usedBufferCount = program->GetTransformFeedbackBufferCount();
         for (SizeT i = 0; i < usedBufferCount; ++i) {
             if (program->GetTransformFeedbackStride(static_cast<Uint32>(i)) == 0) continue;
-            const auto& point = MG_State::pGLContext->GetBufferBindingPoint(BufferTarget::TransformFeedback,
-                                                                            static_cast<Uint>(i));
+            const auto& point =
+                MG_State::pGLContext->GetBufferBindingPoint(BufferTarget::TransformFeedback, static_cast<Uint>(i));
             if (point.GetBoundObject() == nullptr) {
                 MG_State::pGLContext->RecordError(
                     ErrorCode::InvalidOperation,
-                    MakeUnique<GenericErrorInfo>(
-                        "MG_Impl/GLImpl", __func__,
-                        "Transform feedback buffer binding point " + std::to_string(i) + " has no buffer bound."));
+                    MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                 "Transform feedback buffer binding point " + std::to_string(i) +
+                                                     " has no buffer bound."));
                 return;
             }
         }
         MG_State::pGLContext->BeginTransformFeedback(primitiveMode, program);
         if (const auto beginXfb = MG_Backend::gBackendFunctionsTable.GL.BeginTransformFeedback) {
+            MGP_FILL(BeginTransformFeedback);
             beginXfb(primitiveMode);
         }
     }
@@ -1252,7 +1338,15 @@ namespace MobileGL::MG_Impl::GLImpl {
         // Only Vulkan-order captures need this. A backend that runs the capture on its
         // own GL/ES driver (it owns the span, hence the EndTransformFeedback entry) has
         // already produced GL's vertex order, and reordering it again would corrupt it.
-        if (MG_Backend::gBackendFunctionsTable.GL.EndTransformFeedback != nullptr) {
+        //
+        // P5b t2 (CONTRACT-P5B.md §6.5): UNDER SPLIT THE TABLE THIS USED TO ASK IS THE CLIENT'S
+        // EMIT TABLE, whose EndTransformFeedback slot t2 just made non-null for every server -
+        // so the raw null check would answer "the backend owns the capture" even against Magma,
+        // which registers no XFB slot at all, and would skip a reorder Magma needs. The question
+        // is about the SERVER's table, so it is answered from the bit the server publishes.
+        // Under monolith (and in a pull build) this expands to the null check it replaced,
+        // character for character.
+        if (MGL_BACKEND_SLOT_CAP(EndTransformFeedback, MG_Pipe::kCapBackendOwnsXfbCapture)) {
             return;
         }
         if (program == nullptr || !program->HasGsTriangleStripCaptureFixup() || inputPrimitives == 0) {
@@ -1278,11 +1372,22 @@ namespace MobileGL::MG_Impl::GLImpl {
         for (SizeT bufferIndex = 0; bufferIndex < program->GetTransformFeedbackBufferCount(); ++bufferIndex) {
             const Uint32 stride = program->GetTransformFeedbackStride(static_cast<Uint32>(bufferIndex));
             if (stride == 0) continue;
-            const auto& bindingPoint =
-                MG_State::pGLContext->GetBufferBindingPoint(BufferTarget::TransformFeedback,
-                                                            static_cast<Uint>(bufferIndex));
+            const auto& bindingPoint = MG_State::pGLContext->GetBufferBindingPoint(BufferTarget::TransformFeedback,
+                                                                                   static_cast<Uint>(bufferIndex));
             const auto& buffer = bindingPoint.GetBoundObject();
             if (buffer == nullptr) continue;
+            // This fixup READS the captured bytes back through the shadow, so it is the one
+            // consumer that cannot simply inherit the deferral EndTransformFeedback's dropped
+            // fence introduces. Under split it pays the reconciliation itself, which is the
+            // same cost the fence used to charge every caller - here charged only to the
+            // capture shapes that actually need reordering.
+            //
+            // TRANSPORT-GATED LIKE EVERY OTHER NEW SITE (D-J). Without the test this fires in
+            // a build-split lane running MOBILEGL_TRANSPORT=monolith on Magma - whose
+            // BeginXfbCaptureForDraw does mark the capture targets - where the fence at the
+            // caller still runs, so the readback it emits is pure new work on the monolith
+            // path and integration-gpu cannot see it.
+            buffer->SyncGpuWrites();
             const Range1D range = bindingPoint.GetRange();
             const Uint8* mapped = buffer->MappedData();
             if (mapped == nullptr) continue;
@@ -1320,17 +1425,34 @@ namespace MobileGL::MG_Impl::GLImpl {
         // Closed while the capture state is still active: a backend that captures
         // through its own driver reads the capture program and buffer bindings here.
         if (const auto endXfb = MG_Backend::gBackendFunctionsTable.GL.EndTransformFeedback) {
+            MGP_FILL(EndTransformFeedback);
             endXfb();
         }
+        // P5 (b1), the second producer the client-side GPU-write set ADDS, and it has to be
+        // taken HERE - before GLContext::EndTransformFeedback clears the live bindings, since
+        // a mark taken after it marks nothing.
+        MG_Record::MarkEndTransformFeedbackCaptureTargets();
         MG_State::pGLContext->EndTransformFeedback();
         // Captured results must be visible to MapBuffer/GetBufferSubData after
         // End; the capture targets are host-coherent GPU memory, so completing
         // the GPU work is all that is required.
+        //
+        // P5 (b1): UNDER SPLIT THE UNBOUNDED WAIT GOES AND THE MARK ABOVE REPLACES IT. The
+        // wait exists for one reason - so that a later MapBuffer sees real captured results -
+        // and that is precisely what m_gpuWritePending says; SyncGpuWrites then pays for it
+        // once, on the first read that actually wants the bytes, instead of on every
+        // glEndTransformFeedback. A ~0ull ClientWaitSync on the GL thread is also the one
+        // shape a verb barrier cannot make cheap, because it is the driver's wait and not the
+        // barrier's.
         auto& backendGL = MG_Backend::gBackendFunctionsTable.GL;
-        if (backendGL.FenceSync && backendGL.ClientWaitSync) {
+        const Bool waitForTheCapture = MG_Config::Transport == MG_Config::TransportMode::Monolith;
+        if (waitForTheCapture && backendGL.FenceSync && backendGL.ClientWaitSync) {
+            MGP_FILL(FenceSync);
             if (auto sync = backendGL.FenceSync()) {
+                MGP_FILL(ClientWaitSync);
                 backendGL.ClientWaitSync(sync, GL_SYNC_FLUSH_COMMANDS_BIT, ~0ull);
                 if (backendGL.DeleteSync) {
+                    MGP_FILL(DeleteSync);
                     backendGL.DeleteSync(sync);
                 }
             }
@@ -1339,8 +1461,7 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     void PauseTransformFeedback(void) {
-        if (!MG_State::pGLContext->IsTransformFeedbackActive() ||
-            MG_State::pGLContext->IsTransformFeedbackPaused()) {
+        if (!MG_State::pGLContext->IsTransformFeedbackActive() || MG_State::pGLContext->IsTransformFeedbackPaused()) {
             MG_State::pGLContext->RecordError(
                 ErrorCode::InvalidOperation,
                 MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
@@ -1349,13 +1470,13 @@ namespace MobileGL::MG_Impl::GLImpl {
         }
         MG_State::pGLContext->SetTransformFeedbackPaused(true);
         if (const auto pauseXfb = MG_Backend::gBackendFunctionsTable.GL.PauseTransformFeedback) {
+            MGP_FILL(PauseTransformFeedback);
             pauseXfb();
         }
     }
 
     void ResumeTransformFeedback(void) {
-        if (!MG_State::pGLContext->IsTransformFeedbackActive() ||
-            !MG_State::pGLContext->IsTransformFeedbackPaused()) {
+        if (!MG_State::pGLContext->IsTransformFeedbackActive() || !MG_State::pGLContext->IsTransformFeedbackPaused()) {
             MG_State::pGLContext->RecordError(
                 ErrorCode::InvalidOperation,
                 MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "Transform feedback is not paused."));
@@ -1363,6 +1484,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         }
         MG_State::pGLContext->SetTransformFeedbackPaused(false);
         if (const auto resumeXfb = MG_Backend::gBackendFunctionsTable.GL.ResumeTransformFeedback) {
+            MGP_FILL(ResumeTransformFeedback);
             resumeXfb();
         }
     }
@@ -1436,7 +1558,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         }
 
         SharedPtr<MG_State::GLState::BufferObject> ResolveTransformFeedbackBuffer(GLuint buffer,
-                                                                                 const char* functionName) {
+                                                                                  const char* functionName) {
             if (buffer == 0) return nullptr;
             if (!MG_State::pGLContext->ValidateBufferName(buffer)) {
                 MG_State::pGLContext->RecordError(
@@ -1460,9 +1582,8 @@ namespace MobileGL::MG_Impl::GLImpl {
                                              std::to_string(buffer) + " is not a buffer object."));
             return;
         }
-        MG_State::pGLContext->SetNamedTransformFeedbackBinding(xfb, index,
-                                                               ResolveTransformFeedbackBuffer(buffer, __func__), {},
-                                                               false);
+        MG_State::pGLContext->SetNamedTransformFeedbackBinding(
+            xfb, index, ResolveTransformFeedbackBuffer(buffer, __func__), {}, false);
     }
 
     void TransformFeedbackBufferRange(GLuint xfb, GLuint index, GLuint buffer, GLintptr offset, GLsizeiptr size) {
@@ -1568,6 +1689,7 @@ namespace MobileGL::MG_Impl::GLImpl {
                 continue;
             }
             if (const auto deleteXfb = MG_Backend::gBackendFunctionsTable.GL.DeleteTransformFeedback) {
+                MGP_FILL(DeleteTransformFeedback);
                 deleteXfb(id);
             }
             MG_State::pGLContext->MarkTransformFeedbackObjectForDeletion(id);
@@ -1582,8 +1704,7 @@ namespace MobileGL::MG_Impl::GLImpl {
             return;
         }
         // A running capture pins its object; only a paused one may be swapped out.
-        if (MG_State::pGLContext->IsTransformFeedbackActive() &&
-            !MG_State::pGLContext->IsTransformFeedbackPaused()) {
+        if (MG_State::pGLContext->IsTransformFeedbackActive() && !MG_State::pGLContext->IsTransformFeedbackPaused()) {
             MG_State::pGLContext->RecordError(
                 ErrorCode::InvalidOperation,
                 MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
@@ -1599,6 +1720,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         }
         MG_State::pGLContext->BindTransformFeedbackObject(id);
         if (const auto bindXfb = MG_Backend::gBackendFunctionsTable.GL.BindTransformFeedback) {
+            MGP_FILL(BindTransformFeedback);
             bindXfb(id);
         }
     }
