@@ -138,84 +138,6 @@ endif()
 
 option(MOBILEGL_ENABLE_LTO "Build with ThinLTO/IPO and the release optimization flags" OFF)
 
-if ((NOT CMAKE_BUILD_TYPE STREQUAL "Debug" OR MOBILEGL_FORCE_RELEASE_OPT) AND MOBILEGL_ENABLE_LTO)
-    # Check if ThinLTO or LTO is suppported
-    include(CheckIPOSupported)
-    include(CheckCCompilerFlag)
-    include(CheckCXXCompilerFlag)
-    include(CheckLinkerFlag)
-
-    check_ipo_supported(RESULT LTOSupported OUTPUT LTOError)
-
-    check_c_compiler_flag("-flto" HAS_LTO_C)
-    check_cxx_compiler_flag("-flto" HAS_LTO_CXX)
-
-    if (LTOSupported OR (HAS_LTO_C AND HAS_LTO_CXX))
-        # Check ThinLTO
-        check_c_compiler_flag("-flto=thin" HAS_THINLTO_C)
-        check_cxx_compiler_flag("-flto=thin" HAS_THINLTO_CXX)
-        if (HAS_THINLTO_C AND HAS_THINLTO_CXX)
-            message(STATUS "ThinLTO supported, using -flto=thin")
-
-            add_compile_options(-flto=thin)
-            add_link_options(-flto=thin)
-        else()
-            # ThinLTO is not supported
-            message(STATUS "ThinLTO not available, fallback to CMAKE IPO")
-            set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
-        endif()
-    else()
-        message(STATUS "IPO not supported: ${LTOError}")
-    endif()
-
-    # Every flag below is probed first, so a compiler or linker without it simply goes without.
-    # add_compile_options/add_link_options set directory properties, so they act from a function.
-    function(mobilegl_add_compile_flag_if_supported flag)
-        string(MAKE_C_IDENTIFIER "MGL_HAS_C${flag}" c_var)
-        string(MAKE_C_IDENTIFIER "MGL_HAS_CXX${flag}" cxx_var)
-        check_c_compiler_flag("${flag}" ${c_var})
-        check_cxx_compiler_flag("${flag}" ${cxx_var})
-        if (${c_var} AND ${cxx_var})
-            add_compile_options("${flag}")
-        endif()
-    endfunction()
-    function(mobilegl_add_link_flag_if_supported flag)
-        string(MAKE_C_IDENTIFIER "MGL_HAS_LINK${flag}" link_var)
-        check_linker_flag(CXX "${flag}" ${link_var})
-        if (${link_var})
-            add_link_options("${flag}")
-        endif()
-    endfunction()
-
-    if (MSVC)
-        # One COMDAT per function (/Gy) and per datum (/Gw), so /OPT:REF can drop the unreferenced
-        # ones and /OPT:ICF fold the identical ones - the sections/gc/icf trio below, MSVC-spelled.
-        add_compile_options(/Gy /Gw)
-        add_link_options(/OPT:REF /OPT:ICF)
-    elseif (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-        add_compile_options(-O3)
-        mobilegl_add_compile_flag_if_supported(-ffunction-sections)
-        mobilegl_add_compile_flag_if_supported(-fdata-sections)
-        # Hidden visibility and -Bsymbolic-functions already keep the library's calls inside it;
-        # this lets the optimizer rely on that and inline across what it would otherwise have to
-        # treat as interposable definitions.
-        mobilegl_add_compile_flag_if_supported(-fno-semantic-interposition)
-        if (APPLE)
-            mobilegl_add_link_flag_if_supported(LINKER:-dead_strip)
-        elseif (NOT WIN32)
-            mobilegl_add_link_flag_if_supported(LINKER:--gc-sections)
-            # Calls into libc and the GPU driver load their target from the GOT instead of going
-            # through a PLT stub. Bionic binds everything at load time anyway.
-            mobilegl_add_compile_flag_if_supported(-fno-plt)
-            # Identical code folding (lld, gold). Safe mode never folds a function whose address
-            # is taken, so function-pointer identity holds.
-            mobilegl_add_link_flag_if_supported(LINKER:--icf=safe)
-        endif()
-    else ()
-        add_compile_options(-O2)
-    endif()
-endif()
-
 if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
     add_compile_options(/Zc:preprocessor)
     add_compile_options(/Zc:__cplusplus)
@@ -230,6 +152,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+set(CMAKE_ANDROID_LD "lld")
+set(CMAKE_BUILD_TYPE Release)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+option(MOBILEGL_FORCE_RELEASE_OPT "Enable Release optimization flags in Debug build" ON)
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DUseABSL -O3 -pipe -integrated-as -mllvm -polly -mllvm -polly-vectorizer=stripmine -mllvm -polly-invariant-load-hoisting -mllvm -polly-run-inliner -mllvm -polly-run-dce -mllvm -polly-invariant-load-hoisting -flto -mllvm -polly-run-inliner -mllvm -polly-run-dce -fdata-sections -ffunction-sections -mllvm -polly-detect-keep-going -mllvm -polly-ast-use-context -fvisibility=hidden -Wall -Wextra -ferror-limit=0 -Wno-return-type -Wno-unused-parameter -Wno-c++98-compat -Wno-c++98-compat-pedantic -DGLM_FORCE_INTRINSICS -Wno-unicode-whitespace -Wno-format -Wno-unused-function -fmerge-all-constants -D_FILE_OFFSET_BITS=64 -mllvm -inlinehint-threshold=100000 -D_GNU_SOURCE -D__USE_GNU")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -pipe -integrated-as -mllvm -polly -mllvm -polly-vectorizer=stripmine -mllvm -polly-invariant-load-hoisting -mllvm -polly-run-inliner -mllvm -polly-run-dce -mllvm -polly-invariant-load-hoisting -flto -mllvm -polly-run-inliner -mllvm -polly-run-dce -fdata-sections -ffunction-sections -mllvm -polly-detect-keep-going -mllvm -polly-ast-use-context -fvisibility=hidden -Wall -Wextra -ferror-limit=0 -Wno-return-type -Wno-unused-parameter -Wno-c++98-compat -Wno-c++98-compat-pedantic -DGLM_FORCE_INTRINSICS -Wno-unicode-whitespace -Wno-format -Wno-unused-function -Wno-vla-cxx-extension -frtti -fmerge-all-constants -D_FILE_OFFSET_BITS=64 -mllvm -inlinehint-threshold=100000 -DUseABSL -D_GNU_SOURCE -D__USE_GNU")
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=lld -flto -O3 -Wl,--strip-all -fvisibility=hidden -Wl,-O3 -Wl,--gc-sections -Wl,--as-needed -static-libstdc++ -Wl,--exclude-libs,ALL -Wl,--lto-O3")
 
 if (MSVC)
     set(CMAKE_CXX_FLAGS "/EHsc ${CMAKE_CXX_FLAGS}")
@@ -1112,6 +1042,10 @@ if (ANDROID)
         vulkan
     )
 endif()
+
+target_link_options(${CMAKE_PROJECT_NAME} PRIVATE 
+    "LINKER:--version-script=${CMAKE_SOURCE_DIR}/MobileGL/mgl-version.script"
+)
 
 if (APPLE AND NOT MOBILEGL_IOS)
     # MobileGL statically embeds glslang, SPIRV-Tools, and SPIRV-Cross. When
