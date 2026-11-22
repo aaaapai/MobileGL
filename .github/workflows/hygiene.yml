@@ -5,8 +5,6 @@ name: Text hygiene
 # workflow without a concurrency group, so a later push never cancels it and every push's commits
 # are checked.
 on:
-  push:
-    branches: ['**']
   workflow_dispatch:
 
 permissions:
